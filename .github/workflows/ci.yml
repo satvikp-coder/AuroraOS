@@ -52,7 +52,13 @@ jobs:
       - name: Install ARM64 cross-toolchain and QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y aarch64-linux-gnu-gcc qemu-system-aarch64 make
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu qemu-system-arm make
+      - name: Verify toolchain executables
+        run: |
+          aarch64-linux-gnu-gcc --version | head -1
+          aarch64-linux-gnu-as --version | head -1
+          aarch64-linux-gnu-ld --version | head -1
+          qemu-system-aarch64 --version | head -1
       - name: Build kernel
         run: |
           chmod +x build.sh
@@ -70,7 +76,7 @@ jobs:
       - name: Install QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-aarch64
+          sudo apt-get install -y qemu-system-arm
       - name: Build kernel
         run: |
           chmod +x build.sh
@@ -86,12 +92,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check for secrets
-        run: |
-          if grep -riE '(ghp_|github_pat_|AKIA|secret|password|token)' --include='*.md' --include='*.js' --include='*.sh' --include='*.json' . ; then
-            echo "potential secrets found"; exit 1
-          fi
-          echo "no secrets found"
+      - name: Run Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          config: .gitleaks.toml
       - name: Verify working tree is clean (no untracked build output)
         run: |
           git status --porcelain

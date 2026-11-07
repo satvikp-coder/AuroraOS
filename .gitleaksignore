@@ -1,0 +1,5 @@
+# .gitleaksignore — Findings to ignore during secret scanning
+#
+# Positive test fixture: clearly fake credentials used to verify the scanner
+# can detect them. Allowlisted so CI does not fail on them.
+tests/secrets/fixtures/positive-test.txt
