@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "od-design-system-project/v1",
+  "id": "aurora-glass",
+  "name": "Aurora Glass",
+  "category": "Operating System UI",
+  "description": "AuroraOS visual design system: Windows-inspired workspace/taskbar productivity combined with iOS-inspired soft glass surfaces. Canonical contract lives in DESIGN.md.",
+  "source": {
+    "type": "local",
+    "origin": "AuroraOS project (C:\\Users\\satvi\\Desktop\\AuroraOS\\DESIGN.md)"
+  },
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css"
+  },
+  "usage": "USAGE.md",
+  "craft": {
+    "applies": [],
+    "suggested": ["color", "accessibility-baseline"],
+    "exemptions": []
+  },
+  "preview": {
+    "dir": "preview",
+    "pages": []
+  },
+  "sourceFiles": {}
+}

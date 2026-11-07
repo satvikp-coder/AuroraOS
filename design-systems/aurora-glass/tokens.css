@@ -1,0 +1,185 @@
+/* design-systems/aurora-glass/tokens.css
+ * Aurora Glass design tokens — canonical contract from AuroraOS DESIGN.md (v1.2, 2026-11-07).
+ * Windows-inspired workspace/taskbar productivity + iOS-inspired soft glass surfaces.
+ * Light/dark mode. Clear (Tier 0, opaque) and Soft Glass (Tier 1, translucent) variants.
+ */
+
+/* ============================================================================
+   Color tokens (light mode defaults)
+   ============================================================================ */
+:root,
+:root[data-theme="light"] {
+  --od-color-canvas: #EEF3F8;
+  --od-color-surface-opaque: #FFFFFF;
+  --od-color-surface-glass: rgba(255, 255, 255, 0.74);
+  --od-color-dock-glass: rgba(240, 246, 255, 0.80);
+  --od-color-ink: #142136;
+  --od-color-ink-muted: #52627A;
+  --od-color-accent: #3478F6;
+  --od-color-aura: #00AEB8;
+  --od-color-focus: #175CD3;
+  --od-color-success: #22C55E;
+  --od-color-warn: #F59E0B;
+  --od-color-danger: #EF4444;
+}
+
+/* ============================================================================
+   Dark mode
+   ============================================================================ */
+:root[data-theme="dark"] {
+  --od-color-canvas: #0B1020;
+  --od-color-surface-opaque: #192338;
+  --od-color-surface-glass: rgba(24, 32, 49, 0.76);
+  --od-color-dock-glass: rgba(18, 27, 43, 0.82);
+  --od-color-ink: #F3F7FF;
+  --od-color-ink-muted: #B4C2D8;
+  --od-color-accent: #6AA3FF;
+  --od-color-aura: #46D6DF;
+  --od-color-focus: #A8D7FF;
+  --od-color-success: #34D399;
+  --od-color-warn: #FBBF24;
+  --od-color-danger: #F87171;
+}
+
+/* ============================================================================
+   Clear (Tier 0) overrides — fully opaque, no blur, no alpha blending
+   ============================================================================ */
+:root[data-glass-tier="clear"] {
+  --od-color-surface-glass: var(--od-color-surface-opaque);
+  --od-color-dock-glass: var(--od-color-surface-opaque);
+  --od-backdrop-blur: none;
+}
+
+/* ============================================================================
+   Soft Glass (Tier 1) overrides — translucent over static pre-blurred wallpaper
+   ============================================================================ */
+:root[data-glass-tier="soft"] {
+  --od-color-surface-glass: rgba(
+    var(--od-color-surface-glass-r, 255),
+    var(--od-color-surface-glass-g, 255),
+    var(--od-color-surface-glass-b, 255),
+    0.74
+  );
+  --od-color-dock-glass: rgba(
+    var(--od-color-dock-glass-r, 240),
+    var(--od-color-dock-glass-g, 246),
+    var(--od-color-dock-glass-b, 255),
+    0.80
+  );
+  --od-backdrop-blur: blur(12px) saturate(1.1);
+}
+
+/* ============================================================================
+   Soft glass specific RGB split (so alpha can be applied)
+   ============================================================================ */
+:root[data-theme="light"][data-glass-tier="soft"] {
+  --od-color-surface-glass-r: 255;
+  --od-color-surface-glass-g: 255;
+  --od-color-surface-glass-b: 255;
+  --od-color-dock-glass-r: 240;
+  --od-color-dock-glass-g: 246;
+  --od-color-dock-glass-b: 255;
+}
+
+:root[data-theme="dark"][data-glass-tier="soft"] {
+  --od-color-surface-glass-r: 24;
+  --od-color-surface-glass-g: 32;
+  --od-color-surface-glass-b: 49;
+  --od-color-dock-glass-r: 18;
+  --od-color-dock-glass-g: 27;
+  --od-color-dock-glass-b: 43;
+}
+
+/* ============================================================================
+   High contrast mode (forces Clear tier, maximum contrast)
+   ============================================================================ */
+:root[data-contrast="high"] {
+  --od-color-surface-glass: var(--od-color-surface-opaque);
+  --od-color-dock-glass: var(--od-color-surface-opaque);
+  --od-backdrop-blur: none;
+  --od-color-ink: #000000;
+  --od-color-ink-muted: #1a1a1a;
+  --od-color-accent: #0044cc;
+  --od-color-focus: #000000;
+  --od-border-focus: #000000;
+}
+:root[data-theme="dark"][data-contrast="high"] {
+  --od-color-ink: #FFFFFF;
+  --od-color-ink-muted: #CCCCCC;
+  --od-color-accent: #3399FF;
+  --od-color-focus: #FFFFFF;
+  --od-border-focus: #FFFFFF;
+}
+
+/* ============================================================================
+   Typography
+   ============================================================================ */
+:root {
+  --od-font-family:
+    "Inter", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    sans-serif, "Noto Sans CJK SC", "Noto Sans CJK TC";
+  --od-font-display: var(--od-font-family);
+  --od-text-xs: 12px;
+  --od-text-sm: 14px;
+  --od-text-base: 16px;
+  --od-text-lg: 18px;
+  --od-text-xl: 24px;
+  --od-text-2xl: 32px;
+  --od-line-body: 1.55;
+  --od-line-tight: 1.2;
+  --od-tracking-tight: -0.02em;
+}
+
+/* ============================================================================
+   Spacing scale (4, 8, 12, 16, 24, 32 px)
+   ============================================================================ */
+:root {
+  --od-space-1: 4px;
+  --od-space-2: 8px;
+  --od-space-3: 12px;
+  --od-space-4: 16px;
+  --od-space-5: 24px;
+  --od-space-6: 32px;
+}
+
+/* ============================================================================
+   Geometry
+   ============================================================================ */
+:root {
+  --od-radius-control: 14px;   /* controls 12-18px */
+  --od-radius-window: 20px;    /* windows 16-24px */
+  --od-border-width: 1px;
+  --od-focus-ring: 0 0 0 3px var(--od-color-focus);
+  --od-touch-target: 48px;     /* minimum 48x48 logical px */
+}
+
+/* ============================================================================
+   Motion (120-220ms one-shot transitions, respect reduced motion)
+   ============================================================================ */
+:root {
+  --od-motion-fast: 120ms;
+  --od-motion-base: 180ms;
+  --od-motion-slow: 220ms;
+  --od-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --od-motion-fast: 0ms;
+    --od-motion-base: 0ms;
+    --od-motion-slow: 0ms;
+    --od-ease-standard: linear;
+  }
+}
+
+/* ============================================================================
+   Breakpoints (360/390/412px mobile, tablet, desktop)
+   ============================================================================ */
+:root {
+  --od-break-phone: 360px;
+  --od-break-phone-wide: 390px;
+  --od-break-phone-max: 412px;
+  --od-break-tablet: 768px;
+  --od-break-desktop: 1024px;
+}

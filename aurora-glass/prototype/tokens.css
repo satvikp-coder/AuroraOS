@@ -1,0 +1,124 @@
+/* aurora-glass/tokens.css — AuroraOS design tokens (from DESIGN.md v1.2)
+ * Canonical semantic token contract. Clear (Tier 0) and Soft Glass (Tier 1).
+ */
+
+/* Light mode */
+:root,
+:root[data-theme="light"] {
+  --color-canvas: #EEF3F8;
+  --color-surface-opaque: #FFFFFF;
+  --color-surface-glass: rgba(255, 255, 255, 0.74);
+  --color-dock-glass: rgba(240, 246, 255, 0.80);
+  --color-ink: #142136;
+  --color-ink-muted: #52627A;
+  --color-accent: #3478F6;
+  --color-aura: #00AEB8;
+  --color-focus: #175CD3;
+  --color-success: #22C55E;
+  --color-warn: #F59E0B;
+  --color-danger: #EF4444;
+  --color-border: rgba(20, 33, 54, 0.12);
+}
+
+/* Dark mode */
+:root[data-theme="dark"] {
+  --color-canvas: #0B1020;
+  --color-surface-opaque: #192338;
+  --color-surface-glass: rgba(24, 32, 49, 0.76);
+  --color-dock-glass: rgba(18, 27, 43, 0.82);
+  --color-ink: #F3F7FF;
+  --color-ink-muted: #B4C2D8;
+  --color-accent: #6AA3FF;
+  --color-aura: #46D6DF;
+  --color-focus: #A8D7FF;
+  --color-success: #34D399;
+  --color-warn: #FBBF24;
+  --color-danger: #F87171;
+  --color-border: rgba(243, 247, 255, 0.08);
+}
+
+/* Clear (Tier 0) — fully opaque, no blur */
+:root[data-glass-tier="clear"] {
+  --color-surface-glass: var(--color-surface-opaque);
+  --color-dock-glass: var(--color-surface-opaque);
+  --backdrop-blur: none;
+}
+
+/* Soft Glass (Tier 1) — translucent over static pre-blurred wallpaper */
+:root[data-glass-tier="soft"] {
+  --backdrop-blur: blur(12px) saturate(1.05);
+}
+
+/* High contrast */
+:root[data-contrast="high"] {
+  --color-surface-glass: var(--color-surface-opaque);
+  --color-dock-glass: var(--color-surface-opaque);
+  --backdrop-blur: none;
+  --color-border: #000000;
+}
+:root[data-theme="dark"][data-contrast="high"] {
+  --color-border: #FFFFFF;
+}
+
+/* Typography */
+:root {
+  --font-family:
+    "Inter", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    sans-serif, "Noto Sans CJK SC", "Noto Sans CJK TC";
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+  --text-2xl: 30px;
+  --text-3xl: 34px;
+  --line-body: 1.55;
+  --line-tight: 1.2;
+}
+
+/* Spacing scale */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
+
+/* Geometry */
+:root {
+  --radius-control: 14px;
+  --radius-window: 20px;
+  --border-width: 1px;
+  --touch-target: 48px;
+}
+
+/* Motion */
+:root {
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 220ms;
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+    --ease-standard: linear;
+  }
+}
+
+/* Breakpoints */
+:root {
+  --break-phone: 360px;
+  --break-phone-wide: 390px;
+  --break-phone-max: 412px;
+  --break-tablet: 768px;
+  --break-desktop: 1024px;
+}
+
+/* Token CSS classes applied by JS for dynamic state */
+.tier-clear { --glass-surface: var(--color-surface-opaque); --glass-dock: var(--color-surface-opaque); --bd: none; }
+.tier-soft { --glass-surface: var(--color-surface-glass); --glass-dock: var(--color-dock-glass); --bd: var(--backdrop-blur); }

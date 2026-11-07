@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html
+  data-theme="light"
+  data-glass-tier="soft"
+  data-contrast="normal"
+  lang="en"
+>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+<title>Aurora Glass — AuroraOS Design Prototype</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="shell.css">
+<style>
+  /* Inline critical component styles; tokens.css carries the design-system contract */
+</style>
+</head>
+<body>
+  <div id="app" class="shell">
+    <!-- Screen reader live region -->
+    <div class="visually-hidden" aria-live="polite" id="a11y-live"></div>
+
+    <!-- Glass Corner (top-right notification handle) -->
+    <div class="glass-corner" role="button" tabindex="0" aria-label="Notifications, Glass Corner" aria-haspopup="true" aria-expanded="false">
+      <span class="gc-dot"></span>
+      <span class="visually-hidden">Glass Corner — held inbox / notifications</span>
+    </div>
+
+    <!-- Main content area -->
+    <main class="content" id="content">
+      <!-- Home / Desk screen (default) -->
+      <section id="screen-home" class="screen active" aria-label="Home / Desk">
+        <header class="home-header">
+          <h1 class="home-title">Home</h1>
+          <div class="home-actions">
+            <button class="icon-btn" id="btn-index" aria-label="Open Index search">Search</button>
+            <button class="icon-btn" id="btn-quick-center" aria-label="Open Quick Center">Quick Center</button>
+          </div>
+        </header>
+
+        <section class="welcome">
+          <h2 class="welcome-heading">Welcome back.</h2>
+          <p class="welcome-sub">Your spaces are ready. Pick up where you left off.</p>
+        </section>
+
+        <!-- Continue section -->
+        <section class="card section">
+          <div class="section-head">
+            <h3 class="section-title">Continue</h3>
+            <a class="section-more" href="#">View all &rarr;</a>
+          </div>
+          <div class="continue-list" role="list">
+            <article class="continue-item" role="listitem" tabindex="0" aria-label="Resume Study Notes — Notes app, last edited 10 minutes ago">
+              <span class="continue-kind">Note</span>
+              <span class="continue-title">Study Notes</span>
+              <span class="continue-meta">Notes &middot; 10 min ago</span>
+            </article>
+            <article class="continue-item" role="listitem" tabindex="0" aria-label="Resume Project Alpha — Files, Space: Work">
+              <span class="continue-kind">File</span>
+              <span class="continue-title">Project Alpha</span>
+              <span class="continue-meta">Files &middot; Work Space</span>
+            </article>
+          </div>
+        </section>
+
+        <!-- Pinned tools -->
+        <section class="card section">
+          <div class="section-head">
+            <h3 class="section-title">Pinned tools</h3>
+          </div>
+          <div class="pin-grid" role="list">
+            <button class="pin-btn" role="listitem" aria-label="Open Notes">Notes</button>
+            <button class="pin-btn" role="listitem" aria-label="Open Files">Files</button>
+            <button class="pin-btn" role="listitem" aria-label="Open Calculator">Calculator</button>
+            <button class="pin-btn" role="listitem" aria-label="Open Clock">Clock</button>
+            <button class="pin-btn" role="listitem" aria-label="Open Settings">Settings</button>
+            <button class="pin-btn" role="listitem" aria-label="Open Calendar">Calendar</button>
+          </div>
+        </section>
+
+        <!-- Current Space -->
+        <section class="card section space-card" aria-label="Current Space: Study">
+          <div class="section-head">
+            <h3 class="section-title">Current Space</h3>
+            <button class="icon-btn small" id="btn-switch-space" aria-label="Switch Space">Spaces</button>
+          </div>
+          <div class="space-chip selected" data-space="study" role="button" tabindex="0" aria-pressed="true">
+            <span class="chip-dot"></span>
+            <span>Study</span>
+          </div>
+        </section>
+
+        <!-- Aura suggestion -->
+        <section class="card section aura-suggestion" aria-label="Aura suggestion">
+          <div class="suggestion-body">
+            <span class="aura-badge">Aura</span>
+            <p class="suggestion-text">Would you like to <strong>prepare your phone for studying</strong>? Aura can switch to Study Space, enable focus, open Notes, and start a 25-minute timer.</p>
+            <button class="btn accent" id="btn-aura-study">Prepare for studying</button>
+          </div>
+        </section>
+
+        <!-- Aurora Horizon progress rail -->
+        <div class="horizon" id="horizon" role="region" aria-label="Aurora Horizon progress rail" aria-live="polite">
+          <div class="horizon-inner">
+            <span class="horizon-dot" title="Idle"></span>
+            <span class="horizon-label">Ready</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Spaces screen -->
+      <section id="screen-spaces" class="screen" aria-label="Spaces selector" hidden>
+        <header class="home-header">
+          <button class="icon-btn back" id="btn-spaces-back" aria-label="Back to Home">Back</button>
+          <h1 class="home-title">Spaces</h1>
+        </header>
+        <p class="space-intro">Each Space holds its own content, pinned tools, and permissioned settings.</p>
+        <div class="space-grid" role="list">
+          <article class="space-card-item" role="listitem" tabindex="0" data-space="study" aria-label="Study Space — blue accent, active">
+            <div class="space-badge">S</div>
+            <h3>Study</h3>
+            <p>Notes, focus timer, reading list</p>
+            <span class="space-state">Active</span>
+          </article>
+          <article class="space-card-item" role="listitem" tabindex="0" data-space="work" aria-label="Work Space — blue accent">
+            <div class="space-badge">W</div>
+            <h3>Work</h3>
+            <p>Projects, files, meetings</p>
+            <span class="space-state">Inactive</span>
+          </article>
+          <article class="space-card-item" role="listitem" tabindex="0" data-space="projects" aria-label="Projects Space — cyan accent">
+            <div class="space-badge">P</div>
+            <h3>Projects</h3>
+            <p>Active builds, drafts, reviews</p>
+            <span class="space-state">Inactive</span>
+          </article>
+          <article class="space-card-item" role="listitem" tabindex="0" data-space="personal" aria-label="Personal Space — cyan accent">
+            <div class="space-badge">X</div>
+            <h3>Personal</h3>
+            <p>Journal, photos, reminders</p>
+            <span class="space-state">Inactive</span>
+          </article>
+        </div>
+        <p class="space-footnote">Switching a Space changes pinned tools, accent color, and notification preferences. No data leaves the device.</p>
+      </section>
+
+      <!-- Index search screen -->
+      <section id="screen-index" class="screen" aria-label="Index search" hidden>
+        <header class="home-header">
+          <button class="icon-btn back" id="btn-index-back" aria-label="Back to Home">Back</button>
+          <h1 class="home-title">Index</h1>
+        </header>
+        <div class="search-wrap" role="search" aria-label="Search apps, files, settings, actions">
+          <label class="visually-hidden" for="index-query">Search</label>
+          <input type="search" id="index-query" placeholder="Search apps, files, settings, actions…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="index-results">
+          <button class="icon-btn" id="btn-index-clear" aria-label="Clear search">×</button>
+        </div>
+        <div id="index-results" class="index-results" role="listbox" aria-label="Search results"></div>
+        <p class="index-hint">Results are simulated mock data. No real device data is accessed.</p>
+      </section>
+
+      <!-- Aura Plan sheet -->
+      <section id="screen-aura" class="screen plan-sheet" aria-label="Aura Plan" hidden>
+        <header class="home-header plan-header">
+          <button class="icon-btn back" id="btn-aura-back" aria-label="Back to Home">Back</button>
+          <h1 class="home-title">Aura Plan</h1>
+        </header>
+        <div class="plan-body">
+          <div class="plan-request">
+            <p class="request-label">Recognized request</p>
+            <p class="request-text" id="plan-request-text">"Prepare my phone for studying."</p>
+          </div>
+          <div class="plan-steps" role="list" aria-label="Editable action plan steps">
+            <h3 class="visually-hidden">Plan steps</h3>
+            <div class="plan-step" data-step="1" role="listitem">
+              <span class="step-number">1</span>
+              <div class="step-content">
+                <span class="step-kind">Space</span>
+                <input type="text" class="step-text" value="Switch to Study Space" readonly>
+                <span class="step-risk risk-s0">S0 &bull; safe</span>
+              </div>
+            </div>
+            <div class="plan-step" data-step="2" role="listitem">
+              <span class="step-number">2</span>
+              <div class="step-content">
+                <span class="step-kind">Setting</span>
+                <input type="text" class="step-text" value="Enable focus mode" readonly>
+                <span class="step-risk risk-s1">S1 &bull; reversible</span>
+              </div>
+            </div>
+            <div class="plan-step" data-step="3" role="listitem">
+              <span class="step-number">3</span>
+              <div class="step-content">
+                <span class="step-kind">App</span>
+                <input type="text" class="step-text" value="Open Notes" readonly>
+                <span class="step-risk risk-s0">S0 &bull; safe</span>
+              </div>
+            </div>
+            <div class="plan-step" data-step="4" role="listitem">
+              <span class="step-number">4</span>
+              <div class="step-content">
+                <span class="step-kind">Timer</span>
+                <input type="text" class="step-text" value="Start 25-minute timer" readonly>
+                <span class="step-risk risk-s0">S0 &bull; safe</span>
+              </div>
+            </div>
+          </div>
+          <div class="plan-actions">
+            <button class="btn outline" id="btn-plan-edit">Edit steps</button>
+            <button class="btn accent" id="btn-plan-confirm">Confirm &amp; run</button>
+          </div>
+        </div>
+        <div id="plan-confirmation" class="confirm-panel" hidden role="dialog" aria-modal="true" aria-label="Confirm plan execution">
+          <h3>Run this plan?</h3>
+          <p>4 steps will run on this device. Step 2 (focus mode) can be undone; steps 1, 3, 4 run immediately.</p>
+          <div class="confirm-actions">
+            <button class="btn outline" id="btn-plan-cancel">Cancel</button>
+            <button class="btn accent" id="btn-plan-run">Run plan</button>
+          </div>
+        </div>
+        <div id="plan-running" class="running-panel" hidden role="status" aria-live="polite">
+          <div class="running-step">
+            <span class="running-number" id="running-current">1</span> of <span class="running-total">4</span>
+            <span class="running-text" id="running-label">Switching to Study Space…</span>
+          </div>
+          <div class="horizon" id="horizon-running">
+            <div class="horizon-inner">
+              <span class="horizon-dot horizon-active" title="Running"></span>
+              <span class="horizon-label">Running</span>
+            </div>
+          </div>
+          <button class="btn outline" id="btn-plan-stop">Stop</button>
+        </div>
+        <div id="plan-receipt" class="receipt-panel" hidden role="status" aria-live="polite">
+          <h3>Plan complete</h3>
+          <p class="receipt-summary">All 4 steps completed successfully.</p>
+          <ul class="receipt-list">
+            <li><span class="ok">✓</span> Switched to Study Space</li>
+            <li><span class="ok">✓</span> Enabled focus mode</li>
+            <li><span class="ok">✓</span> Opened Notes</li>
+            <li><span class="ok">✓</span> Started 25-minute timer</li>
+          </ul>
+          <button class="btn outline" id="btn-receipt-close">Close</button>
+          <p class="receipt-foot">This is a simulated receipt. No real device state changed.</p>
+        </div>
+        <div id="plan-failure" class="failure-panel" hidden role="status" aria-live="assertive">
+          <h3>Step failed</h3>
+          <p class="failure-text" id="failure-text">A step could not complete.</p>
+          <div class="failure-actions">
+            <button class="btn outline" id="btn-failure-repair">Repair</button>
+            <button class="btn outline" id="btn-failure-skip">Skip</button>
+            <button class="btn accent" id="btn-failure-stop">Stop</button>
+          </div>
+          <p class="receipt-foot">Undo is not available for externally transmitted effects.</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Aurora Dock (bottom) -->
+    <nav class="dock" id="dock" role="navigation" aria-label="Aurora Dock">
+      <ul class="dock-list">
+        <li>
+          <button class="dock-btn" id="dock-back" aria-label="Back" data-target="screen-home">
+            <span class="dock-icon">&#8592;</span>
+            <span class="dock-label">Back</span>
+          </button>
+        </li>
+        <li>
+          <button class="dock-btn active" id="dock-home" aria-label="Home, current" data-target="screen-home">
+            <span class="dock-icon">&#9733;</span>
+            <span class="dock-label">Home</span>
+          </button>
+        </li>
+        <li>
+          <button class="dock-btn" id="dock-spaces" aria-label="Spaces" data-target="screen-spaces">
+            <span class="dock-icon">&#128197;</span>
+            <span class="dock-label">Spaces</span>
+          </button>
+        </li>
+        <li>
+          <button class="dock-btn" id="dock-pages" aria-label="Pages" data-target="screen-home">
+            <span class="dock-icon">&#128449;</span>
+            <span class="dock-label">Pages</span>
+          </button>
+        </li>
+        <li>
+          <button class="dock-btn" id="dock-ask" aria-label="Ask Aura / Search" data-target="screen-index">
+            <span class="dock-icon">&#128270;</span>
+            <span class="dock-label">Ask / Search</span>
+          </button>
+        </li>
+      </ul>
+    </nav>
+
+    <!-- Controls panel (settings overlay) -->
+    <div id="controls-panel" class="controls-panel" hidden role="dialog" aria-modal="true" aria-label="Prototype controls">
+      <button class="icon-btn close" id="btn-controls-close" aria-label="Close controls">×</button>
+      <h3>Prototype controls</h3>
+      <div class="control-group">
+        <label>Theme</label>
+        <select id="ctrl-theme">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Glass tier</label>
+        <select id="ctrl-tier">
+          <option value="soft">Soft Glass (translucent)</option>
+          <option value="clear">Clear (opaque, no blur)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Contrast</label>
+        <select id="ctrl-contrast">
+          <option value="normal">Normal</option>
+          <option value="high">High contrast</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Preview width</label>
+        <select id="ctrl-width">
+          <option value="360">360 px</option>
+          <option value="390">390 px</option>
+          <option value="412">412 px</option>
+          <option value="auto">Auto / desktop</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Reduced motion</label>
+        <select id="ctrl-motion">
+          <option value="normal">Normal motion</option>
+          <option value="reduce">Reduced motion</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Aura flow</label>
+        <select id="ctrl-aura-flow">
+          <option value="success">Success (receipt)</option>
+          <option value="failure">Failure (undo options)</option>
+        </select>
+      </div>
+      <div class="control-actions">
+        <button class="btn accent" id="ctrl-apply">Apply</button>
+        <button class="btn outline" id="ctrl-reset">Reset to defaults</button>
+      </div>
+      <p class="controls-foot">This is a host-browser design prototype only. It does not control any OS or device.</p>
+    </div>
+
+    <!-- Toast / status -->
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
