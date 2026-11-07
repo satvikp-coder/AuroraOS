@@ -62,7 +62,7 @@ git -c user.email="scanner-test@example.com" -c user.name="Scanner Verification 
 echo ""
 echo "=== CASE A: Positive — synthetic credential should be DETECTED ==="
 set +e
-POSITIVE_OUTPUT="$("$GITLEAKS_BIN" detect --source "$POSITIVE_REPO" -v 2>&1)"
+POSITIVE_OUTPUT="$("$GITLEAKS_BIN" detect --enable-rule=aws-access-token --source "$POSITIVE_REPO" -v 2>&1)"
 POSITIVE_EXIT=$?
 set -e
 echo "$POSITIVE_OUTPUT"
