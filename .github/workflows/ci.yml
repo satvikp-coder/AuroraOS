@@ -93,10 +93,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run Gitleaks secret scan
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          config: .gitleaks.toml
-          token: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GITLEAKS_VERSION=8.18.2
+          curl -sL --fail "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} /tmp/gitleaks detect --config .gitleaks.toml --source . -v
       - name: Verify working tree is clean (no untracked build output)
         run: |
           git status --porcelain
