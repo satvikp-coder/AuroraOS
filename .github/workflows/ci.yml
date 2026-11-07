@@ -96,6 +96,7 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         with:
           config: .gitleaks.toml
+          token: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify working tree is clean (no untracked build output)
         run: |
           git status --porcelain
