@@ -47,13 +47,14 @@ POSITIVE_FILE="$POSITIVE_REPO/positive-fixture.txt"
 cat > "$POSITIVE_FILE" <<'EOF'
 # SCANNER VERIFICATION FIXTURE — POSITIVE CASE
 #
-# This file contains a synthetic AWS access key ID used solely to verify
+# This file contains a synthetic private key used solely to verify
 # that Gitleaks can detect real-looking credentials. It is NOT a real
 # credential and must never be used for anything. It exists only inside
 # this temporary test repository and is never committed to AuroraOS.
 
-AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+-----BEGIN RSA PRIVATE KEY-----
+MIIEXAMPLEFAKEPRIVATEKEYNOTREALDO NOTUSETHISFORANYTHING
+-----END RSA PRIVATE KEY-----
 EOF
 
 git add positive-fixture.txt
@@ -62,7 +63,7 @@ git -c user.email="scanner-test@example.com" -c user.name="Scanner Verification 
 echo ""
 echo "=== CASE A: Positive — synthetic credential should be DETECTED ==="
 set +e
-POSITIVE_OUTPUT="$("$GITLEAKS_BIN" detect --enable-rule=aws-access-token --source "$POSITIVE_REPO" -v 2>&1)"
+POSITIVE_OUTPUT="$("$GITLEAKS_BIN" detect --source "$POSITIVE_REPO" -v 2>&1)"
 POSITIVE_EXIT=$?
 set -e
 echo "$POSITIVE_OUTPUT"
@@ -72,8 +73,8 @@ if [ "$POSITIVE_EXIT" -eq 0 ]; then
     exit 1
 fi
 
-if ! echo "$POSITIVE_OUTPUT" | grep -qi "AKIAIOSFODNN7EXAMPLE"; then
-    echo "FAIL: Positive case did not detect the synthetic AWS access key ID" >&2
+if ! echo "$POSITIVE_OUTPUT" | grep -qi "BEGIN RSA PRIVATE KEY"; then
+    echo "FAIL: Positive case did not detect the synthetic private key" >&2
     exit 1
 fi
 
