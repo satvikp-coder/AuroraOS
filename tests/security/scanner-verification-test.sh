@@ -23,6 +23,12 @@ fi
 echo "Using Gitleaks binary: $GITLEAKS_BIN"
 "$GITLEAKS_BIN" version
 
+# Define both temp repo variables up front so the EXIT trap never
+# references an unbound variable (set -u).
+POSITIVE_REPO=""
+NEGATIVE_REPO=""
+trap 'rm -rf "$POSITIVE_REPO" "$NEGATIVE_REPO"' EXIT
+
 # ---------------------------------------------------------------
 # CASE A: Positive test — synthetic credential matching an enabled
 #         Gitleaks rule (AWS access key ID).
@@ -31,7 +37,6 @@ echo "Using Gitleaks binary: $GITLEAKS_BIN"
 # ---------------------------------------------------------------
 
 POSITIVE_REPO="$(mktemp -d)"
-trap 'rm -rf "$POSITIVE_REPO" "$NEGATIVE_REPO"' EXIT
 
 cd "$POSITIVE_REPO"
 git init -q
@@ -57,7 +62,7 @@ git -c user.email="scanner-test@example.com" -c user.name="Scanner Verification 
 echo ""
 echo "=== CASE A: Positive — synthetic credential should be DETECTED ==="
 set +e
-POSITIVE_OUTPUT="$("$GITLEAKS_BIN" detect --no-git --source "$POSITIVE_REPO" -v 2>&1)"
+POSITIVE_OUTPUT="$("$GITLEAKS_BIN" detect --source "$POSITIVE_REPO" -v 2>&1)"
 POSITIVE_EXIT=$?
 set -e
 echo "$POSITIVE_OUTPUT"
@@ -117,7 +122,7 @@ git -c user.email="scanner-test@example.com" -c user.name="Scanner Verification 
 echo ""
 echo "=== CASE B: Negative — ordinary words should NOT be DETECTED ==="
 set +e
-NEGATIVE_OUTPUT="$("$GITLEAKS_BIN" detect --no-git --source "$NEGATIVE_REPO" -v 2>&1)"
+NEGATIVE_OUTPUT="$("$GITLEAKS_BIN" detect --source "$NEGATIVE_REPO" -v 2>&1)"
 NEGATIVE_EXIT=$?
 set -e
 echo "$NEGATIVE_OUTPUT"
