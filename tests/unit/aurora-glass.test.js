@@ -191,19 +191,19 @@ async function main() {
 
   // Confirmation panel starts hidden
   const confirmPanel = document.getElementById("plan-confirmation");
-  assert(confirmPanel.hidden === true, "Confirmation panel starts hidden");
+  assert(confirmPanel.classList.contains("panel-hidden"), "Confirmation panel starts hidden");
 
   // Running panel starts hidden
   const runningPanel = document.getElementById("plan-running");
-  assert(runningPanel.hidden === true, "Running panel starts hidden");
+  assert(runningPanel.classList.contains("panel-hidden"), "Running panel starts hidden");
 
   // Receipt panel starts hidden
   const receiptPanel = document.getElementById("plan-receipt");
-  assert(receiptPanel.hidden === true, "Receipt panel starts hidden");
+  assert(receiptPanel.classList.contains("panel-hidden"), "Receipt panel starts hidden");
 
   // Failure panel starts hidden
   const failurePanel = document.getElementById("plan-failure");
-  assert(failurePanel.hidden === true, "Failure panel starts hidden");
+  assert(failurePanel.classList.contains("panel-hidden"), "Failure panel starts hidden");
 
   // Plan steps present with risk labels
   const stepEls = document.querySelectorAll(".plan-step");

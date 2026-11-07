@@ -23,6 +23,7 @@ out/
 *.img
 *.iso
 *.elf
+*.map
 
 # IDE and editor
 .vscode/
@@ -49,6 +50,8 @@ desktop.ini
 *.log
 temp/
 tmp/
+test-results/
+playwright-report/
 
 # Credentials and secrets
 *.env

@@ -17,7 +17,7 @@
     contrast: "normal",
     width: "auto",
     motion: "normal",
-    activeScreen: "home",
+    activeScreen: "screen-home",
     activeSpace: "study",
     auraFlow: "success", // success | failure
     planStep: 0,
@@ -60,7 +60,6 @@
   function hideAllScreens() {
     document.querySelectorAll("#app .screen").forEach((s) => {
       s.classList.remove("active");
-      s.hidden = true;
     });
   }
 
@@ -68,7 +67,6 @@
     hideAllScreens();
     const el = document.getElementById(id);
     if (!el) return;
-    el.hidden = false;
     el.classList.add("active");
     state.activeScreen = id;
     announce(`Screen changed: ${el.getAttribute("aria-label") || id}`);
@@ -179,7 +177,7 @@
   function selectIndex(item) {
     announce("Selected " + item.label);
     showToast("Opened " + item.label + " (simulated)");
-    showScreen("home");
+    showScreen("screen-home");
   }
 
   // ---------- Aura plan ----------
@@ -190,22 +188,29 @@
       : "\"Prepare my phone for studying.\"";
   }
 
+  let planTimer = null;
+
   function startPlan() {
+    if (planTimer) clearInterval(planTimer);
     state.planRunning = true;
     state.planComplete = false;
     state.planFailed = false;
     state.planStep = 1;
     hideAllScreens();
     const sheet = document.getElementById("screen-aura");
-    sheet.hidden = false;
     sheet.classList.add("active");
     // Hide all panels
     ["plan-confirmation", "plan-running", "plan-receipt", "plan-failure"].forEach((id) => {
-      document.getElementById(id).hidden = true;
+      document.getElementById(id).classList.add("panel-hidden");
     });
-    document.getElementById("plan-running").hidden = false;
+    document.getElementById("plan-running").classList.remove("panel-hidden");
     updateRunningUI();
     announce("Plan running. Step 1 of 4: switching to Study Space.");
+
+    // Auto-advance through plan steps (~600ms each)
+    planTimer = setInterval(() => {
+      advancePlan();
+    }, 600);
   }
 
   function updateRunningUI() {
@@ -235,16 +240,18 @@
   }
 
   function finishPlan() {
+    if (planTimer) clearInterval(planTimer);
+    planTimer = null;
     state.planRunning = false;
     state.planComplete = true;
-    document.getElementById("plan-running").hidden = true;
+    document.getElementById("plan-running").classList.add("panel-hidden");
     if (state.auraFlow === "failure") {
       state.planFailed = true;
-      document.getElementById("plan-failure").hidden = false;
+      document.getElementById("plan-failure").classList.remove("panel-hidden");
       document.getElementById("failure-text").textContent = "Step 3 (Open Notes) could not complete — simulated failure.";
       announce("Plan failed at step 3. Repair, skip, or stop.");
     } else {
-      document.getElementById("plan-receipt").hidden = false;
+      document.getElementById("plan-receipt").classList.remove("panel-hidden");
       announce("Plan complete. All 4 steps succeeded.");
     }
   }
@@ -256,14 +263,14 @@
       if (!b) return;
       b.addEventListener("click", () => showScreen(target));
     };
-    go("dock-home", "home");
-    go("dock-back", "home");
-    go("dock-spaces", "spaces");
-    go("dock-pages", "home");
-    go("dock-ask", "index");
-    go("btn-index-back", "home");
-    go("btn-spaces-back", "home");
-    go("btn-aura-back", "home");
+    go("dock-home", "screen-home");
+    go("dock-back", "screen-home");
+    go("dock-spaces", "screen-spaces");
+    go("dock-pages", "screen-home");
+    go("dock-ask", "screen-index");
+    go("btn-index-back", "screen-home");
+    go("btn-spaces-back", "screen-home");
+    go("btn-aura-back", "screen-home");
 
     // Spaces chip / button
     const spaceBtn = document.getElementById("btn-switch-space");
@@ -286,7 +293,7 @@
       });
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") { e.preventDefault(); const first = document.querySelector("#index-results .index-result"); if (first) first.click(); }
-        if (e.key === "Escape") showScreen("home");
+        if (e.key === "Escape") showScreen("screen-home");
       });
     }
     const clear = document.getElementById("btn-index-clear");
@@ -299,12 +306,12 @@
     // Plan: confirm -> confirmation panel
     const btnConfirm = document.getElementById("btn-plan-confirm");
     if (btnConfirm) btnConfirm.addEventListener("click", () => {
-      document.getElementById("plan-confirmation").hidden = false;
+      document.getElementById("plan-confirmation").classList.remove("panel-hidden");
       announce("Confirm plan execution? 4 steps will run.");
     });
     const btnPlanCancel = document.getElementById("btn-plan-cancel");
     if (btnPlanCancel) btnPlanCancel.addEventListener("click", () => {
-      document.getElementById("plan-confirmation").hidden = true;
+      document.getElementById("plan-confirmation").classList.add("panel-hidden");
       announce("Plan confirmation cancelled.");
     });
     const btnPlanRun = document.getElementById("btn-plan-run");
@@ -318,9 +325,11 @@
     // Running panel
     const btnStop = document.getElementById("btn-plan-stop");
     if (btnStop) btnStop.addEventListener("click", () => {
+      if (planTimer) clearInterval(planTimer);
+      planTimer = null;
       state.planRunning = false;
-      document.getElementById("plan-running").hidden = true;
-      document.getElementById("plan-receipt").hidden = false;
+      document.getElementById("plan-running").classList.add("panel-hidden");
+      document.getElementById("plan-receipt").classList.remove("panel-hidden");
       document.getElementById("plan-receipt").querySelector("h3").textContent = "Plan stopped";
       document.getElementById("plan-receipt").querySelector("p.receipt-summary").textContent = "Plan was stopped by the user.";
       announce("Plan stopped by user.");
@@ -328,24 +337,28 @@
 
     // Failure panel actions
     const btnRepair = document.getElementById("btn-failure-repair");
-    if (btnRepair) btnRepair.addEventListener("click", () => { advancePlan(); document.getElementById("plan-failure").hidden = true; document.getElementById("plan-running").hidden = false; announce("Repairing. Retrying step 3."); });
+    if (btnRepair) btnRepair.addEventListener("click", () => { advancePlan(); document.getElementById("plan-failure").classList.add("panel-hidden"); document.getElementById("plan-running").classList.remove("panel-hidden"); announce("Repairing. Retrying step 3."); });
     const btnSkip = document.getElementById("btn-failure-skip");
-    if (btnSkip) btnSkip.addEventListener("click", () => { advancePlan(); document.getElementById("plan-failure").hidden = true; document.getElementById("plan-running").hidden = false; announce("Skipped failed step. Continuing."); });
+    if (btnSkip) btnSkip.addEventListener("click", () => { advancePlan(); document.getElementById("plan-failure").classList.add("panel-hidden"); document.getElementById("plan-running").classList.remove("panel-hidden"); announce("Skipped failed step. Continuing."); });
     const btnStopFail = document.getElementById("btn-failure-stop");
     if (btnStopFail) btnStopFail.addEventListener("click", () => {
+      if (planTimer) clearInterval(planTimer);
+      planTimer = null;
       state.planRunning = false;
-      document.getElementById("plan-failure").hidden = true;
-      document.getElementById("plan-receipt").hidden = false;
+      document.getElementById("plan-failure").classList.add("panel-hidden");
+      document.getElementById("plan-receipt").classList.remove("panel-hidden");
       document.getElementById("plan-receipt").querySelector("h3").textContent = "Plan stopped";
       document.getElementById("plan-receipt").querySelector("p.receipt-summary").textContent = "Plan stopped after a failure.";
       announce("Plan stopped after failure.");
     });
     const btnReceiptClose = document.getElementById("btn-receipt-close");
     if (btnReceiptClose) btnReceiptClose.addEventListener("click", () => {
+      if (planTimer) clearInterval(planTimer);
+      planTimer = null;
       state.planComplete = false;
       state.planFailed = false;
       state.planRunning = false;
-      showScreen("home");
+      showScreen("screen-home");
       announce("Receipt closed. Back to Home.");
     });
 
@@ -394,7 +407,7 @@
         setPreviewWidth();
         renderSpaces();
         renderPlan();
-        panel.hidden = true;
+        panel.classList.add("panel-hidden");
         showScreen(state.activeScreen);
         announce("Controls applied.");
       });
@@ -406,12 +419,12 @@
         selTheme.value = "light"; selTier.value = "soft"; selContrast.value = "normal";
         selWidth.value = "auto"; selMotion.value = "normal"; selFlow.value = "success";
         applyTheme(); setPreviewWidth(); renderSpaces(); renderPlan();
-        panel.hidden = true;
+        panel.classList.add("panel-hidden");
         showScreen(state.activeScreen);
         announce("Controls reset to defaults.");
       });
     }
-    if (btnClose) btnClose.addEventListener("click", () => { panel.hidden = true; });
+    if (btnClose) btnClose.addEventListener("click", () => { panel.classList.add("panel-hidden"); });
   }
 
   // ---------- Keyboard global ----------
@@ -419,17 +432,20 @@
     document.addEventListener("keydown", (e) => {
       // Escape: close panels / modals / return home
       if (e.key === "Escape") {
-        if (document.getElementById("plan-confirmation") && !document.getElementById("plan-confirmation").hidden) {
-          document.getElementById("plan-confirmation").hidden = true;
+        const confirmPanel = document.getElementById("plan-confirmation");
+        if (confirmPanel && !confirmPanel.classList.contains("panel-hidden")) {
+          confirmPanel.classList.add("panel-hidden");
           announce("Confirmation closed.");
           return;
         }
-        if (state.activeScreen !== "home") { showScreen("home"); return; }
+        if (planTimer) clearInterval(planTimer);
+        planTimer = null;
+        if (state.activeScreen !== "screen-home") { showScreen("screen-home"); return; }
       }
       // Ctrl+K / Cmd+K: open Index
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        showScreen("index");
+        showScreen("screen-index");
         const input = document.getElementById("index-query");
         if (input) input.focus();
       }
@@ -445,7 +461,7 @@
     renderPlan();
     applyTheme();
     setPreviewWidth();
-    showScreen("home");
+    showScreen("screen-home");
     announce("Aurora Glass prototype ready. Home screen.");
   }
 

@@ -109,7 +109,7 @@
       </section>
 
       <!-- Spaces screen -->
-      <section id="screen-spaces" class="screen" aria-label="Spaces selector" hidden>
+      <section id="screen-spaces" class="screen" aria-label="Spaces selector">
         <header class="home-header">
           <button class="icon-btn back" id="btn-spaces-back" aria-label="Back to Home">Back</button>
           <h1 class="home-title">Spaces</h1>
@@ -145,7 +145,7 @@
       </section>
 
       <!-- Index search screen -->
-      <section id="screen-index" class="screen" aria-label="Index search" hidden>
+      <section id="screen-index" class="screen" aria-label="Index search">
         <header class="home-header">
           <button class="icon-btn back" id="btn-index-back" aria-label="Back to Home">Back</button>
           <h1 class="home-title">Index</h1>
@@ -160,7 +160,7 @@
       </section>
 
       <!-- Aura Plan sheet -->
-      <section id="screen-aura" class="screen plan-sheet" aria-label="Aura Plan" hidden>
+      <section id="screen-aura" class="screen plan-sheet" aria-label="Aura Plan">
         <header class="home-header plan-header">
           <button class="icon-btn back" id="btn-aura-back" aria-label="Back to Home">Back</button>
           <h1 class="home-title">Aura Plan</h1>
@@ -210,7 +210,7 @@
             <button class="btn accent" id="btn-plan-confirm">Confirm &amp; run</button>
           </div>
         </div>
-        <div id="plan-confirmation" class="confirm-panel" hidden role="dialog" aria-modal="true" aria-label="Confirm plan execution">
+        <div id="plan-confirmation" class="confirm-panel panel-hidden" role="dialog" aria-modal="true" aria-label="Confirm plan execution">
           <h3>Run this plan?</h3>
           <p>4 steps will run on this device. Step 2 (focus mode) can be undone; steps 1, 3, 4 run immediately.</p>
           <div class="confirm-actions">
@@ -218,7 +218,7 @@
             <button class="btn accent" id="btn-plan-run">Run plan</button>
           </div>
         </div>
-        <div id="plan-running" class="running-panel" hidden role="status" aria-live="polite">
+        <div id="plan-running" class="running-panel panel-hidden" role="status" aria-live="polite">
           <div class="running-step">
             <span class="running-number" id="running-current">1</span> of <span class="running-total">4</span>
             <span class="running-text" id="running-label">Switching to Study Space…</span>
@@ -231,7 +231,7 @@
           </div>
           <button class="btn outline" id="btn-plan-stop">Stop</button>
         </div>
-        <div id="plan-receipt" class="receipt-panel" hidden role="status" aria-live="polite">
+        <div id="plan-receipt" class="receipt-panel panel-hidden" role="status" aria-live="polite">
           <h3>Plan complete</h3>
           <p class="receipt-summary">All 4 steps completed successfully.</p>
           <ul class="receipt-list">
@@ -243,7 +243,7 @@
           <button class="btn outline" id="btn-receipt-close">Close</button>
           <p class="receipt-foot">This is a simulated receipt. No real device state changed.</p>
         </div>
-        <div id="plan-failure" class="failure-panel" hidden role="status" aria-live="assertive">
+        <div id="plan-failure" class="failure-panel panel-hidden" role="status" aria-live="assertive">
           <h3>Step failed</h3>
           <p class="failure-text" id="failure-text">A step could not complete.</p>
           <div class="failure-actions">
@@ -293,7 +293,7 @@
     </nav>
 
     <!-- Controls panel (settings overlay) -->
-    <div id="controls-panel" class="controls-panel" hidden role="dialog" aria-modal="true" aria-label="Prototype controls">
+    <div id="controls-panel" class="controls-panel panel-hidden" role="dialog" aria-modal="true" aria-label="Prototype controls">
       <button class="icon-btn close" id="btn-controls-close" aria-label="Close controls">×</button>
       <h3>Prototype controls</h3>
       <div class="control-group">
@@ -348,7 +348,7 @@
     </div>
 
     <!-- Toast / status -->
-    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
 
   <script src="app.js"></script>

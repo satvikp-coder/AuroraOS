@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  # ---------------- UI / design prototype ----------------
+  ui-tests:
+    name: UI unit tests (jsdom)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+      - run: npm ci
+      - run: node tests/unit/aurora-glass.test.js
+
+  ui-browser-tests:
+    name: Browser interaction tests (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --workers=1
+
+  prototype-build:
+    name: Prototype build / lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node -e "const fs=require('fs');['index.html','shell.css','tokens.css','app.js'].forEach(f=>{if(!fs.existsSync('aurora-glass/prototype/'+f)){console.error('missing',f);process.exit(1)}});console.log('prototype files OK');"
+
+  # ---------------- ARM64 kernel ----------------
+  kernel-build:
+    name: ARM64 kernel compilation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM64 cross-toolchain and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aarch64-linux-gnu-gcc qemu-system-aarch64 make
+      - name: Build kernel
+        run: |
+          chmod +x build.sh
+          ./build.sh
+      - name: Verify ELF
+        run: |
+          file build/kernel.elf | grep -q "aarch64" || { echo "not an aarch64 ELF"; exit 1; }
+
+  kernel-qemu-boot:
+    name: QEMU boot smoke test
+    runs-on: ubuntu-latest
+    needs: kernel-build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-aarch64
+      - name: Build kernel
+        run: |
+          chmod +x build.sh
+          ./build.sh
+      - name: Run boot smoke test
+        run: |
+          chmod +x tests/qemu/boot-smoke-test.sh
+          ./tests/qemu/boot-smoke-test.sh
+
+  # ---------------- Repo integrity ----------------
+  repo-integrity:
+    name: Formatting and repository integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for secrets
+        run: |
+          if grep -riE '(ghp_|github_pat_|AKIA|secret|password|token)' --include='*.md' --include='*.js' --include='*.sh' --include='*.json' . ; then
+            echo "potential secrets found"; exit 1
+          fi
+          echo "no secrets found"
+      - name: Verify working tree is clean (no untracked build output)
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)" || { echo "untracked/modified files present"; exit 1; }

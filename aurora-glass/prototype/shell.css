@@ -44,6 +44,15 @@ body {
 
 .screen { display: none; }
 .screen.active { display: block; }
+.screen.hidden { display: none; }
+
+/* Panel hiding without the HTML hidden attribute (Playwright isVisible() treats
+   the hidden attribute as hidden regardless of CSS overrides) */
+.panel-hidden { display: none !important; }
+
+/* Toast visibility */
+.toast { display: none; }
+.toast.show { display: block; }
 
 .btn {
   display: inline-flex;
