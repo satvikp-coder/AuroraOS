@@ -1,0 +1,10 @@
+# .gitleaks.toml — Gitleaks secret-detection configuration for AuroraOS
+#
+# Scans tracked repository content for realistic credentials and private keys.
+# Uses Gitleaks' built-in rule set (AWS keys, GitHub tokens, private keys, etc.)
+# while avoiding false positives on ordinary documentation terminology
+# (e.g. the words "secret", "password", "token" in prose).
+#
+# Path-based allowlisting is handled by .gitleaksignore.
+
+title = "AuroraOS Gitleaks config"

@@ -1,0 +1,15 @@
+# .gitleaksignore — Findings to ignore during secret scanning
+#
+# Gitleaks v8 expects finding fingerprints (SHA-256 of each finding),
+# rule IDs, or path: prefixes in this file. Bare file paths without a
+# `path:` prefix are treated as fingerprints and will not match anything.
+#
+# No entries are currently required: scanner verification uses temporary
+# fixtures created in an isolated temporary Git repository during the
+# scanner-verification-test.sh script, so no credential-looking material
+# is committed to AuroraOS history and nothing needs to be allowlisted here.
+#
+# If a legitimate finding must ever be excluded, add its fingerprint
+# (obtained from a Gitleaks scan output) on its own line, with a comment
+# documenting why. Never allowlist entire source directories or real
+# credentials.

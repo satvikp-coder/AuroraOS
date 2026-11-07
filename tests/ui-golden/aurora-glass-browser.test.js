@@ -58,6 +58,79 @@ test.describe("Aurora Glass browser prototype", () => {
     }
   });
 
+  test("captures screenshots across all theme/tier/viewport combinations", async ({ page }) => {
+    const themes = ["light", "dark"];
+    const tiers = ["soft", "clear"];
+
+    for (const theme of themes) {
+      for (const tier of tiers) {
+        for (const vp of VIEWPORTS) {
+          await page.setViewportSize({ width: vp.width, height: vp.height });
+          await page.waitForTimeout(200);
+
+          // Set theme and tier directly on the root element
+          await page.evaluate(({ theme, tier }) => {
+            document.documentElement.setAttribute("data-theme", theme);
+            document.documentElement.setAttribute("data-glass-tier", tier);
+          }, { theme, tier });
+
+          await page.waitForTimeout(100);
+
+          // Verify attributes took effect
+          await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+          await expect(page.locator("html")).toHaveAttribute("data-glass-tier", tier);
+
+          await page.screenshot({
+            path: `aurora-glass/screenshots/home-${vp.name}-${theme}-${tier}.png`,
+            fullPage: true,
+          });
+        }
+      }
+    }
+  });
+
+  test("captures Spaces and Aura receipt screenshots across theme/tier combinations", async ({ page }) => {
+    const themes = ["light", "dark"];
+    const tiers = ["soft", "clear"];
+
+    for (const theme of themes) {
+      for (const tier of tiers) {
+        await page.setViewportSize({ width: 390, height: 800 });
+        await page.waitForTimeout(200);
+
+        await page.evaluate(({ theme, tier }) => {
+          document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.setAttribute("data-glass-tier", tier);
+        }, { theme, tier });
+
+        await page.waitForTimeout(100);
+
+        // Spaces screen
+        await page.locator("#dock-spaces").click();
+        await expect(page.locator("#screen-spaces")).toBeVisible();
+        await page.screenshot({
+          path: `aurora-glass/screenshots/spaces-390-${theme}-${tier}.png`,
+          fullPage: true,
+        });
+
+        // Back to home, then Aura receipt
+        await page.locator("#btn-spaces-back").click();
+        await expect(page.locator("#screen-home")).toBeVisible();
+
+        await page.locator("#btn-aura-study").click();
+        await page.locator("#btn-plan-confirm").click();
+        await page.locator("#btn-plan-run").click();
+        await page.waitForTimeout(2600); // Allow plan to complete
+
+        await expect(page.locator("#plan-receipt")).toBeVisible();
+        await page.screenshot({
+          path: `aurora-glass/screenshots/aura-receipt-390-${theme}-${tier}.png`,
+          fullPage: true,
+        });
+      }
+    }
+  });
+
   test("switches between light and dark themes", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 800 });
 

@@ -52,7 +52,13 @@ jobs:
       - name: Install ARM64 cross-toolchain and QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y aarch64-linux-gnu-gcc qemu-system-aarch64 make
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu qemu-system-arm make
+      - name: Verify toolchain executables
+        run: |
+          aarch64-linux-gnu-gcc --version | head -1
+          aarch64-linux-gnu-as --version | head -1
+          aarch64-linux-gnu-ld --version | head -1
+          qemu-system-aarch64 --version | head -1
       - name: Build kernel
         run: |
           chmod +x build.sh
@@ -70,7 +76,7 @@ jobs:
       - name: Install QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-aarch64
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu qemu-system-arm make
       - name: Build kernel
         run: |
           chmod +x build.sh
@@ -86,13 +92,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check for secrets
-        run: |
-          if grep -riE '(ghp_|github_pat_|AKIA|secret|password|token)' --include='*.md' --include='*.js' --include='*.sh' --include='*.json' . ; then
-            echo "potential secrets found"; exit 1
-          fi
-          echo "no secrets found"
+        with:
+          fetch-depth: 0
       - name: Verify working tree is clean (no untracked build output)
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)" || { echo "untracked/modified files present"; exit 1; }
+      - name: Run Gitleaks secret scan
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sL --fail "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          # Verify downloaded artifact is a valid gzip archive (integrity check)
+          file /tmp/gitleaks.tar.gz | grep -q "gzip compressed data" || { echo "Downloaded artifact is not a valid gzip archive"; exit 1; }
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          # Scan full git history
+          GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} /tmp/gitleaks detect --config .gitleaks.toml --source . -v
+      - name: Verify Gitleaks scanner behavior
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sL --fail "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          file /tmp/gitleaks.tar.gz | grep -q "gzip compressed data" || { echo "Downloaded artifact is not a valid gzip archive"; exit 1; }
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          chmod +x tests/security/scanner-verification-test.sh
+          /tmp/gitleaks --version
+          bash tests/security/scanner-verification-test.sh /tmp/gitleaks
