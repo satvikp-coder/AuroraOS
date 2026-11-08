@@ -143,6 +143,8 @@ void kernel_main(uint64_t dtb)
         proctest_run();
         if (proctest_summary()) { console_puts("PROCESS SELFTEST FAILED\n"); halt_forever(); }
         console_puts("Userspace OK\n");
+        fsproc_run();
+        if (fsproc_summary()) { console_puts("FILE ACCESS SELFTEST FAILED\n"); halt_forever(); }
     } else {
         console_puts("Interrupt tests skipped: no device tree (dev mode)\n");
     }

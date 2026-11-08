@@ -43,6 +43,7 @@ int proc_create(int role, uint64_t arg1, const char *name)
     struct proc *p = &table[slot];
     kzero(p, sizeof *p);
     p->pid = slot + 1;                                        /* the ASID is the pid */
+    p->principal = PRINCIPAL_NONE;                            /* a new process has NO file identity until kernel code grants one */
     p->gen = next_gen++;                                      /* identifies THIS instance; grants name it, not the reusable pid */
     p->state = PROC_NEW;
     for (int i = 0; i < 15 && name && name[i]; i++) p->name[i] = name[i];
@@ -134,4 +135,12 @@ int copy_to_user(uint64_t uva, const void *src, size_t n)
         s += chunk; uva += chunk; n -= chunk;
     }
     return AE_OK;
+}
+
+int proc_set_principal(int pid, uint32_t principal)
+{
+    struct proc *p = proc_get(pid);
+    if (!p || principal == 0 || principal == PRINCIPAL_NONE) return -1;
+    p->principal = principal;
+    return 0;
 }
