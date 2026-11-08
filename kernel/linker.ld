@@ -1,53 +1,53 @@
 /*
- * kernel/linker.ld — AuroraOS linker script
+ * kernel/linker.ld — AuroraOS linker script (QEMU ARM64 virt)
  *
- * Places the boot entry at 0x40080000 (the QEMU ARM64 virt -kernel load
- * address), followed by .text, .rodata, .data, and .bss.
+ * Every permission domain starts on a 4 KiB boundary so the MMU can map
+ * text read-only/executable, rodata read-only/no-execute, and data, bss
+ * and stack read-write/no-execute. A guard page sits below the stack and
+ * is left unmapped to catch overflow.
  */
-
-OUTPUT_FORMAT("elf64-littleaarch64", "elf64-littleaarch64",
-              "elf64-littleaarch64")
+OUTPUT_FORMAT("elf64-littleaarch64", "elf64-littleaarch64", "elf64-littleaarch64")
 OUTPUT_ARCH(aarch64)
-
 ENTRY(_start)
 
 SECTIONS
 {
-    /* . = 0x40080000; */   /* QEMU virt -kernel load address */
-
     . = 0x40080000;
+    __image_start = .;
 
-    .text.boot : {
-        *(.text.boot)
-    }
+    __text_start = .;
+    .text : { *(.text.boot) *(.text) *(.text.*) }
+    . = ALIGN(4096);
+    __text_end = .;
 
-    .text : {
-        *(.text)
-        *(.text.*)
-    }
+    __rodata_start = .;
+    .rodata : { *(.rodata) *(.rodata.*) }
+    . = ALIGN(4096);
+    __rodata_end = .;
 
-    .rodata : {
-        *(.rodata)
-        *(.rodata.*)
-    }
-
-    .data : {
-        *(.data)
-        *(.data.*)
-    }
-
+    __data_start = .;
+    .data : { *(.data) *(.data.*) }
     .bss : {
+        . = ALIGN(8);
         __bss_start = .;
-        *(.bss)
-        *(.bss.*)
-        *(COMMON)
+        *(.bss) *(.bss.*) *(COMMON)
+        . = ALIGN(8);
         __bss_end = .;
     }
+    . = ALIGN(4096);
+    __data_end = .;
 
-    /DISCARD/ : {
-        *(.comment)
-        *(.note.gnu.build-id)
-        *(.eh_frame)
-        *(.eh_frame_hdr)
+    .stack (NOLOAD) : {
+        __stack_guard = .;
+        . += 4096;
+        __stack_bottom = .;
+        . += 16384;
+        __stack_top = .;
     }
+    . = ALIGN(4096);
+    __kernel_end = .;
+
+    ASSERT((__kernel_end - __image_start) <= 0x100000, "kernel image exceeds the 1 MiB size declared in the arm64 Image header")
+
+    /DISCARD/ : { *(.comment) *(.note.gnu.build-id) *(.eh_frame) *(.eh_frame_hdr) }
 }

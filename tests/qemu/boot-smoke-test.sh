@@ -10,7 +10,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-KERNEL="$PROJECT_ROOT/build/kernel.elf"
+KERNEL="$PROJECT_ROOT/build/kernel.bin"
 LOG="$PROJECT_ROOT/build/qemu-boot.log"
 TIMEOUT_SECS=30
 
