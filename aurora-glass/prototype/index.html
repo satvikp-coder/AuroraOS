@@ -280,6 +280,7 @@
         <header class="home-header">
           <button class="icon-btn back" id="btn-quick-back" aria-label="Back to Home">Back</button>
           <h1 class="home-title">Quick Center</h1>
+          <button class="icon-btn" id="btn-quick-settings" aria-label="Open all settings">All settings</button>
         </header>
         <p class="space-intro">Simulated controls. Changes affect this prototype only, never your computer or phone.</p>
         <div class="card section">
@@ -307,11 +308,44 @@
             </select>
           </div>
         </div>
-        <div class="card section" aria-label="Privacy indicators">
+        <div class="card section" id="qc-privacy-card" aria-label="Privacy indicators">
           <h3 class="section-title">Privacy indicators</h3>
           <ul class="privacy-list" id="qc-privacy"></ul>
           <p class="index-hint">Indicators are driven by simulated sessions. Use the buttons to preview them.</p>
           <div class="plan-actions" id="qc-privacy-sim"></div>
+        </div>
+      </section>
+
+      <!-- Settings screen -->
+      <section id="screen-settings" class="screen" aria-label="Settings">
+        <header class="home-header">
+          <button class="icon-btn back" id="btn-settings-back" aria-label="Back to Home">Back</button>
+          <h1 class="home-title">Settings</h1>
+        </header>
+        <p class="space-intro">Simulated. Changes affect this prototype only and live in memory only (nothing is saved, nothing touches a real device). "Stored only" items are remembered but have no effect yet.</p>
+        <div class="card section">
+          <div class="control-group">
+            <label for="settings-filter">Find a setting</label>
+            <input type="search" id="settings-filter" placeholder="Search settings…" autocomplete="off">
+          </div>
+        </div>
+        <div id="settings-sections"></div>
+        <p id="settings-empty" class="index-hint panel-hidden" role="status">No settings match your search.</p>
+        <div class="card section" aria-label="Developer actions">
+          <h2 class="section-title">Developer actions</h2>
+          <div class="plan-actions">
+            <button class="btn outline" id="btn-settings-json" aria-expanded="false" aria-controls="settings-json">Show settings as JSON</button>
+            <button class="btn outline" id="btn-settings-reset">Reset all settings</button>
+          </div>
+          <pre id="settings-json" class="settings-json panel-hidden" tabindex="0" aria-label="Current settings as JSON"></pre>
+        </div>
+        <div id="settings-reset-confirm" class="confirm-panel panel-hidden" role="dialog" aria-modal="true" aria-labelledby="settings-reset-title">
+          <h3 id="settings-reset-title">Reset all settings?</h3>
+          <p>Every setting returns to its default. This only affects the prototype.</p>
+          <div class="confirm-actions">
+            <button class="btn outline" id="btn-settings-reset-cancel">Cancel</button>
+            <button class="btn accent" id="btn-settings-reset-ok">Reset</button>
+          </div>
         </div>
       </section>
     </main>
@@ -412,7 +446,9 @@
   </div>
 
   <script src="core.js"></script>
+  <script src="settings.js"></script>
   <script src="app.js"></script>
   <script src="screens.js"></script>
+  <script src="settings-screen.js"></script>
 </body>
 </html>
