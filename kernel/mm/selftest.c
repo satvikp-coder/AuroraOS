@@ -199,18 +199,18 @@ void selftest_mmu(void)
         /* Legitimate mappings still work, and hardware translation agrees with the policy. */
         int a1 = vmm_map(va + 0x70000, text0, PAGE_SIZE, VMM_ATTR_NORMAL_RO);
         int a2 = vmm_map(va + 0x71000, text0, text_end - text0, VMM_ATTR_NORMAL_RX);
-        int a3 = vmm_map(va + 0x80000, ro0, PAGE_SIZE, VMM_ATTR_NORMAL_RO);
-        int a4 = vmm_map(va + 0x81000, data0, PAGE_SIZE, VMM_ATTR_NORMAL_RW);
-        int a5 = vmm_map(va + 0x82000, freepg, PAGE_SIZE, VMM_ATTR_NORMAL_RW);
-        int a6 = vmm_map(va + 0x83000, uart, PAGE_SIZE, VMM_ATTR_DEVICE);
+        int a3 = vmm_map(va + 0x800000, ro0, PAGE_SIZE, VMM_ATTR_NORMAL_RO);
+        int a4 = vmm_map(va + 0x801000, data0, PAGE_SIZE, VMM_ATTR_NORMAL_RW);
+        int a5 = vmm_map(va + 0x802000, freepg, PAGE_SIZE, VMM_ATTR_NORMAL_RW);
+        int a6 = vmm_map(va + 0x803000, uart, PAGE_SIZE, VMM_ATTR_DEVICE);
         check("policy: read-only aliases of text and rodata are allowed and read-only in hardware",
               a1 == VMM_OK && a3 == VMM_OK && vmm_hw_translate(va + 0x70000, 0, &d) == 0 && d == text0 &&
-              vmm_hw_translate(va + 0x70000, 1, 0) == -1 && vmm_hw_translate(va + 0x80000, 0, &d) == 0 && d == ro0 && vmm_hw_translate(va + 0x80000, 1, 0) == -1);
+              vmm_hw_translate(va + 0x70000, 1, 0) == -1 && vmm_hw_translate(va + 0x800000, 0, &d) == 0 && d == ro0 && vmm_hw_translate(va + 0x800000, 1, 0) == -1);
         check("policy: an executable alias of exactly the text range is allowed", a2 == VMM_OK && vmm_hw_translate(va + 0x71000, 0, &d) == 0 && d == text0);
-        check("policy: writable aliases of data and free RAM are allowed", a4 == VMM_OK && a5 == VMM_OK && vmm_hw_translate(va + 0x81000, 1, &d) == 0 && d == data0 && vmm_hw_translate(va + 0x82000, 1, &d) == 0 && d == freepg);
-        check("policy: a device alias of the registered UART window is allowed", a6 == VMM_OK && vmm_hw_translate(va + 0x83000, 1, &d) == 0 && d == uart);
+        check("policy: writable aliases of data and free RAM are allowed", a4 == VMM_OK && a5 == VMM_OK && vmm_hw_translate(va + 0x801000, 1, &d) == 0 && d == data0 && vmm_hw_translate(va + 0x802000, 1, &d) == 0 && d == freepg);
+        check("policy: a device alias of the registered UART window is allowed", a6 == VMM_OK && vmm_hw_translate(va + 0x803000, 1, &d) == 0 && d == uart);
         check("policy: MMIO windows can be registered, but never over RAM", vmm_register_mmio(pmm_ram_base(), PAGE_SIZE) == VMM_ERR_POLICY && vmm_register_mmio(0x0a000000ULL + 1, PAGE_SIZE) == VMM_ERR_ALIGN &&
-              vmm_register_mmio(0x0a000000ULL, PAGE_SIZE) == VMM_OK && vmm_map(va + 0x84000, 0x0a000000ULL, PAGE_SIZE, VMM_ATTR_DEVICE) == VMM_OK);
+              vmm_register_mmio(0x0a000000ULL, PAGE_SIZE) == VMM_OK && vmm_map(va + 0x804000, 0x0a000000ULL, PAGE_SIZE, VMM_ATTR_DEVICE) == VMM_OK);
         pmm_free_page(freepg);
 
         /* Device-tree no-map memory: never mappable by any attribute, alone or as part of a larger request. */

@@ -43,6 +43,12 @@ uint64_t aspace_ttbr(const struct aspace *as);
 /* ---- processes ---- */
 #define PROC_MAX 8
 enum proc_state { PROC_UNUSED = 0, PROC_NEW, PROC_READY, PROC_RUNNING, PROC_BLOCKED, PROC_TERMINATED, PROC_FAULTED };
+/* ---- bounded IPC: each process OWNS one fixed-capacity mailbox; messages are copied into kernel storage ---- */
+#define IPC_MSG_MAX 64
+#define IPC_QUEUE_DEPTH 4
+struct ipc_msg { uint8_t from, len; uint8_t data[IPC_MSG_MAX]; };
+struct mailbox { struct ipc_msg q[IPC_QUEUE_DEPTH]; uint8_t head, count; };
+
 struct proc {
     int pid;                                    /* 1..PROC_MAX; also selects the ASID */
     enum proc_state state;
@@ -53,6 +59,10 @@ struct proc {
     uint64_t fault_esr, fault_far, fault_elr, fault_spsr;
     uint64_t code_pa, data_pa, stack_pa;
     uint64_t syscalls, ticks_run, switches_in, el0_exceptions, el0_confirmed;   /* el0_confirmed: SPSR said EL0t */
+    struct mailbox mbox;                        /* messages addressed TO this process (owned by it; freed when it exits) */
+    uint64_t gen;                               /* unique per process INSTANCE (never reused, unlike the pid/slot) */
+    uint64_t ipc_grant_gen[PROC_MAX + 1];       /* [pid] = the generation of the recipient instance this process may send to; 0 = no grant */
+    int rx_pending; uint64_t rx_buf, rx_max;    /* a blocking receive in progress (state BLOCKED) */
     uint64_t yields, preemptions;               /* voluntary switches (SYS_YIELD) vs timer-driven ones: never conflated */
     char name[16];
 };
@@ -90,16 +100,30 @@ void sched_trace_reset(void);
 #define SYS_GETPID 3
 #define SYS_EXIT   4   /* x0 = exit code */
 #define SYS_TICKS  5   /* scheduler ticks since the scheduler started */
+#define SYS_SEND   6   /* x0 = destination pid, x1 = user buffer, x2 = length (<= IPC_MSG_MAX): 0 or an error */
+#define SYS_RECV   7   /* x0 = user buffer, x1 = capacity, x2 = flags (1 = do not block): x0 = length or error, x1 = sender pid */
+#define IPC_NONBLOCK 1
 #define SYS_WRITE_MAX 256
 #define AE_OK      0
 #define AE_EINVAL (-1)
 #define AE_EFAULT (-2)   /* pointer outside user memory, or not mapped for EL0 */
 #define AE_E2BIG  (-3)
 #define AE_ENOSYS (-4)
+#define AE_EAGAIN (-5)   /* mailbox full (send) / empty (non-blocking receive) */
+#define AE_ESRCH  (-6)   /* no such live process */
+#define AE_EPERM  (-7)   /* sender not authorised for that destination */
 
 /* ---- safe user memory access ---- */
 int copy_from_user(void *dst, uint64_t uva, size_t n);   /* AE_OK / AE_EINVAL / AE_EFAULT; never faults the kernel */
 int user_range_ok(uint64_t uva, size_t n);
+int copy_to_user(uint64_t uva, const void *src, size_t n);   /* same guarantees; needs write permission for EL0 */
+int user_writable(uint64_t uva, size_t n);
+
+/* ---- IPC (kernel/proc/ipc.c) ---- */
+int  proc_ipc_allow(int from, int to);                                /* kernel-only grant: 0, or -1 unless BOTH are live processes; bound to that recipient instance */
+int  ipc_send(struct proc *from, uint64_t dest, uint64_t ubuf, uint64_t len);   /* AE_OK or error; caller wakes a blocked receiver */
+int  ipc_dequeue(struct proc *p, uint64_t ubuf, uint64_t max, uint64_t *from);  /* length, or AE_EAGAIN/AE_E2BIG/AE_EFAULT (message stays queued) */
+void ipc_cleanup(struct proc *p);
 
 /* ---- user programs (assembly blob copied into each process's code page) ---- */
 extern uint8_t user_blob_start[], user_blob_end[];

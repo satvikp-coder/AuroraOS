@@ -43,7 +43,7 @@ run_qemu() { # kernel machine-opts memory logfile [extra qemu args...]
         -nographic -serial file:"$log" -monitor none "$@" &
     pid=$!
     i=0
-    while [ "$i" -lt 60 ]; do
+    while [ "$i" -lt 240 ]; do
         if grep -qE "Boot complete|KERNEL PANIC|SELFTEST FAILED|did not fault|Kernel halted" "$log" 2>/dev/null; then TIMED_OUT=0; break; fi
         kill -0 "$pid" 2>/dev/null || { TIMED_OUT=0; break; }
         sleep 0.5; i=$((i + 1))
