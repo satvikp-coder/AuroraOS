@@ -1,10 +1,13 @@
 #!/bin/sh
 # build.sh — Build the AuroraOS ARM64 kernel
 #
-# Toolchain: aarch64-linux-gnu-gcc (cross-compiler for AArch64 Linux)
-# Target: QEMU ARM64 "virt" machine
+# Toolchain: aarch64-linux-gnu-gcc (freestanding; no libc is linked).
+# Target: QEMU ARM64 "virt" machine.
 #
 # Usage: ./build.sh
+#   BUILD_DIR=build/x ./build.sh                    build into another directory
+#   AURORA_FAULT_TEST=1 BUILD_DIR=... ./build.sh    build a deliberate-fault test kernel
+#                                                   (see tests/qemu/mm-tests.sh)
 
 set -e
 
@@ -13,24 +16,41 @@ AS=aarch64-linux-gnu-as
 LD=aarch64-linux-gnu-ld
 OBJCOPY=aarch64-linux-gnu-objcopy
 
-KERNEL_ELF="build/kernel.elf"
-KERNEL_BIN="build/kernel.bin"
-MAP_FILE="build/kernel.map"
+BUILD_DIR="${BUILD_DIR:-build}"
+KERNEL_ELF="$BUILD_DIR/kernel.elf"
+KERNEL_BIN="$BUILD_DIR/kernel.bin"
+MAP_FILE="$BUILD_DIR/kernel.map"
 
-mkdir -p build
+# -mgeneral-regs-only: no FP/SIMD in kernel code. -mstrict-align: before the MMU
+# is on all data accesses are Device memory, where unaligned access faults.
+CFLAGS="-march=armv8-a -mgeneral-regs-only -mstrict-align -ffreestanding -nostdlib -fno-builtin \
+-fno-stack-protector -fno-pic -fno-strict-aliasing -fno-tree-loop-distribute-patterns \
+-Wall -Wextra -Werror -O2 -I kernel/include"
+if [ -n "$AURORA_FAULT_TEST" ]; then
+    CFLAGS="$CFLAGS -DAURORA_FAULT_TEST=$AURORA_FAULT_TEST"
+fi
 
-echo "[build] Assembling boot entry..."
-$AS -march=armv8-a -I boot/aarch64 -o build/start.o boot/aarch64/start.S
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+OBJS=""
+
+echo "[build] Assembling..."
+for s in boot/aarch64/start.S kernel/arch/aarch64/vectors.S; do
+    o="$BUILD_DIR/$(basename "$s" .S).o"
+    $AS -march=armv8-a -o "$o" "$s"
+    OBJS="$OBJS $o"
+done
 
 echo "[build] Compiling kernel..."
-$CC -march=armv8-a -ffreestanding -nostdlib -fno-builtin \
-    -Wall -Wextra -O2 -I kernel -c kernel/kernel.c -o build/kernel.o
+for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c \
+         kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do
+    o="$BUILD_DIR/$(basename "$c" .c).o"
+    $CC $CFLAGS -c "$c" -o "$o"
+    OBJS="$OBJS $o"
+done
 
 echo "[build] Linking kernel..."
-$LD -T kernel/linker.ld \
-    -o "$KERNEL_ELF" \
-    build/start.o build/kernel.o \
-    -Map "$MAP_FILE"
+$LD -T kernel/linker.ld -o "$KERNEL_ELF" $OBJS -Map "$MAP_FILE"
 
 echo "[build] Creating raw binary..."
 $OBJCOPY -O binary "$KERNEL_ELF" "$KERNEL_BIN"
