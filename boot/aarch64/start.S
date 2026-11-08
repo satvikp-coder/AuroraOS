@@ -76,7 +76,7 @@ el1_entry:
     mrs     x20, spsel                  /* SPSel as we arrived (recorded for diagnostics; never assumed below) */
     ldr     x2, =0x30d00800             /* SCTLR_EL1: RES1 bits only (MMU, caches off) */
     msr     sctlr_el1, x2
-    mov     x2, #(3 << 20)              /* CPACR_EL1.FPEN: no FP/SIMD trap */
+    mov     x2, #(1 << 20)              /* CPACR_EL1.FPEN=01: FP/SIMD allowed at EL1 only; EL0 use traps (the kernel does not save FP state) */
     msr     cpacr_el1, x2
     isb
 

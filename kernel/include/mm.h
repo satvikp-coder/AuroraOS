@@ -93,6 +93,9 @@ void     vmm_enable(void);                       /* turn the MMU on */
 /* All-or-nothing: returns VMM_OK, or a VMM_ERR_* code with NO descriptors changed. Never remaps. */
 int      vmm_map(uint64_t va, uint64_t pa, uint64_t size, int attr);
 int      vmm_mmu_enabled(void);
+uint64_t vmm_kernel_l1_pa(void);                 /* master table; shared (slots 0-1) into every process */
+const uint64_t *vmm_kernel_l1(void);
+int      vmm_hw_translate_el0(uint64_t va, int write, uint64_t *pa);   /* as EL0 would see it */
 /* Hardware translation via AT: returns 0 and *pa on success, -1 if it would fault. */
 int      vmm_hw_translate(uint64_t va, int write, uint64_t *pa);
 

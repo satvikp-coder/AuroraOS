@@ -1,0 +1,99 @@
+/*
+ * kernel/include/proc.h — user processes (EL0), address spaces, scheduler and system-call ABI.
+ *
+ * ARCHITECTURE (see docs/kernel/userspace.md for the reasoning):
+ *   - Kernel boot context: runs at EL1 on SP_EL0 (EL1t), as before.
+ *   - User processes: run at EL0 on their own SP_EL0 (a user stack in their private address space).
+ *   - ALL exception handling (syscalls, faults, IRQs, the scheduler) runs on the shared SP_EL1 exception stack.
+ *     A process's CPU state lives in a saved struct exc_frame; a context switch copies the next frame into the
+ *     live frame and returns through the normal ERET path (which now also restores SP_EL0).
+ *   - Every address space shares the kernel's L1 slots 0-1 by reference (EL1-only pages: EL0 accesses fault with a
+ *     permission fault) and owns a private L1 slot for user memory (non-global pages tagged with the process ASID).
+ */
+#ifndef AURORA_PROC_H
+#define AURORA_PROC_H
+#include <arch.h>
+#include <stddef.h>
+#include <stdint.h>
+
+/* ---- user virtual-address layout (identical in every process, different physical pages) ---- */
+#define USER_VA_BASE   0x4000000000ULL          /* 256 GiB: L1 slot 256, disjoint from the kernel's slots 0-1 */
+#define USER_VA_LIMIT  0x4040000000ULL          /* one 1 GiB slot */
+#define USER_CODE_VA   (USER_VA_BASE + 0x0000)  /* RX, one page */
+#define USER_DATA_VA   (USER_VA_BASE + 0x1000)  /* RW, one page of private data */
+/* 0x2000 is an unmapped guard page */
+#define USER_STACK_VA  (USER_VA_BASE + 0x3000)  /* RW, two pages */
+#define USER_STACK_TOP (USER_VA_BASE + 0x5000)
+
+/* ---- address spaces ---- */
+enum { UPERM_RX = 1, UPERM_RW = 2, UPERM_RO = 3 };
+#define ASPACE_MAX_PAGES 24
+struct aspace {
+    uint64_t l1_pa;
+    uint32_t asid;                              /* 8-bit ASID (TCR_EL1.AS = 0); 0 is the kernel */
+    uint64_t pages[ASPACE_MAX_PAGES];           /* every physical page owned: tables and user pages */
+    int npages;
+    int live;
+};
+int      aspace_create(struct aspace *as, uint32_t asid);
+int      aspace_map(struct aspace *as, uint64_t va, int perm, const void *init, size_t len, uint64_t *pa_out);
+void     aspace_destroy(struct aspace *as);     /* flushes the ASID's TLB entries, frees every owned page */
+uint64_t aspace_ttbr(const struct aspace *as);
+
+/* ---- processes ---- */
+#define PROC_MAX 8
+enum proc_state { PROC_UNUSED = 0, PROC_NEW, PROC_READY, PROC_RUNNING, PROC_BLOCKED, PROC_TERMINATED, PROC_FAULTED };
+struct proc {
+    int pid;                                    /* 1..PROC_MAX; also selects the ASID */
+    enum proc_state state;
+    struct exc_frame ctx;                       /* saved CPU context (valid unless RUNNING) */
+    struct aspace as;
+    uint64_t entry;
+    int exit_code;
+    uint64_t fault_esr, fault_far, fault_elr, fault_spsr;
+    uint64_t code_pa, data_pa, stack_pa;
+    uint64_t syscalls, ticks_run, switches_in, el0_exceptions, el0_confirmed;   /* el0_confirmed: SPSR said EL0t */
+    char name[16];
+};
+int  proc_create(int role, uint64_t arg1, const char *name);   /* pid > 0, or a negative error */
+struct proc *proc_get(int pid);
+int  proc_destroy(int pid);                      /* NEW/READY/TERMINATED/FAULTED only; frees all memory */
+const char *proc_state_name(enum proc_state s);
+int  proc_transition_ok(enum proc_state from, enum proc_state to);
+
+/* ---- scheduler ---- */
+enum { SCHED_ALL_DONE = 0, SCHED_DEADLOCK = 1, SCHED_TIMEOUT = 2 };
+uint64_t sched_run(uint64_t limit_ticks);        /* from kernel context: run processes until done/blocked/timeout; returns SCHED_* */
+void     sched_set_preempt(int enabled, uint32_t quantum_ticks);
+uint64_t sched_ticks(void);
+int      sched_handle_el0(struct exc_frame *f);  /* exceptions from EL0 (kinds 8/9); returns 0 when handled */
+int      sched_handle_kernel_svc(struct exc_frame *f, uint32_t imm);  /* SVC from kernel code; returns 0 if consumed */
+void     sched_after_irq(struct exc_frame *f);   /* called after an IRQ was dispatched */
+int      sched_active(void);
+
+/* Observation log for tests: first byte of each user write, in order. */
+#define SCHED_TRACE_MAX 128
+const char *sched_trace(int *len);
+void sched_trace_reset(void);
+
+/* ---- system calls (SVC #0 from EL0): number in x8, arguments in x0-x5, result in x0 ---- */
+#define SYS_WRITE  1   /* x0 = user buffer, x1 = length (<= SYS_WRITE_MAX): print one tagged line */
+#define SYS_YIELD  2
+#define SYS_GETPID 3
+#define SYS_EXIT   4   /* x0 = exit code */
+#define SYS_TICKS  5   /* scheduler ticks since the scheduler started */
+#define SYS_WRITE_MAX 256
+#define AE_OK      0
+#define AE_EINVAL (-1)
+#define AE_EFAULT (-2)   /* pointer outside user memory, or not mapped for EL0 */
+#define AE_E2BIG  (-3)
+#define AE_ENOSYS (-4)
+
+/* ---- safe user memory access ---- */
+int copy_from_user(void *dst, uint64_t uva, size_t n);   /* AE_OK / AE_EINVAL / AE_EFAULT; never faults the kernel */
+int user_range_ok(uint64_t uva, size_t n);
+
+/* ---- user programs (assembly blob copied into each process's code page) ---- */
+extern uint8_t user_blob_start[], user_blob_end[];
+
+#endif

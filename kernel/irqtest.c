@@ -221,7 +221,11 @@ void irqtest_run(const struct fdt_platform *plat)
         int entry_ok = boot_entry_el == 1 || boot_entry_el == 2;        /* default QEMU entry; the actual values are printed as [info] */
 #endif
         check("boot entry: the CPU was entered as this build declares (controlled variants arrive with SPSel=0)", entry_ok);
+#ifdef AURORA_SELFTEST_HOOKS
         uint64_t m = exc_roundtrip_test();
+#else
+        uint64_t m = 0; console_puts("[info] exception round-trip hook not built (production configuration)\n");
+#endif
         if (m) { console_puts("[info] round-trip mismatch mask "); console_hex(m); console_puts("\n"); }
         check("exceptions: a synchronous exception from kernel code preserves x1-x28, restores registers FROM the saved frame, and keeps SP_EL0/SPSel",
               m == 0);

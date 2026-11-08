@@ -23,17 +23,7 @@
  */
 #include <mm.h>
 #include <mmpolicy.h>
-
-#define PTE_VALID    (1ULL << 0)
-#define PTE_TABLE    (1ULL << 1)            /* level 1/2: table descriptor; level 3: page */
-#define PTE_ATTRIDX(n) ((uint64_t)(n) << 2)
-#define PTE_AP_RO    (1ULL << 7)            /* AP[2]=1: read-only at EL1 (AP[1]=0: no EL0 access) */
-#define PTE_SH_OUTER (2ULL << 8)
-#define PTE_SH_INNER (3ULL << 8)
-#define PTE_AF       (1ULL << 10)
-#define PTE_PXN      (1ULL << 53)
-#define PTE_UXN      (1ULL << 54)
-#define ADDR_MASK    0x0000FFFFFFFFF000ULL
+#include <pte.h>
 
 #define MAIR_VALUE   ((0x00ULL << 0) | (0xFFULL << 8))   /* idx0 Device-nGnRnE, idx1 Normal WB RA/WA */
 #define VA_BITS      39
@@ -163,6 +153,22 @@ int vmm_map(uint64_t va, uint64_t pa, uint64_t size, int attr)
 }
 
 int vmm_last_denial(void) { return last_denial; }
+
+/* Physical address of the kernel's master level-1 table (what TTBR0_EL1 points at outside any process). */
+uint64_t vmm_kernel_l1_pa(void) { return (uint64_t)(uintptr_t)l1; }
+const uint64_t *vmm_kernel_l1(void) { return l1; }
+
+/* Hardware translation as EL0 would see it (AT S1E0R/S1E0W): honours the AP[1] bit, so kernel-only pages fail. */
+int vmm_hw_translate_el0(uint64_t va, int write, uint64_t *pa)
+{
+    uint64_t par;
+    if (write) __asm__ volatile ("at s1e0w, %0" :: "r"(va));
+    else       __asm__ volatile ("at s1e0r, %0" :: "r"(va));
+    __asm__ volatile ("isb\n mrs %0, par_el1" : "=r"(par) :: "memory");
+    if (par & 1) return -1;
+    if (pa) *pa = (par & ADDR_MASK) | (va & (PAGE_SIZE - 1));
+    return 0;
+}
 
 int vmm_register_mmio(uint64_t addr, uint64_t size)
 {

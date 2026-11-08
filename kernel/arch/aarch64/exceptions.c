@@ -15,6 +15,7 @@
 #include <console.h>
 #include <irq.h>
 #include <mm.h>
+#include <proc.h>
 
 void exceptions_init(void)
 {
@@ -81,18 +82,28 @@ void exception_handler(struct exc_frame *f)
 
     if (frame_ok && f->kind == 1) {                  /* IRQ taken from kernel code running on SP_EL0 */
         irq_dispatch();
+        sched_after_irq(f);                          /* no-op unless the process scheduler is running */
         return;
+    }
+    if (frame_ok && (f->kind == 8 || f->kind == 9)) { /* synchronous exception or IRQ from EL0 (a user process) */
+        if (sched_handle_el0(f) == 0) return;
+        /* an EL0 exception with no running process, a bad SPSR, FIQ/SError: not recoverable, fall through to the report */
     }
 
     uint64_t ec = (f->esr >> 26) & 0x3F, iss = f->esr & 0x1FFFFFF;
 
-    /* Self-test hook: SVC #0x7e57 from kernel code (SP_EL0) is the register-preservation test in
-     * exc_selftest.S. It rewrites two registers IN THE SAVED FRAME and returns; ELR already points past the SVC. */
+#ifdef AURORA_SELFTEST_HOOKS
+    /* Self-test hook (test configuration only; absent when built with AURORA_PRODUCTION=1): SVC #0x7e57 from KERNEL
+     * code is the register-preservation test in exc_selftest.S. It rewrites two registers IN THE SAVED FRAME and
+     * returns; ELR already points past the SVC. User processes cannot reach it: their SVCs arrive as kind 8. */
     if (frame_ok && f->kind == 0 && ec == 0x15 && (iss & 0xFFFF) == 0x7E57) {
         f->x[0] = 0xAAAA5555ULL;
         f->x[27] = 0xC0DE0027ULL;
         return;
     }
+#endif
+    /* SVC from kernel code: the kernel's entry into the scheduler (sched_run). */
+    if (frame_ok && f->kind == 0 && ec == 0x15 && sched_handle_kernel_svc(f, (uint32_t)(iss & 0xFFFF)) == 0) return;
 
     console_puts("\n[FAULT] exception "); console_puts(kind_name(f->kind));
     if (f->kind >= 4 && f->kind <= 7) console_puts("\n[FAULT] NESTED exception: taken while already on the exception stack");
