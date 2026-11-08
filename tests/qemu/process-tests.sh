@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_PROC_TESTS=68   # keep in sync with kernel/proctest.c
+EXPECTED_PROC_TESTS=79   # keep in sync with kernel/proctest.c
 EXPECTED_MM_TESTS=93
 EXPECTED_IRQ_TESTS=43
 
@@ -30,7 +30,7 @@ run_qemu() { # kernel machine memory log
     : > "$4"; TIMED_OUT=1
     qemu-system-aarch64 -machine "$2" -cpu cortex-a53 -smp 1 -m "$3" -kernel "$1" -nographic -serial file:"$4" -monitor none &
     pid=$!; i=0
-    while [ "$i" -lt 120 ]; do
+    while [ "$i" -lt 240 ]; do
         if grep -qE "Boot complete|KERNEL PANIC|SELFTEST FAILED|did not fault|Kernel halted" "$4" 2>/dev/null; then TIMED_OUT=0; break; fi
         kill -0 "$pid" 2>/dev/null || { TIMED_OUT=0; break; }
         sleep 0.5; i=$((i + 1))
@@ -67,10 +67,18 @@ normal_boot() { # name machine mem
     expect "$log" "\[proc-test\] ipc validation: oversized.*: PASS" "$name: IPC rejects oversized, bad pid, kernel pointer and unauthorised destinations"
     expect "$log" "\[proc-test\] ipc cleanup: a receiver that exits.*: PASS" "$name: a dead receiver's mailbox is freed and later sends fail"
     expect "$log" "\[proc-test\] ipc: a lone blocked receiver is reported as SCHED_DEADLOCK.*: PASS" "$name: a receiver nobody will wake is reported, not hung"
+    expect "$log" "\[proc-test\] ipc authorisation: recipient exits normally, its pid is reused.*: PASS" "$name: a stale grant does not survive the recipient exiting and its pid being reused"
+    expect "$log" "\[proc-test\] ipc authorisation: recipient faults, its pid is reused.*: PASS" "$name: ... nor the recipient faulting"
+    expect "$log" "\[proc-test\] ipc authorisation: recipient is destroyed while BLOCKED, its pid is reused.*: PASS" "$name: ... nor destroying a BLOCKED recipient"
+    expect "$log" "\[proc-test\] ipc authorisation: recipient is destroyed while READY.*: PASS" "$name: ... nor destroying a READY recipient"
+    expect "$log" "\[proc-test\] ipc authorisation \(end to end\).*: PASS" "$name: end to end, an EL0 sender is refused (-EPERM) by the new occupant of a reused pid"
+    expect "$log" "\[proc-test\] ipc authorisation: grants to nonexistent.*: PASS" "$name: grants to ineligible recipients are refused and leave nothing behind"
+    expect "$log" "\[proc-test\] ipc authorisation: no system call lets a process grant itself permission.*: PASS" "$name: no system call can grant authority"
+    expect "$log" "\[proc-test\] ipc authorisation: 20 rounds.*: PASS" "$name: grant/destroy/reuse churn never lets a stale grant through"
     expect "$log" "\[proc-test\] ipc: 12 rounds.*: PASS" "$name: repeated create/send/receive/destroy leaks nothing"
     expect "$log" "\[proc-test\] watchdog: .*: PASS" "$name: a never-yielding loop cannot hang the kernel"
     c="$(grep -c '^\[proc [0-9]*\] FAULT at EL0' "$log")"
-    if [ "$c" -eq 14 ]; then ok "$name: the 14 intentional user faults were each reported as an EL0 fault"; else bad "$name: saw $c EL0 fault reports, expected 14"; fi
+    if [ "$c" -eq 15 ]; then ok "$name: the 15 intentional user faults were each reported as an EL0 fault"; else bad "$name: saw $c EL0 fault reports, expected 15"; fi
     expect "$log" "^\[user p1\] A" "$name: kernel-tagged output of an EL0 program (A) reached the console"
     expect "$log" "^\[user p2\] B" "$name: kernel-tagged output of an EL0 program (B) reached the console"
     expect "$log" "Userspace OK" "$name: userspace reported OK"

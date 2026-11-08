@@ -60,7 +60,8 @@ struct proc {
     uint64_t code_pa, data_pa, stack_pa;
     uint64_t syscalls, ticks_run, switches_in, el0_exceptions, el0_confirmed;   /* el0_confirmed: SPSR said EL0t */
     struct mailbox mbox;                        /* messages addressed TO this process (owned by it; freed when it exits) */
-    uint32_t ipc_allow;                         /* bit n set: this process may send to pid n (self is always allowed) */
+    uint64_t gen;                               /* unique per process INSTANCE (never reused, unlike the pid/slot) */
+    uint64_t ipc_grant_gen[PROC_MAX + 1];       /* [pid] = the generation of the recipient instance this process may send to; 0 = no grant */
     int rx_pending; uint64_t rx_buf, rx_max;    /* a blocking receive in progress (state BLOCKED) */
     uint64_t yields, preemptions;               /* voluntary switches (SYS_YIELD) vs timer-driven ones: never conflated */
     char name[16];
@@ -119,7 +120,7 @@ int copy_to_user(uint64_t uva, const void *src, size_t n);   /* same guarantees;
 int user_writable(uint64_t uva, size_t n);
 
 /* ---- IPC (kernel/proc/ipc.c) ---- */
-int  proc_ipc_allow(int from, int to);                                /* grant: from may send to to */
+int  proc_ipc_allow(int from, int to);                                /* kernel-only grant: 0, or -1 unless BOTH are live processes; bound to that recipient instance */
 int  ipc_send(struct proc *from, uint64_t dest, uint64_t ubuf, uint64_t len);   /* AE_OK or error; caller wakes a blocked receiver */
 int  ipc_dequeue(struct proc *p, uint64_t ubuf, uint64_t max, uint64_t *from);  /* length, or AE_EAGAIN/AE_E2BIG/AE_EFAULT (message stays queued) */
 void ipc_cleanup(struct proc *p);

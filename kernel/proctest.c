@@ -497,6 +497,118 @@ void proctest_run(void)
         check("ipc: 12 rounds of create / send / blocking receive / destroy: always correct and no page leaks", cyc);
     }
 
+    /* ---- IPC authorisation lifetime: a grant belongs to ONE process instance, never to a reusable pid ---- */
+    {
+        static const struct { const char *how; int role; uint64_t arg; int run_first; } ends[] = {
+            { "exits normally", 41, 0, 1 }, { "faults", 10, 0, 1 }, { "is destroyed while BLOCKED", 64, 0, 1 }, { "is destroyed while READY (never ran)", 41, 0, 0 },
+        };
+        for (unsigned v = 0; v < sizeof ends / sizeof *ends; v++) {
+            destroy_all();
+            int a = proc_create(64, 0, "A");                                  /* blocks forever in receive: stays alive */
+            int b = proc_create(ends[v].role, ends[v].role == 10 ? (uint64_t)(uintptr_t)&kernel_secret : 0, "B");
+            struct proc *pa = proc_get(a);
+            int g1 = proc_ipc_allow(a, b);
+            int s1 = ipc_send(pa, (uint64_t)b, 0, 0);                         /* authorised while B is alive */
+            int alive_ok = g1 == 0 && s1 == AE_OK && proc_get(b)->mbox.count == 1;
+            if (ends[v].run_first) sched_run(2000);                           /* B ends; A stays BLOCKED, so the scheduler reports DEADLOCK */
+            int gone = proc_destroy(b);
+            int c = proc_create(64, 0, "C");                                  /* first free slot: B's pid again */
+            struct proc *pc = proc_get(c);
+            int reused = c == b && pc && pc->mbox.count == 0;
+            int denied = ipc_send(pa, (uint64_t)c, 0, 0);                     /* no grant for THIS instance */
+            int still_empty = pc->mbox.count == 0;
+            int regrant = proc_ipc_allow(a, c) == 0 && ipc_send(pa, (uint64_t)c, 0, 0) == AE_OK && pc->mbox.count == 1;   /* a fresh, explicit grant works */
+            char name[140]; int n = 0;
+            const char *p1 = "ipc authorisation: recipient "; while (*p1) name[n++] = *p1++;
+            for (const char *q = ends[v].how; *q && n < 100; q++) name[n++] = *q;
+            const char *p2 = ", its pid is reused: the old grant is void (-EPERM), the new process gets nothing, an explicit new grant works"; for (const char *q = p2; *q && n < 139; q++) name[n++] = *q;
+            name[n] = 0;
+            check(name, alive_ok && gone == 0 && reused && denied == AE_EPERM && still_empty && regrant);
+        }
+        destroy_all();
+
+        /* grants to recipients that are not eligible are refused and leave nothing behind */
+        {
+            int a = proc_create(64, 0, "A"), b = proc_create(41, 0, "B");
+            struct proc *pa = proc_get(a);
+            sched_run(2000);                                                  /* A blocks, B exits (TERMINATED) */
+            int bad = proc_ipc_allow(a, 3) < 0 && proc_ipc_allow(a, b) < 0 && proc_ipc_allow(a, 0) < 0 && proc_ipc_allow(a, PROC_MAX + 1) < 0 &&
+                      proc_ipc_allow(0, a) < 0 && proc_ipc_allow(99, a) < 0 && proc_ipc_allow(b, a) < 0;      /* nonexistent, terminated, out of range, dead granter */
+            proc_destroy(b);
+            int x = proc_create(64, 0, "X"), y = proc_create(64, 0, "Y");     /* pids 2 and 3 now exist */
+            int no_latent = x == 2 && y == 3 && ipc_send(pa, 2, 0, 0) == AE_EPERM && ipc_send(pa, 3, 0, 0) == AE_EPERM;   /* refused grants did not linger */
+            int selfok = proc_ipc_allow(a, a) == 0 && proc_ipc_allow(a, a) == 0 && ipc_send(pa, (uint64_t)a, 0, 0) == AE_OK;
+            check("ipc authorisation: grants to nonexistent, terminated, out-of-range recipients or from a dead granter are refused and leave nothing behind; self-grant and repeated grant are fine",
+                  bad && no_latent && selfok);
+        }
+        destroy_all();
+
+        /* the SENDER's slot being reused must not inherit its grants either */
+        {
+            int a = proc_create(64, 0, "A"), b = proc_create(64, 0, "B");
+            int g = proc_ipc_allow(a, b) == 0 && ipc_send(proc_get(a), (uint64_t)b, 0, 0) == AE_OK;
+            proc_destroy(a);
+            int a2 = proc_create(64, 0, "A2");
+            check("ipc authorisation: a new process that reuses the SENDER's pid inherits none of its grants (-EPERM), while the old recipient is still alive",
+                  g && a2 == a && ipc_send(proc_get(a2), (uint64_t)b, 0, 0) == AE_EPERM);
+        }
+        destroy_all();
+
+        /* end to end with real user programs: a sender keeps sending to a pid that now belongs to somebody else */
+        {
+            int sa = proc_create(60, 2, "send"), old = proc_create(41, 0, "old");
+            int g = proc_ipc_allow(sa, old) == 0;
+            proc_destroy(old);
+            int fresh = proc_create(64, 0, "fresh");                           /* reuses pid 2, blocks in receive */
+            r = sched_run(2000);
+            struct proc *S = proc_get(sa), *Fr = proc_get(fresh);
+            check("ipc authorisation (end to end): an EL0 sender whose grant was for the previous occupant of pid 2 gets -EPERM on all three sends; the new occupant's mailbox stays empty",
+                  g && fresh == old && r == SCHED_DEADLOCK && (int64_t)ud(S, 0x20) == AE_EPERM && (int64_t)ud(S, 0x28) == AE_EPERM && (int64_t)ud(S, 0x30) == AE_EPERM && Fr->mbox.count == 0 && Fr->state == PROC_BLOCKED);
+        }
+        destroy_all();
+
+        /* no syscall can grant authority; unknown receive flags are refused */
+        {
+            int t = proc_create(67, 2, "tryall"), o = proc_create(64, 0, "other");
+            r = sched_run(2000);
+            struct proc *T = proc_get(t);
+            check("ipc authorisation: no system call lets a process grant itself permission (numbers 8-40 all -ENOSYS) and its send to an unauthorised pid is -EPERM",
+                  r == SCHED_DEADLOCK && o == 2 && ud(T, 0x20) == 33 && (int64_t)ud(T, 0x28) == AE_EPERM && T->state == PROC_TERMINATED && proc_get(o)->mbox.count == 0);
+            destroy_all();
+            int f1 = proc_create(66, 2, "flags"), f2 = proc_create(66, 3, "flags"), f3 = proc_create(66, 1, "flags");
+            sched_run(2000);
+            check("ipc contract: receive flags other than IPC_NONBLOCK are refused with -EINVAL (2 and 3), while 1 gives -EAGAIN on an empty mailbox",
+                  (int64_t)ud(proc_get(f1), 0x20) == AE_EINVAL && (int64_t)ud(proc_get(f2), 0x20) == AE_EINVAL && (int64_t)ud(proc_get(f3), 0x20) == AE_EAGAIN);
+            destroy_all();
+        }
+
+        /* empty messages */
+        {
+            int p = proc_create(41, 0, "p");
+            uint64_t from = 99;
+            int s = ipc_send(proc_get(p), (uint64_t)p, 0, 0);
+            int d = ipc_dequeue(proc_get(p), 0, 8, &from);
+            check("ipc contract: a zero-length message is legal: it is queued, dequeued with length 0 and the right sender, and the mailbox is empty again",
+                  s == AE_OK && d == 0 && from == (uint64_t)p && proc_get(p)->mbox.count == 0 && ipc_dequeue(proc_get(p), 0, 8, &from) == AE_EAGAIN);
+            destroy_all();
+        }
+
+        /* churn: repeated creation/destruction with grants never lets a stale one through, and nothing leaks */
+        {
+            uint64_t base = free_pages(); int ok = 1;
+            for (int i = 0; i < 20; i++) {
+                int a = proc_create(64, 0, "A"), b = proc_create(i & 1 ? 64 : 41, 0, "B");
+                if (proc_ipc_allow(a, b) != 0 || ipc_send(proc_get(a), (uint64_t)b, 0, 0) != AE_OK) ok = 0;
+                proc_destroy(b);
+                int c = proc_create(64, 0, "C");
+                if (c != b || ipc_send(proc_get(a), (uint64_t)c, 0, 0) != AE_EPERM || proc_get(c)->mbox.count != 0) ok = 0;
+                destroy_all();
+                if (free_pages() != base) ok = 0;
+            }
+            check("ipc authorisation: 20 rounds of grant / destroy recipient / reuse its pid never let a stale grant through, and leak no page", ok);
+        }
+    }
+
     /* ---- table limits and bookkeeping ---- */
     int ids[PROC_MAX + 1], made = 0;
     for (int i = 0; i < PROC_MAX + 1; i++) { ids[i] = proc_create(41, 0, "fill"); if (ids[i] > 0) made++; }

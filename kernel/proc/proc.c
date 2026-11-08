@@ -4,6 +4,7 @@
 #include <proc.h>
 
 static struct proc table[PROC_MAX];
+static uint64_t next_gen = 1;                    /* generation 0 means "no process"; 64 bits never wrap in practice */
 
 const char *proc_state_name(enum proc_state s)
 {
@@ -42,6 +43,7 @@ int proc_create(int role, uint64_t arg1, const char *name)
     struct proc *p = &table[slot];
     kzero(p, sizeof *p);
     p->pid = slot + 1;                                        /* the ASID is the pid */
+    p->gen = next_gen++;                                      /* identifies THIS instance; grants name it, not the reusable pid */
     p->state = PROC_NEW;
     for (int i = 0; i < 15 && name && name[i]; i++) p->name[i] = name[i];
 

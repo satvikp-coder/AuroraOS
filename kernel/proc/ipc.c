@@ -3,10 +3,14 @@
  *
  * Each process owns ONE mailbox (IPC_QUEUE_DEPTH messages of at most IPC_MSG_MAX bytes) that lives in the kernel's process table.
  * send(dest, buf, len): validates len, that dest is a live process, that the caller is authorised for that destination (an
- * explicit bit set by proc_ipc_allow; self-send is always allowed), that the mailbox is not full, and only then copies the
+ * explicit grant made by the kernel with proc_ipc_allow; self-send is always allowed), that the mailbox is not full, and only then copies the
  * bytes from user memory (copy_from_user) into kernel storage. No user pointer is ever retained. A receiver can only dequeue
  * from its OWN mailbox: there is no syscall that names another process's queue, so there is nothing to inspect without authority.
  * receive: copy_to_user into the caller's buffer; if that fails or the buffer is too small the message STAYS queued.
+ * AUTHORISATION LIFETIME: a grant stores the generation of the recipient INSTANCE (a counter that is never reused), not just its
+ * pid. When a recipient ends and its pid is reused, the new process has a different generation, so every old grant simply fails
+ * to match. ipc_cleanup also erases incoming grants explicitly. Grants can only name live processes and only the kernel can make
+ * them (there is no system call for it).
  * Messages already queued survive their sender; a receiver's mailbox is discarded when it exits or faults.
  */
 #include <proc.h>
@@ -15,9 +19,9 @@ static int alive(const struct proc *p) { return p && (p->state == PROC_NEW || p-
 
 int proc_ipc_allow(int from, int to)
 {
-    struct proc *f = proc_get(from);
-    if (!f || to < 1 || to > PROC_MAX) return -1;
-    f->ipc_allow |= 1u << to;
+    struct proc *f = proc_get(from), *t = proc_get(to);
+    if (!alive(f) || !alive(t)) return -1;                    /* nonexistent, out of range, terminated or faulted: nothing is recorded */
+    f->ipc_grant_gen[to] = t->gen;                            /* bound to this recipient instance; repeating the grant is harmless */
     return 0;
 }
 
@@ -27,7 +31,7 @@ int ipc_send(struct proc *from, uint64_t dest, uint64_t ubuf, uint64_t len)
     if (dest < 1 || dest > PROC_MAX) return AE_ESRCH;
     struct proc *to = proc_get((int)dest);
     if (!alive(to)) return AE_ESRCH;
-    if (to != from && !(from->ipc_allow & (1u << dest))) return AE_EPERM;
+    if (to != from && from->ipc_grant_gen[dest] != to->gen) return AE_EPERM;   /* no grant for THIS instance (stale grants never match) */
     if (to->mbox.count >= IPC_QUEUE_DEPTH) return AE_EAGAIN;
     struct ipc_msg m;
     m.from = (uint8_t)from->pid; m.len = (uint8_t)len;
@@ -58,4 +62,5 @@ void ipc_cleanup(struct proc *p)
 {
     for (int i = 0; i < IPC_QUEUE_DEPTH; i++) { p->mbox.q[i].len = 0; for (int k = 0; k < IPC_MSG_MAX; k++) p->mbox.q[i].data[k] = 0; }
     p->mbox.head = 0; p->mbox.count = 0; p->rx_pending = 0;
+    for (int q = 1; q <= PROC_MAX; q++) { struct proc *o = proc_get(q); if (o) o->ipc_grant_gen[p->pid] = 0; }   /* revoke every grant that named this process */
 }

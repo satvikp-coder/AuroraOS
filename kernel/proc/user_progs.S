@@ -87,6 +87,10 @@ user_blob_start:
     b.eq    role_recv_once
     cmp     x0, #65
     b.eq    role_flood
+    cmp     x0, #66
+    b.eq    role_recv_flags
+    cmp     x0, #67
+    b.eq    role_tryall
     cmp     x0, #68
     b.eq    role_send_two
     mov     x0, #99
@@ -564,6 +568,47 @@ role_send_two:
     str     x0, [x20, #0x20]
     add     x0, x19, #1
     adr     x1, msg_cd
+    mov     x2, #2
+    sys     SYS_SEND
+    str     x0, [x20, #0x28]
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
+/* role 66: one NON-BLOCKING-or-not receive with the flags in x1 (anything but 0 or 1 must be refused); result at [0x20] */
+role_recv_flags:
+    ldr     x20, =DATA_VA
+    mov     x2, x1
+    add     x0, x20, #0x200
+    mov     x1, #64
+    sys     SYS_RECV
+    str     x0, [x20, #0x20]
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
+/* role 67: try every unknown system call number 8..40 (all must be -ENOSYS: there is no way to grant oneself authority),
+ * then send to the pid in x1 which this process was never authorised to message. [0x20] = number of -ENOSYS, [0x28] = send result. */
+role_tryall:
+    ldr     x20, =DATA_VA
+    mov     x19, x1
+    mov     x21, #8
+    mov     x22, #0
+ta_loop:
+    mov     x0, #2
+    mov     x1, #0
+    mov     x2, #0
+    mov     x8, x21
+    svc     #0
+    cmn     x0, #4                      /* x0 == -4 (AE_ENOSYS)? */
+    cset    x3, eq
+    add     x22, x22, x3
+    add     x21, x21, #1
+    cmp     x21, #41
+    b.lt    ta_loop
+    str     x22, [x20, #0x20]
+    mov     x0, x19
+    adr     x1, msg_m
     mov     x2, #2
     sys     SYS_SEND
     str     x0, [x20, #0x28]

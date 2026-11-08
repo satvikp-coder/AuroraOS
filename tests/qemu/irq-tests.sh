@@ -32,7 +32,7 @@ run_qemu() { # kernel machine memory log
     : > "$4"; TIMED_OUT=1
     qemu-system-aarch64 -machine "$2" -cpu cortex-a53 -smp 1 -m "$3" -kernel "$1" -nographic -serial file:"$4" -monitor none &
     pid=$!; i=0
-    while [ "$i" -lt 80 ]; do
+    while [ "$i" -lt 240 ]; do
         if grep -qE "Boot complete|KERNEL PANIC|SELFTEST FAILED|did not fault|Kernel halted" "$4" 2>/dev/null; then TIMED_OUT=0; break; fi
         kill -0 "$pid" 2>/dev/null || { TIMED_OUT=0; break; }
         sleep 0.5; i=$((i + 1))

@@ -95,6 +95,12 @@ exception handling (no kernel preemption).
   stack is held). A send to a blocked receiver makes it `READY`; its receive completes when it is next scheduled, with ITS page tables
   live, so the copy into its buffer uses the normal hardware EL0 check. If nothing is runnable and some process is blocked,
   `sched_run` returns `SCHED_DEADLOCK` to the kernel instead of hanging.
+* **Authorisation lifetime (pid reuse):** a grant records the **generation** of the recipient instance (a 64-bit counter assigned at
+  process creation and never reused), not just its pid. When a recipient exits, faults or is destroyed and its pid is reused, the
+  new process has a different generation, so every old grant fails to match (`-EPERM`); `ipc_cleanup` also erases grants that
+  named the ended process. `proc_ipc_allow` is kernel-only (there is no system call: numbers 8-40 are all `-ENOSYS`), records
+  nothing unless BOTH processes are live, and a new process starts with no grants of its own (the process slot is zeroed).
+  Receive flags other than `IPC_NONBLOCK` are `-EINVAL`; a zero-length message is legal.
 * **Lifetime:** queued messages survive their sender; a receiver's mailbox is wiped when it exits, faults or is destroyed, and later
   sends to it return `-ESRCH`.
 * Limits: no capability to receive from a specific sender, no timeouts on blocking receive, no message priorities, no shared memory.

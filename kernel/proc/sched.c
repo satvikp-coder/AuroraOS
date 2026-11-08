@@ -177,7 +177,7 @@ static void do_syscall(struct exc_frame *f, struct proc *p)
     }
     case SYS_RECV: {
         uint64_t buf = f->x[0], max = f->x[1], flags = f->x[2], from = 0;
-        if (max == 0 || max > PAGE_SIZE) { f->x[0] = (uint64_t)(int64_t)AE_EINVAL; return; }
+        if (max == 0 || max > PAGE_SIZE || (flags & ~(uint64_t)IPC_NONBLOCK)) { f->x[0] = (uint64_t)(int64_t)AE_EINVAL; return; }   /* unknown flag bits are refused, not ignored */
         int r = ipc_dequeue(p, buf, max, &from);
         if (r != AE_EAGAIN) { f->x[0] = (uint64_t)(int64_t)r; f->x[1] = from; return; }
         if (flags & IPC_NONBLOCK) { f->x[0] = (uint64_t)(int64_t)AE_EAGAIN; return; }
