@@ -103,7 +103,6 @@
       root.style.removeProperty("--motion-slow");
     }
     syncDock();
-    showToast(`${state.theme} · ${state.tier} · contrast ${state.contrast}`);
   }
 
   function setPreviewWidth() {
@@ -158,13 +157,16 @@
   }
 
   // ---------- Index ----------
+  // Screens may contribute searchable items: fn(query) -> [{kind, label, meta, action?}]. Text only, never HTML.
+  const indexSources = [];
   function renderIndex() {
     const box = document.getElementById("index-results");
     const input = document.getElementById("index-query");
     if (!box) return;
     const q = state.indexQuery.toLowerCase();
-    box.innerHTML = "";
-    const results = mockIndex.filter((i) => i.label.toLowerCase().includes(q) || i.meta.toLowerCase().includes(q));
+    box.replaceChildren();
+    let results = mockIndex.filter((i) => i.label.toLowerCase().includes(q) || i.meta.toLowerCase().includes(q));
+    indexSources.forEach((fn) => { results = results.concat(fn(state.indexQuery) || []); });
     box.setAttribute("aria-expanded", results.length > 0 ? "true" : "false");
     results.forEach((item) => {
       const div = document.createElement("div");
@@ -172,7 +174,9 @@
       div.setAttribute("role", "option");
       div.setAttribute("tabindex", "0");
       div.setAttribute("aria-label", item.kind + ": " + item.label + ", " + item.meta);
-      div.innerHTML = `<strong>${item.label}</strong><span class="meta">${item.kind} &middot; ${item.meta}</span>`;
+      const strong = document.createElement("strong"); strong.textContent = item.label;
+      const meta = document.createElement("span"); meta.className = "meta"; meta.textContent = item.kind + " \u00b7 " + item.meta;
+      div.appendChild(strong); div.appendChild(meta);
       div.addEventListener("click", () => selectIndex(item));
       div.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectIndex(item); } });
       box.appendChild(div);
@@ -182,6 +186,7 @@
   }
 
   function selectIndex(item) {
+    if (typeof item.action === "function") { announce("Opening " + item.label); item.action(); return; }
     announce("Selected " + item.label);
     showToast("Opened " + item.label + " (simulated)");
     showScreen("screen-home");
@@ -417,6 +422,7 @@
         state.motion = selMotion.value;
         state.auraFlow = selFlow.value;
         applyTheme();
+        showToast(`${state.theme} · ${state.tier} · contrast ${state.contrast}`);
         setPreviewWidth();
         renderSpaces();
         renderPlan();
@@ -474,6 +480,10 @@
     onScreenShow(fn) { screenListeners.push(fn); },
     setAppearance(theme) { state.theme = theme; applyTheme(); },
     setTier(tier) { state.tier = tier; applyTheme(); },
+    setMotion(m) { state.motion = m === "reduce" ? "reduce" : "normal"; applyTheme(); },
+    setContrast(c) { state.contrast = c === "high" ? "high" : "normal"; applyTheme(); },
+    registerIndexSource(fn) { indexSources.push(fn); },
+    refreshIndex() { renderIndex(); },
     switchSpace(id) { switchSpace(id); },
   };
 

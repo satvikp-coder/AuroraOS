@@ -29,7 +29,7 @@ An independent, open-source ARM64 operating system with the **Aurora Glass** UI 
 - Tests: 93 in-kernel checks, 128 QEMU checks (RAM sizes, EL2 entry, missing device tree, five deliberate-fault kernels), host-side parser/policy tests with sanitizers.
 
 **Browser prototype (host only)**
-- Home, Aurora Dock, Spaces, Index search, Aura Plan sheet, Pages (simulated multitasking and memory), Quick Center (simulated controls); Clear and Soft Glass tiers, light/dark, keyboard and reduced-motion support.
+- Home, Aurora Dock, Spaces, Index search, Aura Plan sheet, Pages (simulated multitasking and memory), Quick Center (simulated controls), Settings (one registry, simple and advanced views, searchable from Index; each entry is labelled live, stored-only or locked); Clear and Soft Glass tiers, light/dark, high contrast, 150%/200% text, reduced motion, keyboard support.
 - Everything is simulated. Changing a toggle changes the prototype, never your computer or phone.
 
 **Aura Action Broker (mock)**: typed actions, risk classes S0-S3, permissions that fail closed, approvals bound to the exact plan, undo from real receipts. It documents its own limits: it is JavaScript in one browser context, not a security boundary. The native broker must run in a privileged OS service.

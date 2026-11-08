@@ -122,3 +122,8 @@
 /* Token CSS classes applied by JS for dynamic state */
 .tier-clear { --glass-surface: var(--color-surface-opaque); --glass-dock: var(--color-surface-opaque); --bd: none; }
 .tier-soft { --glass-surface: var(--color-surface-glass); --glass-dock: var(--color-dock-glass); --bd: var(--backdrop-blur); }
+
+/* Text size (Settings > Accessibility): scale every text token. 125% / 150% / 200% of the base scale. */
+:root[data-text-scale="125"] { --text-xs: 15px; --text-sm: 17.5px; --text-base: 20px; --text-lg: 22.5px; --text-xl: 30px; --text-2xl: 37.5px; --text-3xl: 42.5px; }
+:root[data-text-scale="150"] { --text-xs: 18px; --text-sm: 21px; --text-base: 24px; --text-lg: 27px; --text-xl: 36px; --text-2xl: 45px; --text-3xl: 51px; }
+:root[data-text-scale="200"] { --text-xs: 24px; --text-sm: 28px; --text-base: 32px; --text-lg: 36px; --text-xl: 48px; --text-2xl: 60px; --text-3xl: 68px; }

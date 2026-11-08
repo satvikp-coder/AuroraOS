@@ -52,9 +52,9 @@ test.describe("Pages", () => {
   });
 
   test("pinned tools open a real page entry instead of doing nothing", async ({ page }) => {
-    await page.getByRole("button", { name: "Open Settings" }).click();
+    await page.getByRole("button", { name: "Open Calendar" }).click();
     await expect(page.locator("#screen-pages")).toBeVisible();
-    await expect(page.locator('[data-page="page-settings"] .state-badge')).toHaveText(/Running/);
+    await expect(page.locator('[data-page="page-calendar"] .state-badge')).toHaveText(/Running/);
   });
 
   test("completing the Aura study plan enables focus and opens Notes", async ({ page }) => {
