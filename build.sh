@@ -39,6 +39,10 @@ case "$AURORA_TEST_ENTRY" in
     el1t)   ASFLAGS="--defsym AURORA_TEST_ENTRY_EL1T=1";   CFLAGS="$CFLAGS -DAURORA_TEST_ENTRY=2" ;;
     *) echo "unknown AURORA_TEST_ENTRY=$AURORA_TEST_ENTRY" >&2; exit 2 ;;
 esac
+# Test-only SVC hooks are compiled in unless AURORA_PRODUCTION=1.
+if [ -z "$AURORA_PRODUCTION" ]; then
+    CFLAGS="$CFLAGS -DAURORA_SELFTEST_HOOKS=1"
+fi
 if [ -n "$AURORA_FIXED_RAM" ]; then
     CFLAGS="$CFLAGS -DAURORA_FIXED_RAM=1"
 fi
@@ -51,14 +55,14 @@ mkdir -p "$BUILD_DIR"
 OBJS=""
 
 echo "[build] Assembling..."
-for s in boot/aarch64/start.S kernel/arch/aarch64/vectors.S kernel/arch/aarch64/exc_selftest.S; do
+for s in boot/aarch64/start.S kernel/arch/aarch64/vectors.S kernel/arch/aarch64/exc_selftest.S kernel/proc/user_progs.S; do
     o="$BUILD_DIR/$(basename "$s" .S).o"
     $AS -march=armv8-a $ASFLAGS -o "$o" "$s"
     OBJS="$OBJS $o"
 done
 
 echo "[build] Compiling kernel..."
-for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
+for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
          kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do
     o="$BUILD_DIR/$(basename "$c" .c).o"
     $CC $CFLAGS -c "$c" -o "$o"

@@ -68,6 +68,8 @@ exc_common:
     ldp     x1, x2,   [sp, #248]
     msr     elr_el1, x1
     msr     spsr_el1, x2
+    ldr     x1,       [sp, #288]
+    msr     sp_el0, x1                    /* the interrupted/next context's SP_EL0: a user stack, or the kernel's */
     ldp     x2, x3,   [sp, #16]
     ldp     x4, x5,   [sp, #32]
     ldp     x6, x7,   [sp, #48]

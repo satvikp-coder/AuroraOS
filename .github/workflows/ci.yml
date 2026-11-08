@@ -97,6 +97,10 @@ jobs:
         run: |
           chmod +x tests/kernel-host/run.sh
           ./tests/kernel-host/run.sh
+      - name: Run userspace tests (EL0 processes, syscalls, scheduler, isolation)
+        run: |
+          chmod +x tests/qemu/process-tests.sh
+          ./tests/qemu/process-tests.sh
       - name: Run interrupt, timer and exception-stack tests
         run: |
           chmod +x tests/qemu/irq-tests.sh

@@ -21,7 +21,7 @@ SECTIONS
     __text_end = .;
 
     __rodata_start = .;
-    .rodata : { *(.rodata) *(.rodata.*) }
+    .rodata : { *(.rodata) *(.rodata.*) *(.user_blob) }
     . = ALIGN(4096);
     __rodata_end = .;
 

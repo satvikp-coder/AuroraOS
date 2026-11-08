@@ -16,6 +16,7 @@
 #include <gic.h>
 #include <irq.h>
 #include <irqtest.h>
+#include <proctest.h>
 #include <timer.h>
 #include <mm.h>
 #include <selftest.h>
@@ -125,12 +126,18 @@ void kernel_main(uint64_t dtb)
         irqtest_run(&plat);
         if (irqtest_summary()) { console_puts("INTERRUPT SELFTEST FAILED\n"); halt_forever(); }
         console_puts("Interrupts and timer OK\n");
+
+        /* 5. Userspace: real EL0 processes, syscalls, scheduler, isolation. */
+        proctest_run();
+        if (proctest_summary()) { console_puts("PROCESS SELFTEST FAILED\n"); halt_forever(); }
+        console_puts("Userspace OK\n");
     } else {
         console_puts("Interrupt tests skipped: no device tree (dev mode)\n");
     }
 
     selftest_fault();   /* no-ops unless this is a deliberate fault-test build */
     irqtest_fault();
+    proctest_fault();
     console_puts("Boot complete, idling.\n");
     halt_forever();
 }
