@@ -27,6 +27,8 @@ uint64_t blk_requests(void);
 uint64_t blk_timeouts(void);
 void     blk_test_stall_next(int on);                          /* tests only: skip the doorbell so the next request must time out */
 void     blk_test_set_timeout_ms(uint32_t ms);
+void     blk_test_drop_writes_after(int n);                    /* tests only: after n more writes, writes/flushes silently do nothing (a power cut); n < 0 = off */
+uint64_t blk_writes_done(void);                                /* write requests actually sent to the device */
 
 void blktest_run(void);        /* in-kernel tests; a note only when no disk is attached */
 int  blktest_summary(void);

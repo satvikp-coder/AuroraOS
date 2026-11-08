@@ -65,3 +65,37 @@ Single outstanding request; polled (a 1 s worst-case stall blocks the CPU); no i
 no scatter-gather from callers; only block size 512; modern transport only; the lost-doorbell timeout is simulated by skipping
 the doorbell, not by a hung real device; behaviour on I/O error mid-multi-sector write is "stops at the failing chunk" (no
 atomicity); nothing is claimed about crash consistency. QEMU only.
+
+# AuroraFS v1 (issue #6, milestone B)
+
+Kernel-internal filesystem over `blk_*` (`kernel/fs/afs.c`, `kernel/include/fs.h`). No EL0 access yet (milestone C): authorization
+is already enforced in the filesystem API per *principal* (0 = kernel, never given to a process; others identify owners).
+
+**On-disk format** (512-byte sectors, little-endian): sector 0 superblock (`AURORAFS`, version 1, geometry, CRC-32); sectors 1-16
+inode table, 32 inodes x 256 B (state, generation, owner, permission bits, size, block count, data CRC-32, name, 48 block
+pointers, inode CRC-32); data from sector 17. There is **no stored allocation bitmap**: free space is rebuilt from the inodes at
+mount, so it cannot disagree with them. Flat namespace, names `[A-Za-z0-9._-]` of 1-31 characters, files up to 24 KiB.
+
+**Ids and authorization:** a file id is `(generation << 8) | slot`. Deleting keeps the slot's generation, so an old id never names
+a later file (the PID-reuse lesson applied again). Ids are *not* secrets: every operation checks permission bits (owner r/w, other
+r/w); owner-only files are hidden from `lookup` (indistinguishable from absent) and a principal that guesses the exact id still gets
+`FS_EACCES`. Only the owner or the kernel may delete or change permissions.
+
+**Mount** validates and writes nothing: magic, version (`FS_EVERSION`), CRCs, geometry, per-inode sanity, block ranges, no sector used twice,
+no duplicate names, never-used slots all zero. Any failure leaves the filesystem unmounted. No automatic repair or format (`fs_format`
+is an explicit call, used only by test kernels). File data is checked against its CRC on every read, so silent corruption returns an
+error, never wrong bytes.
+
+**Write ordering:** whole-file copy-on-write: new data to free sectors, flush, one inode sector, flush. Tested by dropping every device
+write after the k-th for every k (and for create and delete): after remount the file is exactly the old or exactly the new content, and
+the filesystem always mounts. **This is simulated power loss with in-order writes, not a real power cut, and it assumes the device honours
+flush and 512-byte writes are atomic.** Mutation checks: writing the inode before the data fails the sweep; disabling the data CRC fails
+the corruption test.
+
+**Limits:** 32 files, 24 KiB per file, flat namespace, whole-file rewrite on every write (so a file larger than half the free space
+cannot be appended to: `FS_ENOSPC`, documented and tested), 32 MiB maximum filesystem (RAM allocation map), single mount, no
+timestamps, no concurrency control (single CPU, callers are not preempted inside the filesystem), QEMU only.
+
+**Tests:** `tests/qemu/fs-tests.sh` (81 checks, in CI): three boots on one image (format + 39 checks; then 17 checks each on mount without
+formatting incl. injected corruption), host-side proof that the bytes are in the image file, host-damaged images (flipped inode bit, wrong
+version, foreign content, flipped superblock bit) reported precisely with the image checksum unchanged, read-only disk, no disk.

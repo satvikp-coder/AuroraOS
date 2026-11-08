@@ -83,6 +83,9 @@ static struct {
     uint8_t *bounce;
     uintptr_t ring_page, req_page, bounce_page;
     int stall_next;
+    int dropping;
+    int drop_after;                  /* tests only: >= 0 => remaining writes before the simulated power cut */
+    uint64_t writes;
     uint64_t requests, timeouts;
     int failed;
 } D;
@@ -160,7 +163,7 @@ static int device_setup(void)
 int blk_init(const void *fdt)
 {
     static struct fdt_virtio nodes[32];
-    D.present = 0; D.failed = 0;
+    D.present = 0; D.failed = 0; D.drop_after = -1; D.dropping = 0;
     if (!fdt) return BLK_ENODEV;
     int n = fdt_virtio_mmio(fdt, nodes, 32);
     if (n <= 0) return BLK_ENODEV;
@@ -211,6 +214,8 @@ const struct blk_info *blk_get_info(void) { return &INFO; }
 uint64_t blk_requests(void) { return D.requests; }
 uint64_t blk_timeouts(void) { return D.timeouts; }
 void blk_test_stall_next(int on) { D.stall_next = on; }
+void blk_test_drop_writes_after(int n) { D.drop_after = n < 0 ? -1 : n; D.dropping = 0; }
+uint64_t blk_writes_done(void) { return D.writes; }
 void blk_test_set_timeout_ms(uint32_t ms) { D.timeout_ms = ms ? ms : 1000; }
 
 /* Submit one request chain (header [+ data] + status) and wait, bounded, for completion. */
@@ -288,7 +293,10 @@ int blk_write(uint64_t sector, const void *buf, uint32_t nsect)
     const uint8_t *in = (const uint8_t *)buf;
     while (nsect) {
         uint32_t c = nsect > CHUNK_SECTORS ? CHUNK_SECTORS : nsect;
+        if (D.drop_after >= 0 && (D.dropping || D.drop_after == 0)) { D.dropping = 1; in += c * BLK_SECTOR; sector += c; nsect -= c; continue; }   /* power cut: lost */
+        if (D.drop_after > 0) D.drop_after--;
         for (uint32_t i = 0; i < c * BLK_SECTOR; i++) D.bounce[i] = in[i];
+        D.writes++;
         rc = submit(T_OUT, sector, c * BLK_SECTOR, 0);
         if (rc) return rc;
         in += c * BLK_SECTOR; sector += c; nsect -= c;
@@ -299,6 +307,7 @@ int blk_write(uint64_t sector, const void *buf, uint32_t nsect)
 int blk_flush(void)
 {
     if (!blk_present()) return BLK_ENODEV;
+    if (D.dropping) return BLK_OK;                              /* tests only: after the simulated power cut nothing reaches the device */
     if (D.readonly || !D.has_flush) return BLK_OK;               /* nothing cached to flush */
     return submit(T_FLUSH, 0, 0, 0);
 }

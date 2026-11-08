@@ -1,0 +1,57 @@
+#ifndef AURORA_FS_H
+#define AURORA_FS_H
+#include <stdint.h>
+
+/*
+ * AuroraFS v1 — a deliberately small persistent filesystem on top of the kernel block interface (blk.h).
+ * Flat namespace, 32 files, names of 1..31 characters, files up to 24 KiB. See docs/kernel/storage.md for the on-disk
+ * format, the write ordering, the authorization model and the limits.
+ *
+ * Principals: 0 is the KERNEL (may do anything; never assigned to a process). Any other value identifies an owner; milestone C
+ * binds it to a process instance. Authorization is by permission bits on every operation, never by secrecy of a file id.
+ */
+#define FS_NAME_MAX    31
+#define FS_MAX_FILES   32
+#define FS_MAX_BLOCKS  48
+#define FS_MAX_FILE    (FS_MAX_BLOCKS * 512)
+
+#define FS_PERM_OWNER_R 0x1u
+#define FS_PERM_OWNER_W 0x2u
+#define FS_PERM_OTHER_R 0x4u
+#define FS_PERM_OTHER_W 0x8u
+#define FS_PERM_MASK    0xFu
+#define FS_PERM_DEFAULT (FS_PERM_OWNER_R | FS_PERM_OWNER_W)
+
+enum {
+    FS_OK = 0, FS_EARG = -1, FS_ENOENT = -2, FS_EEXIST = -3, FS_ENOSPC = -4, FS_ENFILE = -5, FS_EFBIG = -6, FS_EACCES = -7,
+    FS_EBADID = -8, FS_ECORRUPT = -9, FS_EVERSION = -10, FS_ENOFS = -11, FS_EIO = -12, FS_ENAME = -13, FS_EMOUNT = -14,
+    FS_ENODEV = -15, FS_ERO = -16
+};
+
+typedef uint64_t fs_id_t;      /* (generation << 8) | inode index: a stale or forged id never names a different, newer file */
+
+struct fs_stat { fs_id_t id; uint32_t size, owner, perm; char name[FS_NAME_MAX + 1]; };
+
+int  fs_format(uint32_t total_sectors);          /* WIPES the first total_sectors of the device (0 = whole device). Explicit, never automatic. */
+int  fs_mount(void);                             /* read-only validation + load; never formats, never repairs, never writes */
+int  fs_mounted(void);
+void fs_unmount(void);
+
+int  fs_create(uint32_t principal, const char *name, uint32_t perm, fs_id_t *id);
+int  fs_lookup(uint32_t principal, const char *name, fs_id_t *id);   /* FS_ENOENT also hides files the principal may not touch */
+int  fs_read(uint32_t principal, fs_id_t id, uint32_t off, void *buf, uint32_t len);        /* bytes read (short at EOF) or FS_E* */
+int  fs_write(uint32_t principal, fs_id_t id, uint32_t off, const void *buf, uint32_t len); /* len, or FS_E*; off <= size (no holes) */
+int  fs_delete(uint32_t principal, fs_id_t id);
+int  fs_set_perm(uint32_t principal, fs_id_t id, uint32_t perm);                             /* owner or kernel only */
+int  fs_stat(uint32_t principal, fs_id_t id, struct fs_stat *st);
+int  fs_list(uint32_t principal, struct fs_stat *out, int max);                             /* files the principal may read; count */
+
+uint32_t fs_free_blocks(void);
+uint32_t fs_file_count(void);
+const char *fs_strerror(int rc);
+int  fs_validate_name(const char *name);
+uint32_t fs_crc32(const void *p, uint32_t n);                       /* CRC-32 (IEEE) used for every checksum; exposed so tests can forge valid-looking bad metadata */
+
+void fstest_run(void);
+int  fstest_summary(void);
+#endif
