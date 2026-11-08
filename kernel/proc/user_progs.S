@@ -71,6 +71,8 @@ user_blob_start:
     b.eq    role_exit7
     cmp     x0, #42
     b.eq    role_badsvc
+    cmp     x0, #50
+    b.eq    role_cpu
     mov     x0, #99
     sys     SYS_EXIT
     b       .
@@ -287,6 +289,78 @@ role_stale:
     cbz     x2, 1f
     mov     x0, #1
 1:  sys     SYS_EXIT
+    b       .
+
+/*
+ * ---- Program CPU: never calls yield. x1 = how many scheduler ticks to run for. ----
+ * It can only share the CPU with other processes if the kernel PREEMPTS it from a timer interrupt. Every burst it checks that
+ *   - x23-x28 still hold its own pattern (seed derived from its pid, so another process's registers would be detected), and
+ *   - SP is still the value it started with (SP_EL0 is saved and restored per process).
+ * Results: [0] iterations, [8] completion marker 0xCCCC, [0x10] register mismatches, [0x28] stack-pointer mismatches.
+ */
+role_cpu:
+    mov     x19, sp
+    ldr     x20, =DATA_VA
+    mov     x12, x1
+    sys     SYS_GETPID
+    lsl     x22, x0, #56
+    ldr     x2, =0x12345678AB000000
+    orr     x22, x22, x2                /* seed = pid<<56 | constant */
+    add     x23, x22, #1
+    add     x24, x22, #2
+    add     x25, x22, #3
+    add     x26, x22, #4
+    add     x27, x22, #5
+    add     x28, x22, #6
+    mov     x9, #0                      /* register mismatches */
+    mov     x10, #0                     /* stack-pointer mismatches */
+    sys     SYS_TICKS
+    add     x21, x0, x12                /* end = now + duration */
+cpu_loop:
+    mov     x11, #3000
+cpu_inner:
+    ldr     x2, [x20]
+    add     x2, x2, #1
+    str     x2, [x20]
+    subs    x11, x11, #1
+    b.ne    cpu_inner
+    add     x2, x22, #1
+    cmp     x23, x2
+    cset    x3, ne
+    add     x9, x9, x3
+    add     x2, x22, #2
+    cmp     x24, x2
+    cset    x3, ne
+    add     x9, x9, x3
+    add     x2, x22, #3
+    cmp     x25, x2
+    cset    x3, ne
+    add     x9, x9, x3
+    add     x2, x22, #4
+    cmp     x26, x2
+    cset    x3, ne
+    add     x9, x9, x3
+    add     x2, x22, #5
+    cmp     x27, x2
+    cset    x3, ne
+    add     x9, x9, x3
+    add     x2, x22, #6
+    cmp     x28, x2
+    cset    x3, ne
+    add     x9, x9, x3
+    mov     x2, sp
+    cmp     x2, x19
+    cset    x3, ne
+    add     x10, x10, x3
+    sys     SYS_TICKS
+    cmp     x0, x21
+    b.lt    cpu_loop
+    str     x9, [x20, #0x10]
+    str     x10, [x20, #0x28]
+    ldr     x3, =0xCCCC
+    str     x3, [x20, #8]
+    mov     x0, #0
+    sys     SYS_EXIT
     b       .
 
 role_spin:                              /* never yields: only preemption or the watchdog can stop it */

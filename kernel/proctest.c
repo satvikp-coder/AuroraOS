@@ -61,6 +61,29 @@ static void fault_scenario(const struct fault_case *c, uint64_t arg)
     }
 }
 
+struct pair_result { uint64_t r; struct proc *a, *b; };
+
+/* Two copies of the never-yielding CPU program (role 50), x1 = duration in scheduler ticks, run with timer preemption on. */
+static void run_cpu_pair(uint64_t dur_a, uint64_t dur_b, uint32_t quantum, struct pair_result *o, int *pa, int *pb)
+{
+    destroy_all(); sched_stats_reset();
+    *pa = proc_create(50, dur_a, "cpu-a"); *pb = proc_create(50, dur_b, "cpu-b");
+    sched_set_preempt(1, quantum);
+    o->r = sched_run(5000);
+    sched_set_preempt(0, 0);
+    o->a = proc_get(*pa); o->b = proc_get(*pb);
+}
+
+/* Every recorded timer tick was handled at or after its deadline, and consecutive deadlines are at least one period apart. */
+static int timer_hist_sane(void)
+{
+    uint32_t n; const struct timer_tick_record *h = timer_history(&n);
+    if (n < 2) return 1;
+    for (uint32_t i = 0; i < n; i++) if (!timer_reached(h[i].seen_at, h[i].deadline)) return 0;
+    for (uint32_t i = 1; i < n; i++) if ((h[i].deadline - h[i - 1].deadline) < timer_period()) return 0;
+    return 1;
+}
+
 void proctest_run(void)
 {
     const uint64_t pages0 = free_pages();
@@ -283,6 +306,91 @@ void proctest_run(void)
         check("a live process whose address space received rejected mapping requests keeps its mappings and still runs to completion",
               r1 < 0 && r2 < 0 && t1 == 0 && pa1 == pv->data_pa && t2 == 0 && pa2 == pv->code_pa && rr == SCHED_ALL_DONE && pv->state == PROC_TERMINATED && ud(pv, 0) == 5);
         destroy_all();
+    }
+
+    /* ---- timer preemption: processes that NEVER yield must still share the CPU, switched by real timer interrupts ---- */
+    {
+        struct pair_result pr; int ia, ib;
+        const uint64_t t_before = timer_ticks();
+        run_cpu_pair(30, 30, 2, &pr, &ia, &ib);
+        const struct sched_stats *st = sched_get_stats();
+        const uint64_t timer_delta = timer_ticks() - t_before;
+        int done = pr.r == SCHED_ALL_DONE && pr.a && pr.b && pr.a->state == PROC_TERMINATED && pr.b->state == PROC_TERMINATED && pr.a->exit_code == 0 && pr.b->exit_code == 0;
+        check("preemption: two EL0 processes that never call yield both ran to completion, sharing the CPU",
+              done && ud(pr.a, 8) == 0xCCCC && ud(pr.b, 8) == 0xCCCC && ud(pr.a, 0) > 0 && ud(pr.b, 0) > 0);
+        check("preemption: every switch between them was a TIMER switch (0 voluntary yields, several preemptions of each)",
+              done && pr.a->yields == 0 && pr.b->yields == 0 && pr.a->preemptions >= 2 && pr.b->preemptions >= 2 && st->preemptions == pr.a->preemptions + pr.b->preemptions &&
+              st->switches == pr.a->switches_in + pr.b->switches_in && st->preemptions >= 8);
+        check("preemption: each timer interrupt hit the middle of user code and returned through ERET: registers x23-x28 and SP_EL0 intact in both processes after every burst",
+              done && st->preempt_elr_in_user == st->preemptions && ud(pr.a, 0x10) == 0 && ud(pr.b, 0x10) == 0 && ud(pr.a, 0x28) == 0 && ud(pr.b, 0x28) == 0);
+        check("preemption: TTBR0_EL1 (table + ASID) matched the running process on every exception from EL0, and the two processes use different ASIDs",
+              st->ttbr_checks > 20 && st->ttbr_mismatch == 0 && pr.a->as.asid != pr.b->as.asid && aspace_ttbr(&pr.a->as) != aspace_ttbr(&pr.b->as));
+        check("preemption: tick accounting is coherent (scheduler ticks == timer interrupts taken, timer deadlines never early, each process was charged ticks)",
+              sched_ticks() == timer_delta && timer_hist_sane() && pr.a->ticks_run > 0 && pr.b->ticks_run > 0 && pr.a->ticks_run + pr.b->ticks_run <= sched_ticks() + 1);
+        destroy_all();
+
+        /* a fault while preempting: the healthy process keeps running and finishes */
+        destroy_all(); sched_stats_reset();
+        int bad = proc_create(10, (uint64_t)(uintptr_t)&kernel_secret, "bad"), good = proc_create(50, 25, "good");
+        sched_set_preempt(1, 2);
+        r = sched_run(5000);
+        sched_set_preempt(0, 0);
+        struct proc *pbad = proc_get(bad), *pgood = proc_get(good);
+        check("preemption: a user fault under preemption stops only the faulting process; the healthy one is unaffected and finishes",
+              r == SCHED_ALL_DONE && pbad->state == PROC_FAULTED && ((pbad->fault_esr >> 26) & 0x3F) == 0x24 && ud(pbad, 0x40) == 0 && pgood->state == PROC_TERMINATED && ud(pgood, 8) == 0xCCCC && ud(pgood, 0x10) == 0);
+        destroy_all();
+
+        /* the survivor continues alone */
+        run_cpu_pair(45, 8, 2, &pr, &ia, &ib);
+        check("preemption: when one process exits, the single remaining runnable process continues alone and completes",
+              pr.r == SCHED_ALL_DONE && pr.a->state == PROC_TERMINATED && pr.b->state == PROC_TERMINATED && ud(pr.a, 8) == 0xCCCC && pr.b->switches_in >= 1 && pr.a->preemptions >= 1 && pr.a->ticks_run > pr.b->ticks_run);
+        destroy_all();
+
+        /* the watchdog still works with preemption on, and both spinners made progress before it fired */
+        destroy_all(); sched_stats_reset();
+        int s1 = proc_create(31, 0, "spin1"), s2 = proc_create(31, 0, "spin2");
+        sched_set_preempt(1, 2);
+        r = sched_run(40);
+        sched_set_preempt(0, 0);
+        struct proc *q1 = proc_get(s1), *q2 = proc_get(s2);
+        check("preemption: with two never-yielding loops the watchdog still returns control (SCHED_TIMEOUT); both loops made progress, both are READY",
+              r == SCHED_TIMEOUT && q1->state == PROC_READY && q2->state == PROC_READY && ud(q1, 0) > 0 && ud(q2, 0) > 0 && sched_get_stats()->timeouts == 1 && !sched_active() && get_ttbr0() == vmm_kernel_l1_pa());
+        destroy_all();
+
+        /* invalid scheduling states fail safely */
+        r = sched_run(100);
+        int none_ok = r == SCHED_ALL_DONE && !sched_active();
+        int f1 = proc_create(10, (uint64_t)(uintptr_t)&kernel_secret, "f"); struct proc *pf = proc_get(f1);
+        sched_run(2000);
+        uint64_t sw = pf->switches_in; int was_faulted = pf->state == PROC_FAULTED;
+        r = sched_run(2000);
+        check("scheduler safety: running with no processes returns at once; a FAULTED/TERMINATED process is never scheduled again; the kernel context is always restored",
+              none_ok && was_faulted && r == SCHED_ALL_DONE && pf->state == PROC_FAULTED && pf->switches_in == sw && get_ttbr0() == vmm_kernel_l1_pa());
+        destroy_all();
+
+        /* quantum lengths */
+        run_cpu_pair(40, 40, 1, &pr, &ia, &ib);
+        uint64_t p_q1 = sched_get_stats()->preemptions; int ok1 = pr.r == SCHED_ALL_DONE && ud(pr.a, 0x10) == 0 && ud(pr.b, 0x10) == 0 && ud(pr.a, 8) == 0xCCCC && ud(pr.b, 8) == 0xCCCC;
+        run_cpu_pair(40, 40, 10, &pr, &ia, &ib);
+        uint64_t p_q10 = sched_get_stats()->preemptions; int ok10 = pr.r == SCHED_ALL_DONE && ud(pr.a, 0x10) == 0 && ud(pr.b, 0x10) == 0 && ud(pr.a, 8) == 0xCCCC && ud(pr.b, 8) == 0xCCCC;
+        run_cpu_pair(40, 40, 3, &pr, &ia, &ib);
+        uint64_t p_q3 = sched_get_stats()->preemptions; int ok3 = pr.r == SCHED_ALL_DONE && ud(pr.a, 0x10) == 0 && ud(pr.b, 0x10) == 0;
+        check("preemption: quantum lengths 1, 3 and 10 ticks all complete correctly, and a shorter quantum switches proportionally more often (q1 > q3 > q10)",
+              ok1 && ok3 && ok10 && p_q1 > p_q3 && p_q3 > p_q10 && p_q10 >= 2);
+        destroy_all();
+
+        /* sustained stress: many switches, nothing leaks, nothing corrupts */
+        uint64_t base_free = free_pages(), total_pre = 0; int stress_ok = 1;
+        for (int i = 0; i < 12; i++) {
+            run_cpu_pair(6, 6, 1, &pr, &ia, &ib);
+            total_pre += sched_get_stats()->preemptions;
+            if (pr.r != SCHED_ALL_DONE || ud(pr.a, 0x10) || ud(pr.b, 0x10) || ud(pr.a, 0x28) || ud(pr.b, 0x28) || sched_get_stats()->ttbr_mismatch) stress_ok = 0;
+            destroy_all();
+            if (free_pages() != base_free) stress_ok = 0;
+        }
+        check("preemption stress: 12 rounds of create/run/destroy with a 1-tick quantum: many timer switches, no register or stack corruption, no TTBR mismatch, no leaked page",
+              stress_ok && total_pre >= 40);
+        sched_set_preempt(0, 0);
     }
 
     /* ---- table limits and bookkeeping ---- */

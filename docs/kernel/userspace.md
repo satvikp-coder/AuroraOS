@@ -72,10 +72,19 @@ fault; user code is not writable; user data is not executable (instruction abort
 UNDEFINED (EC 0x00); FP traps (EC 0x07); in each case a healthy partner process finishes correctly. Two processes alternate
 strictly and their x23-x28 survive every yield. A kernel fault after processes ran still panics (fault case 8).
 
+## Timer preemption (tested)
+
+`sched_set_preempt(1, quantum)` makes the scheduler request a switch every `quantum` timer ticks (1 kHz). The request is applied
+in `sched_after_irq`, i.e. inside the IRQ exception, by saving the interrupted frame and installing the next process's frame, so
+the switch completes through the normal `ERET`. Counters keep cooperative and timer switches apart (`yields` vs `preemptions`).
+Tests use a program that never yields and verify its registers (pattern derived from its pid) and SP_EL0 after every burst, that
+TTBR0/ASID matched the running process on every EL0 exception, that each preemption interrupted real user code, shorter quanta switch
+proportionally more, the watchdog still fires, and 12 rounds of create/run/destroy leak nothing. Disabling the resched request fails
+5 of those checks. Assumptions: single CPU, one 1 kHz scheduler tick shared with the watchdog, IRQs masked throughout the kernel's
+exception handling (no kernel preemption).
+
 ## Not done (issue #4 stays open)
 
-* **Timer preemption** is implemented in the scheduler (`sched_set_preempt`, tick-driven `need_resched`, applied on the
-  exception-return path) but is **not tested yet**; only the cooperative scheduler and the watchdog are.
 * **IPC** and **blocking** (so `BLOCKED` is reachable only by the table, not by any syscall) are not implemented.
 * No TTBR1/higher-half kernel and no KPTI: kernel addresses are present (EL1-only) in every user table. That is correct for
   EL0 access control but offers no protection against speculative side channels. L1 slots beyond 0-1 are not shared, so new
