@@ -508,6 +508,12 @@
     return validateAction(action).ok ? { ok: true, kind: "action", action } : { ok: false, error: "invalid-arguments" };
   }
 
+  // Caller-supplied ids index a dictionary: only OWN properties count. Plain objects inherit names such as
+  // constructor/toString/valueOf, which match the id syntax and must never resolve to a file.
+  const ownGet = (d, k) => (Object.prototype.hasOwnProperty.call(d, k) ? d[k] : undefined);
+  const ownSet = (d, k, v) => { Object.defineProperty(d, k, { value: v, enumerable: true, writable: true, configurable: true }); };
+  const ownDel = (d, k) => { if (Object.prototype.hasOwnProperty.call(d, k)) delete d[k]; };
+
   /** Mock adapters over a plain state object. Never touches a real OS. */
   function createMockAdapters(s) {
     return {
@@ -517,13 +523,13 @@
       "search.query": async ({ query }) => { s.lastSearch = query; return { result: query }; },
       "focus.set": async ({ enabled }) => { const was = s.focus; s.focus = enabled; return { undo: () => { s.focus = was; } }; },
       "file.move": async ({ id, destination }) => {
-        const f = s.files[id]; if (!f) throw new Error("no-such-file");
+        const f = ownGet(s.files, id); if (!f) throw new Error("no-such-file");
         const was = f.space; f.space = destination; return { undo: () => { f.space = was; } };
       },
       "file.delete": async ({ id }) => {
-        const f = s.files[id]; if (!f) throw new Error("no-such-file");
-        s.trail.push(id); delete s.files[id];
-        return { undo: () => { s.files[id] = f; s.trail = s.trail.filter((x) => x !== id); } };
+        const f = ownGet(s.files, id); if (!f) throw new Error("no-such-file");
+        s.trail.push(id); ownDel(s.files, id);
+        return { undo: () => { ownSet(s.files, id, f); s.trail = s.trail.filter((x) => x !== id); } };
       },
       // share.send intentionally has no mock adapter: external sending is unsupported in this simulation.
     };

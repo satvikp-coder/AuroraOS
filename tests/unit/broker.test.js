@@ -589,6 +589,95 @@ test("approvals are not retroactively revoked for steps that already completed",
   assert.strictEqual((await broker.undoProposal(p.id)).ok, true); // undo remains the user's explicit choice
 });
 
+// ---------------- PR #18 review round 3: mock file lookups must use own properties only ----------------
+function snapshotBuiltins() {
+  return JSON.stringify([Object.getOwnPropertyNames(Object).sort(), Object.getOwnPropertyNames(Object.prototype).sort(),
+    Object.getOwnPropertyNames(Function.prototype).sort(), Object.getOwnPropertyNames(Array.prototype).sort(),
+    Object.getOwnPropertyNames(String).sort()]);
+}
+function cleanBuiltins() { // make sure a failing test cannot poison later tests
+  [Object, Object.prototype, Function.prototype, String].forEach((o) => { ["space", "polluted"].forEach((k) => { if (Object.prototype.hasOwnProperty.call(o, k)) delete o[k]; }); });
+}
+const INHERITED_IDS = ["constructor", "toString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString"];
+
+test("file.move/file.delete on inherited-property ids fail with a receipt and change nothing", async () => {
+  const before = snapshotBuiltins();
+  try {
+    for (const id of INHERITED_IDS) {
+      const { broker, state, propose, approve } = setup({});
+      const filesBefore = JSON.stringify(state.files);
+      // move
+      const mv = propose(act("file.move", { id, destination: "study" })); assert.ok(approve(mv.id).ok);
+      const r = await broker.execute(mv.id);
+      assert.strictEqual(r.state, "FAILED", "move " + id); assert.strictEqual(r.steps[0].status, "failed"); assert.strictEqual(r.steps[0].error, "no-such-file");
+      assert.strictEqual(r.actualRollback, "none");
+      // delete (S3: explicit confirmation by index)
+      const del = propose(act("file.delete", { id })); assert.ok(approve(del.id).ok);
+      const d = await broker.execute(del.id);
+      assert.strictEqual(d.state, "FAILED", "delete " + id); assert.strictEqual(d.steps[0].error, "no-such-file");
+      // no trail entry, no undo, files untouched, no mutation of built-ins
+      assert.deepStrictEqual(state.trail, [], id);
+      assert.strictEqual(JSON.stringify(state.files), filesBefore, id);
+      const rs = broker.receipts();
+      assert.strictEqual(rs.length, 2); assert.ok(rs.every((x) => x.status === "failed" && x.undoState === "unavailable"), id);
+      assert.strictEqual((await broker.undo(rs[0].id)).reason, "not-undoable");
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(state.files, id), false, id + " must not become an own property");
+      assert.strictEqual(Object.space, undefined); assert.strictEqual(Object.prototype.space, undefined);
+    }
+    assert.strictEqual(snapshotBuiltins(), before, "built-in objects were modified");
+  } finally { cleanBuiltins(); }
+});
+test("__proto__ and other non-ids never reach the adapters (schema), and Object.prototype stays clean", async () => {
+  const { broker, calls } = setup({});
+  for (const id of ["__proto__", "__defineGetter__", "../x", "a b", "", "x".repeat(65)]) {
+    assert.strictEqual(broker.propose(act("file.move", { id, destination: "study" })).ok, false, id);
+    assert.strictEqual(broker.propose(act("file.delete", { id })).ok, false, id);
+  }
+  assert.deepStrictEqual(calls, []); assert.strictEqual({}.polluted, undefined);
+});
+test("adapters are safe on state whose files is a plain object, a null-prototype object or a Map-free dictionary", async () => {
+  for (const mk of [() => ({ report: { space: "work" } }), () => Object.assign(Object.create(null), { report: { space: "work" } })]) {
+    const state = { space: "personal", focus: false, openApp: null, timer: null, trail: [], lastSearch: null, files: mk() };
+    const adapters = B.createMockAdapters(state);
+    for (const id of INHERITED_IDS.concat(["ghost", "nope-1"])) {
+      await assert.rejects(adapters["file.move"]({ id, destination: "study" }), /no-such-file/, id);
+      await assert.rejects(adapters["file.delete"]({ id }), /no-such-file/, id);
+    }
+    assert.deepStrictEqual(state.trail, []); assert.deepStrictEqual(Object.keys(state.files), ["report"]);
+  }
+  cleanBuiltins();
+});
+test("repeated failed operations leave state and receipts consistent", async () => {
+  const { broker, state, propose, approve } = setup({});
+  for (let i = 0; i < 5; i++) {
+    const p = propose(act("file.delete", { id: i % 2 ? "constructor" : "ghost" })); approve(p.id);
+    assert.strictEqual((await broker.execute(p.id)).state, "FAILED");
+  }
+  assert.strictEqual(broker.receipts().length, 5); assert.deepStrictEqual(state.trail, []);
+  assert.deepStrictEqual(Object.keys(state.files).sort(), ["notes1", "report"]);
+  // the broker is not wedged afterwards
+  const ok = propose(act("file.move", { id: "report", destination: "study" })); approve(ok.id);
+  assert.strictEqual((await broker.execute(ok.id)).state, "COMPLETED"); assert.strictEqual(state.files.report.space, "study");
+});
+test("legitimate move, delete (to Trail) and undo of both still work", async () => {
+  const { broker, state, propose, approve } = setup({});
+  const m = propose(act("file.move", { id: "report", destination: "study" })); approve(m.id);
+  const mr = await broker.execute(m.id); assert.strictEqual(mr.state, "COMPLETED"); assert.strictEqual(state.files.report.space, "study");
+  const d = propose(act("file.delete", { id: "notes1" })); approve(d.id);
+  const dr = await broker.execute(d.id); assert.strictEqual(dr.state, "COMPLETED");
+  assert.strictEqual(state.files.notes1, undefined); assert.deepStrictEqual(state.trail, ["notes1"]);
+  assert.strictEqual((await broker.undoProposal(d.id)).ok, true);
+  assert.deepStrictEqual(state.files.notes1, { space: "study" }); assert.deepStrictEqual(state.trail, []);
+  assert.strictEqual((await broker.undoProposal(m.id)).ok, true); assert.strictEqual(state.files.report.space, "work");
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(state.files, "notes1"), true);
+});
+test("other mock adapters have no id-keyed lookups (nothing inherited can be read)", () => {
+  const src = require("fs").readFileSync(path.resolve(__dirname, "..", "..", "aurora-glass", "prototype", "broker.js"), "utf8");
+  const adapterSrc = src.slice(src.indexOf("function createMockAdapters"));
+  const lookups = adapterSrc.match(/\bs\.\w+\[/g) || [];
+  assert.deepStrictEqual(lookups, [], "adapter code must not index state objects with caller-supplied keys without an own-property check: " + lookups.join(","));
+});
+
 (async () => {
   console.log("== Action Broker ==");
   for (const t of queue) {
