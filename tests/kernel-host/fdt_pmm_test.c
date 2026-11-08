@@ -289,6 +289,51 @@ static void pmm_tests(void)
     CHECK("accounting is consistent", s.free_pages + s.reserved_pages + s.allocated_pages == s.total_pages);
 }
 
+
+static void add_virtio(struct fb *b, const char *name, const char *compat, uint64_t base, uint64_t size, const uint32_t *irq, int nirq, int reg_cells)
+{
+    fb_begin(b, name);
+    fb_prop(b, "compatible", compat, (uint32_t)strlen(compat) + 1);
+    { uint64_t v[2] = { base, size }; fb_reg(b, "reg", 2, 2, v, 1); (void)reg_cells; }
+    if (nirq) fb_cells(b, "interrupts", irq, nirq);
+    fb_end(b);
+}
+
+static void virtio_tests(void)
+{
+    struct fb b; struct fdt_virtio v[4]; int rc;
+    static const uint32_t spi16[3] = { 0, 0x10, 1 }, spi47[3] = { 0, 0x2f, 1 }, ppi[3] = { 1, 5, 4 };
+    printf("-- virtio-mmio discovery --\n");
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); base_close(&b);
+    CHECK("a tree without virtio nodes yields 0 devices", fdt_virtio_mmio(b.out, v, 4) == 0);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL);
+    add_virtio(&b, "virtio_mmio@a000000", "virtio,mmio", 0xa000000ULL, 0x200, spi16, 3, 4);
+    add_virtio(&b, "virtio_mmio@a003e00", "virtio,mmio", 0xa003e00ULL, 0x200, spi47, 3, 4);
+    base_close(&b);
+    rc = fdt_virtio_mmio(b.out, v, 4);
+    CHECK("two QEMU-style nodes are found with their exact base, size and GIC interrupt ID (32 + SPI number)",
+          rc == 2 && v[0].base == 0xa000000ULL && v[0].size == 0x200 && v[0].intid == 32 + 0x10 && v[1].base == 0xa003e00ULL && v[1].intid == 32 + 0x2f);
+    CHECK("a smaller caller buffer is never overrun: at most max entries are written", fdt_virtio_mmio(b.out, v, 1) == 1);
+    CHECK("max <= 0 or NULL output is an error", fdt_virtio_mmio(b.out, v, 0) == FDT_ERR_NULL && fdt_virtio_mmio(b.out, 0, 4) == FDT_ERR_NULL);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_virtio(&b, "serial@9000000", "arm,pl011", 0x9000000ULL, 0x1000, spi16, 3, 4); base_close(&b);
+    CHECK("nodes with other compatible strings are ignored", fdt_virtio_mmio(b.out, v, 4) == 0);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_virtio(&b, "virtio_mmio@a000000", "virtio,mmio", 0xa000000ULL, 0x200, ppi, 3, 4); base_close(&b);
+    rc = fdt_virtio_mmio(b.out, v, 4);
+    CHECK("an interrupt that is not an SPI is reported as intid 0, not guessed", rc == 1 && v[0].intid == 0);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_virtio(&b, "virtio_mmio@a000000", "virtio,mmio", 0xa000000ULL, 0x200, 0, 0, 4); base_close(&b);
+    rc = fdt_virtio_mmio(b.out, v, 4);
+    CHECK("a node without interrupts is still found (intid 0)", rc == 1 && v[0].intid == 0 && v[0].base == 0xa000000ULL);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_virtio(&b, "virtio_mmio@a000000", "virtio,mmio", 0xa000000ULL, 0, spi16, 3, 4); base_close(&b);
+    CHECK("a zero-size window is rejected", fdt_virtio_mmio(b.out, v, 4) == FDT_ERR_RESERVATION);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_virtio(&b, "virtio_mmio@f", "virtio,mmio", 0xFFFFFFFFFFFFFF00ULL, 0x1000, spi16, 3, 4); base_close(&b);
+    CHECK("a window that wraps the address space is rejected", fdt_virtio_mmio(b.out, v, 4) == FDT_ERR_RESERVATION);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL);
+    fb_begin(&b, "virtio_mmio@a000000"); fb_prop(&b, "compatible", "virtio,mmio", 12); { uint8_t t[4] = { 0, 0, 0, 0 }; fb_prop(&b, "reg", t, 4); } fb_end(&b);
+    base_close(&b);
+    CHECK("a reg property too short for one address+size tuple is an error", fdt_virtio_mmio(b.out, v, 4) == FDT_ERR_CELLS);
+    { uint8_t bad[64] = { 0 }; CHECK("an invalid blob is rejected by the same validation as fdt_parse", fdt_virtio_mmio(bad, v, 4) < 0); }
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3 && !strcmp(argv[1], "--emit")) {
@@ -308,6 +353,7 @@ int main(int argc, char **argv)
     }
     tests();
     platform_tests();
+    virtio_tests();
     pmm_tests();
     printf("\n== Summary ==\nPassed: %d\nFailed: %d\n", passed, failed);
     return failed ? 1 : 0;

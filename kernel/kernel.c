@@ -12,6 +12,7 @@
  * used on hardware.
  */
 #include <arch.h>
+#include <blk.h>
 #include <console.h>
 #include <gic.h>
 #include <irq.h>
@@ -126,6 +127,14 @@ void kernel_main(uint64_t dtb)
         irqtest_run(&plat);
         if (irqtest_summary()) { console_puts("INTERRUPT SELFTEST FAILED\n"); halt_forever(); }
         console_puts("Interrupts and timer OK\n");
+
+        /* 4b. Storage: a virtio block device is optional. No disk is a normal boot; a disk that is present but unusable is reported. */
+        int br = blk_init((const void *)(uintptr_t)dtb);
+        if (br == BLK_OK) console_puts("Block device ready\n");
+        else if (br == BLK_ENODEV) console_puts("[blk] no block device attached\n");
+        else { console_puts("[blk] block device present but unusable: "); console_puts(blk_strerror(br)); console_puts("\n"); }
+        blktest_run();
+        if (blktest_summary()) { console_puts("BLOCK SELFTEST FAILED\n"); halt_forever(); }
 
         /* 5. Userspace: real EL0 processes, syscalls, scheduler, isolation. */
         proctest_run();

@@ -7,6 +7,7 @@
 # Usage: ./build.sh
 #   BUILD_DIR=build/x ./build.sh                    build into another directory
 #   AURORA_FIXED_RAM=1 ./build.sh                   DEV ONLY: allow a fixed-RAM fallback (see kernel/kernel.c)
+#   AURORA_BLK_TEST=1 BUILD_DIR=... ./build.sh      build the DESTRUCTIVE block-device tests (disposable QEMU disk only)
 #   AURORA_FAULT_TEST=1 BUILD_DIR=... ./build.sh    build a deliberate-fault test kernel
 #                                                   (see tests/qemu/mm-tests.sh)
 
@@ -46,6 +47,9 @@ fi
 if [ -n "$AURORA_FIXED_RAM" ]; then
     CFLAGS="$CFLAGS -DAURORA_FIXED_RAM=1"
 fi
+if [ -n "$AURORA_BLK_TEST" ]; then
+    CFLAGS="$CFLAGS -DAURORA_BLK_TEST=1"      # DESTRUCTIVE block tests: only for a disposable QEMU disk image
+fi
 if [ -n "$AURORA_FAULT_TEST" ]; then
     CFLAGS="$CFLAGS -DAURORA_FAULT_TEST=$AURORA_FAULT_TEST"
 fi
@@ -62,7 +66,7 @@ for s in boot/aarch64/start.S kernel/arch/aarch64/vectors.S kernel/arch/aarch64/
 done
 
 echo "[build] Compiling kernel..."
-for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
+for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/blktest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
          kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do
     o="$BUILD_DIR/$(basename "$c" .c).o"
     $CC $CFLAGS -c "$c" -o "$o"
