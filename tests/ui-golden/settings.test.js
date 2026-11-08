@@ -290,3 +290,28 @@ for (const vp of VIEWPORTS) {
     }
   }
 }
+
+// Font metrics differ between machines (the Linux CI runner overflowed where a Windows machine did not).
+// Stress the same checks with a deliberately wide font so a fit that depends on narrow glyphs fails everywhere.
+for (const vp of [{ name: "360", width: 360, height: 800 }, { name: "390", width: 390, height: 800 }]) {
+  test(`wide-font stress ${vp.name}: no overflow or clipping at 200% text with a wide monospace font`, async ({ page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await page.goto(BASE_URL);
+    await page.addStyleTag({ content: "*, *::before, *::after { font-family: 'Courier New', Courier, monospace !important; }" });
+    await page.evaluate(() => { const s = window.AuroraSettingsModel; s.set("accessibility.textSize", "200"); s.set("developer.showAdvanced", true); });
+    for (const id of ["screen-settings", "screen-pages", "screen-quick", "screen-home"]) {
+      await page.evaluate((i) => window.AuroraShell.showScreen(i), id);
+      await page.waitForTimeout(60);
+      const problems = await page.evaluate((i) => {
+        const out = [], vw = document.documentElement.clientWidth;
+        if (document.documentElement.scrollWidth > window.innerWidth + 1) out.push("page scrolls horizontally: " + document.documentElement.scrollWidth);
+        document.getElementById(i).querySelectorAll("button, select, input, [role=switch], .tile, .setting-row").forEach((n) => {
+          const r = n.getBoundingClientRect();
+          if (r.width && (r.right > vw + 1 || r.left < -1)) out.push("clipped: " + (n.id || n.getAttribute("data-setting") || n.getAttribute("data-fk") || n.className) + " [" + Math.round(r.left) + "," + Math.round(r.right) + "] of " + vw);
+        });
+        return out;
+      }, id);
+      expect(problems, id).toEqual([]);
+    }
+  });
+}

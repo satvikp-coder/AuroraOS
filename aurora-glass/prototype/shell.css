@@ -681,3 +681,8 @@ body::after {
 .dock-list { max-width: 100%; box-sizing: border-box; padding-left: var(--space-2); padding-right: var(--space-2); }
 .dock-btn { min-width: var(--touch-target); max-width: 20vw; }
 :root[data-text-scale="150"] .dock-label, :root[data-text-scale="200"] .dock-label { display: none; }
+
+/* Quick Center tiles: wrap to as many columns as fit (one column at large text / narrow widths) instead of a fixed
+ * 2/3-column grid, and let a tile shrink and break long words. Found on CI (Linux fonts) at 200% text on 360 px. */
+.tile-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 15ch), 1fr)); }
+.tile { min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
