@@ -202,6 +202,89 @@ void proctest_run(void)
           r == SCHED_TIMEOUT && pp->state == PROC_READY && ud(pp, 0) > 0 && !sched_active() && get_ttbr0() == vmm_kernel_l1_pa() && timer_count() - t0 > 0);
     destroy_all();
 
+    /* ---- address-space mapping API: overflow-safe ranges and failure atomicity ---- */
+    {
+        struct aspace as;
+        uint64_t pa = 0;
+        int rc_create = aspace_create(&as, 200);
+        const uint64_t *l1 = (const uint64_t *)(uintptr_t)as.l1_pa;
+        const uint64_t UMAX = ~0ULL;
+        struct { uint64_t va; const char *what; } bad[] = {
+            { UMAX - PAGE_SIZE + 1, "UINT64_MAX-PAGE_SIZE+1 (end address wraps to 0)" },
+            { UMAX & ~(PAGE_SIZE - 1), "last page of the address space" },
+            { USER_VA_BASE - PAGE_SIZE, "the page just below the user region" },
+            { USER_VA_LIMIT, "the first page past the user region" },
+            { USER_VA_LIMIT + PAGE_SIZE, "a page further past the region" },
+            { USER_VA_BASE + 0x123, "an unaligned address" },
+            { 0, "address 0" },
+            { 0x40000000ULL, "the kernel's RAM slot (L1 slot 1)" },
+            { 0x08000000ULL, "the kernel's device slot (L1 slot 0)" },
+            { 0x8000000000ULL, "a different L1 slot above the user region" },
+            { 0x7FFFFFF000ULL, "the last page of the slot below the user region (crosses an L1 boundary)" },
+        };
+        int all_bad_rejected = rc_create == 0;
+        uint64_t before_pages = (uint64_t)as.npages, before_free = free_pages();
+        for (unsigned i = 0; rc_create == 0 && i < sizeof bad / sizeof *bad; i++) {
+            int r1 = aspace_map(&as, bad[i].va, UPERM_RW, 0, 0, &pa);
+            if (r1 >= 0) { all_bad_rejected = 0; console_puts("[info] aspace_map ACCEPTED: "); console_puts(bad[i].what); console_puts("\n"); }
+        }
+        check("aspace_map rejects wrapping, out-of-range, unaligned and other-slot addresses (UINT64_MAX-PAGE_SIZE+1, below/at/past the region, kernel slots)", all_bad_rejected);
+        int only_expected_slots = rc_create == 0;
+        int mapped_slots = 0;
+        for (int i = 0; rc_create == 0 && i < 512; i++) if (l1[i] & 1) { mapped_slots++; if (i != 0 && i != 1) only_expected_slots = 0; }
+        check("rejected requests changed nothing: no page, no table and no L1 entry beyond the two shared kernel slots, no accounting change",
+              only_expected_slots && mapped_slots == 2 && (uint64_t)as.npages == before_pages && free_pages() == before_free);
+        int r_ok = rc_create == 0 ? aspace_map(&as, USER_DATA_VA, UPERM_RW, 0, 0, &pa) : -99;
+        int r_last = rc_create == 0 ? aspace_map(&as, USER_VA_LIMIT - PAGE_SIZE, UPERM_RW, 0, 0, 0) : -99;
+        int r_dup = rc_create == 0 ? aspace_map(&as, USER_DATA_VA, UPERM_RW, 0, 0, 0) : -99;
+        uint64_t d;
+        check("aspace_map still accepts a valid page and the very last page of the region, and refuses to remap",
+              r_ok == 0 && r_last == 0 && r_dup < 0 && pa && pmm_is_allocated(pa) && vmm_hw_translate(pa, 0, &d) == 0);
+        uint64_t used_pages = (uint64_t)as.npages, free_before = free_pages();
+        uint64_t slot256 = rc_create == 0 ? l1[(USER_VA_BASE >> 30) & 0x1FF] : 0;
+        /* exhaustion: leave fewer free pages than a new mapping needs (a new L3 table and the page itself in a fresh 2 MiB area) */
+        uintptr_t head = 0; uint64_t held = 0;
+        for (;;) { uintptr_t p = pmm_alloc_page(); if (!p) break; *(volatile uint64_t *)p = head; head = p; held++; }
+        uintptr_t spare = head; head = *(volatile uint64_t *)spare; pmm_free_page(spare);     /* exactly one free page */
+        int r_ex = rc_create == 0 ? aspace_map(&as, USER_VA_BASE + 0x400000, UPERM_RW, 0, 0, 0) : -99;   /* needs L3 table + page = 2 */
+        uint64_t free_after_fail = free_pages();
+        int atomic = r_ex < 0 && (uint64_t)as.npages == used_pages && free_after_fail == 1 && l1[(USER_VA_BASE >> 30) & 0x1FF] == slot256;
+        while (head) { uintptr_t nx = *(volatile uint64_t *)head; pmm_free_page(head); head = nx; }
+        (void)held;
+        check("under page exhaustion aspace_map fails ATOMICALLY: no table or page was consumed, ownership and the L1 entry are unchanged", atomic && free_pages() == free_before);
+        if (rc_create == 0) aspace_destroy(&as);
+        check("destroying the address space frees every page it owned", free_pages() == free_before + used_pages);
+
+        /* process creation under exhaustion: either complete success or nothing left behind */
+        int clean = 1;
+        for (uint64_t keep = 0; keep <= 12; keep++) {
+            uintptr_t h = 0;
+            for (;;) { uintptr_t p = pmm_alloc_page(); if (!p) break; *(volatile uint64_t *)p = h; h = p; }
+            for (uint64_t k = 0; k < keep && h; k++) { uintptr_t nx = *(volatile uint64_t *)h; pmm_free_page(h); h = nx; }
+            uint64_t free_now = free_pages();
+            int pid = proc_create(41, 0, "exhaust");
+            if (pid > 0) { if (proc_get(pid)->state != PROC_READY) clean = 0; proc_destroy(pid); }
+            else if (proc_get(1) != 0 || free_pages() != free_now) clean = 0;       /* a failed creation must leave no process and no leaked page */
+            if (free_pages() != free_now) clean = 0;
+            while (h) { uintptr_t nx = *(volatile uint64_t *)h; pmm_free_page(h); h = nx; }
+        }
+        check("proc_create under exhaustion (0..12 free pages): each attempt either yields a complete READY process or leaves no process and leaks no page", clean);
+    }
+    {   /* a failed mapping on a LIVE process's address space leaves its existing mappings and its execution intact */
+        destroy_all();
+        int v = proc_create(1, 0, "live"); struct proc *pv = proc_get(v);
+        int r1 = aspace_map(&pv->as, ~0ULL - PAGE_SIZE + 1, UPERM_RW, 0, 0, 0);
+        int r2 = aspace_map(&pv->as, USER_DATA_VA, UPERM_RW, 0, 0, 0);
+        uint64_t save = get_ttbr0(), pa1 = 0, pa2 = 0;
+        set_ttbr0(aspace_ttbr(&pv->as));
+        int t1 = vmm_hw_translate_el0(USER_DATA_VA, 1, &pa1), t2 = vmm_hw_translate_el0(USER_CODE_VA, 0, &pa2);
+        set_ttbr0(save);
+        uint64_t rr = sched_run(2000);
+        check("a live process whose address space received rejected mapping requests keeps its mappings and still runs to completion",
+              r1 < 0 && r2 < 0 && t1 == 0 && pa1 == pv->data_pa && t2 == 0 && pa2 == pv->code_pa && rr == SCHED_ALL_DONE && pv->state == PROC_TERMINATED && ud(pv, 0) == 5);
+        destroy_all();
+    }
+
     /* ---- table limits and bookkeeping ---- */
     int ids[PROC_MAX + 1], made = 0;
     for (int i = 0; i < PROC_MAX + 1; i++) { ids[i] = proc_create(41, 0, "fill"); if (ids[i] > 0) made++; }

@@ -59,25 +59,38 @@ int aspace_map(struct aspace *as, uint64_t va, int perm, const void *init, size_
 {
     if (!as || !as->live) return -1;
     uint64_t attr = user_attr(perm);
-    if (!attr || (va & (PAGE_SIZE - 1)) || va < USER_VA_BASE || va + PAGE_SIZE > USER_VA_LIMIT) return -2;
+    if (!attr || (va & (PAGE_SIZE - 1))) return -2;
+    /* Overflow-safe range check: prove the START is inside the region. No end address is ever computed, and because both
+     * bounds are page aligned, "va < LIMIT" already means the whole page fits (an end such as va+PAGE_SIZE can wrap to 0
+     * for va near UINT64_MAX and slip past a "> LIMIT" test). */
+    if (va < USER_VA_BASE || va >= USER_VA_LIMIT) return -2;
+    if ((va >> 30) != (USER_VA_BASE >> 30)) return -2;      /* exactly the user L1 slot; never another slot, never the shared kernel slots */
     if (len > PAGE_SIZE || (len && !init)) return -3;
 
     uint64_t *l1 = (uint64_t *)(uintptr_t)as->l1_pa;
     uint64_t *e1 = &l1[IDX1(va)];
-    if (IDX1(va) < 2) return -2;                    /* never touch the shared kernel slots */
-    if (!(*e1 & PTE_VALID)) { uint64_t t = take_page(as); if (!t) return -4; *e1 = t | PTE_TABLE | PTE_VALID; }
-    uint64_t *l2 = (uint64_t *)(uintptr_t)(*e1 & ADDR_MASK);
+    int have_l2 = (*e1 & PTE_VALID) != 0;
+    uint64_t *l2 = have_l2 ? (uint64_t *)(uintptr_t)(*e1 & ADDR_MASK) : 0;
+    int have_l3 = have_l2 && (l2[IDX2(va)] & PTE_VALID) != 0;
+    uint64_t *l3 = have_l3 ? (uint64_t *)(uintptr_t)(l2[IDX2(va)] & ADDR_MASK) : 0;
+    if (have_l3 && (l3[IDX3(va)] & PTE_VALID)) return -5;   /* never silently remap */
+
+    /* Atomicity: work out how many pages this call needs (missing tables + the page) and require them up front, so a
+     * failure can never leave a half-built table, a consumed page or a changed ownership list behind. */
+    int need = 1 + !have_l2 + !have_l3;
+    struct pmm_stats st; pmm_get_stats(&st);
+    if (as->npages + need > ASPACE_MAX_PAGES || st.free_pages < (uint64_t)need) return -4;
+
+    if (!have_l2) { uint64_t t = take_page(as); if (!t) return -4; *e1 = t | PTE_TABLE | PTE_VALID; l2 = (uint64_t *)(uintptr_t)t; }
     uint64_t *e2 = &l2[IDX2(va)];
-    if (!(*e2 & PTE_VALID)) { uint64_t t = take_page(as); if (!t) return -4; *e2 = t | PTE_TABLE | PTE_VALID; }
-    uint64_t *l3 = (uint64_t *)(uintptr_t)(*e2 & ADDR_MASK);
+    if (!have_l3) { uint64_t t = take_page(as); if (!t) return -4; *e2 = t | PTE_TABLE | PTE_VALID; l3 = (uint64_t *)(uintptr_t)t; }
     uint64_t *e3 = &l3[IDX3(va)];
-    if (*e3 & PTE_VALID) return -5;                 /* never silently remap */
 
     uint64_t pa = take_page(as);
     if (!pa) return -4;
     if (!pmm_is_allocated(pa) || pmm_is_reserved(pa)) return -6;   /* user memory only from allocator pages */
-    const uint8_t *s = (const uint8_t *)init; volatile uint8_t *d = (volatile uint8_t *)(uintptr_t)pa;
-    for (size_t i = 0; i < len; i++) d[i] = s[i];
+    const uint8_t *src = (const uint8_t *)init; volatile uint8_t *d = (volatile uint8_t *)(uintptr_t)pa;
+    for (size_t i = 0; i < len; i++) d[i] = src[i];
     if (perm == UPERM_RX) __asm__ volatile ("dc cvau, %0\n dsb ish\n ic iallu\n dsb ish\n isb" :: "r"(pa) : "memory");   /* code written as data must be visible to instruction fetch */
     *e3 = pa | attr | PTE_TABLE | PTE_VALID;
     __asm__ volatile ("dsb ishst" ::: "memory");
