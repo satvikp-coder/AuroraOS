@@ -23,6 +23,7 @@ jobs:
       - run: npm ci
       - run: node tests/unit/aurora-glass.test.js
       - run: node tests/unit/core.test.js
+      - run: node tests/unit/broker.test.js
 
   ui-browser-tests:
     name: Browser interaction tests (Playwright)
@@ -42,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node -e "const fs=require('fs');['index.html','shell.css','tokens.css','app.js','core.js','screens.js'].forEach(f=>{if(!fs.existsSync('aurora-glass/prototype/'+f)){console.error('missing',f);process.exit(1)}});console.log('prototype files OK');"
+      - run: node -e "const fs=require('fs');['index.html','shell.css','tokens.css','app.js','core.js','screens.js','broker.js'].forEach(f=>{if(!fs.existsSync('aurora-glass/prototype/'+f)){console.error('missing',f);process.exit(1)}});console.log('prototype files OK');"
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
