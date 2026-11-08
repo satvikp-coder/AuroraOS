@@ -84,6 +84,7 @@ static struct {
     uintptr_t ring_page, req_page, bounce_page;
     int stall_next;
     int dropping;
+    int inj_w_kind, inj_w, inj_f_kind, inj_f;   /* tests only: countdowns, -1 = off */
     int drop_after;                  /* tests only: >= 0 => remaining writes before the simulated power cut */
     uint64_t writes;
     uint64_t requests, timeouts;
@@ -160,10 +161,20 @@ static int device_setup(void)
     return BLK_OK;
 }
 
+static void release_pages(void)
+{
+    if (D.ring_page) pmm_free_page(D.ring_page);
+    if (D.req_page) pmm_free_page(D.req_page);
+    if (D.bounce_page) pmm_free_page(D.bounce_page);
+    D.ring_page = D.req_page = D.bounce_page = 0;
+}
+
 int blk_init(const void *fdt)
 {
     static struct fdt_virtio nodes[32];
-    D.present = 0; D.failed = 0; D.drop_after = -1; D.dropping = 0;
+    static int mapped;
+    if (D.present && !D.failed) return BLK_OK;                   /* idempotent: a second call neither remaps nor allocates */
+    D.present = 0; D.failed = 0; D.drop_after = -1; D.dropping = 0; D.inj_w = D.inj_f = -1;
     if (!fdt) return BLK_ENODEV;
     int n = fdt_virtio_mmio(fdt, nodes, 32);
     if (n <= 0) return BLK_ENODEV;
@@ -177,7 +188,10 @@ int blk_init(const void *fdt)
     }
     lo &= ~(PAGE_SIZE - 1); hi = (hi + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     if (hi - lo > 64 * PAGE_SIZE) return BLK_EPROTO;             /* implausible window: refuse */
-    if (vmm_register_mmio(lo, hi - lo) != VMM_OK || vmm_map(lo, lo, hi - lo, VMM_ATTR_DEVICE) != VMM_OK) return BLK_EPROTO;
+    if (!mapped) {
+        if (vmm_register_mmio(lo, hi - lo) != VMM_OK || vmm_map(lo, lo, hi - lo, VMM_ATTR_DEVICE) != VMM_OK) return BLK_EPROTO;
+        mapped = 1;
+    }
 
     int found = -1, legacy = 0;
     for (int i = 0; i < n; i++) {
@@ -197,12 +211,13 @@ int blk_init(const void *fdt)
     }
     D.regs = (volatile uint8_t *)(uintptr_t)nodes[found].base;
     INFO.base = nodes[found].base; INFO.intid = nodes[found].intid; INFO.version = rd(R_VERSION);
+    release_pages();                                             /* nothing from an earlier failed attempt is kept or leaked */
     D.ring_page = pmm_alloc_page(); D.req_page = pmm_alloc_page(); D.bounce_page = pmm_alloc_page();
-    if (!D.ring_page || !D.req_page || !D.bounce_page) return BLK_EPROTO;
+    if (!D.ring_page || !D.req_page || !D.bounce_page) { release_pages(); return BLK_EPROTO; }
     D.hdr = (struct reqhdr *)D.req_page; D.status = (volatile uint8_t *)(D.req_page + 64); D.bounce = (uint8_t *)D.bounce_page;
     D.timeout_ms = 1000;
     int rc = device_setup();
-    if (rc) { D.failed = 1; return rc; }
+    if (rc) { wr(R_STATUS, 0); D.failed = 1; release_pages(); return rc; }   /* reset first so the device stops using the queue memory we free */
     D.present = 1;
     return BLK_OK;
 }
@@ -214,6 +229,10 @@ const struct blk_info *blk_get_info(void) { return &INFO; }
 uint64_t blk_requests(void) { return D.requests; }
 uint64_t blk_timeouts(void) { return D.timeouts; }
 void blk_test_stall_next(int on) { D.stall_next = on; }
+void blk_test_inject_write(int kind, int nth) { D.inj_w_kind = kind; D.inj_w = nth; }
+void blk_test_inject_flush(int kind, int nth) { D.inj_f_kind = kind; D.inj_f = nth; }
+void blk_test_inject_clear(void) { D.inj_w = D.inj_f = -1; }
+int blk_error_definite(int rc) { return rc == BLK_EARG || rc == BLK_ERANGE || rc == BLK_ENODEV || rc == BLK_ERO; }
 void blk_test_drop_writes_after(int n) { D.drop_after = n < 0 ? -1 : n; D.dropping = 0; }
 uint64_t blk_writes_done(void) { return D.writes; }
 void blk_test_set_timeout_ms(uint32_t ms) { D.timeout_ms = ms ? ms : 1000; }
@@ -293,6 +312,17 @@ int blk_write(uint64_t sector, const void *buf, uint32_t nsect)
     const uint8_t *in = (const uint8_t *)buf;
     while (nsect) {
         uint32_t c = nsect > CHUNK_SECTORS ? CHUNK_SECTORS : nsect;
+        if (D.inj_w >= 0) {
+            if (D.inj_w-- == 0) {
+                D.inj_w = -1;
+                if (D.inj_w_kind == BLK_INJ_REJECT) return BLK_EARG;
+                if (D.inj_w_kind == BLK_INJ_FAIL_UNSENT) return BLK_EIO;
+                for (uint32_t i = 0; i < c * BLK_SECTOR; i++) D.bounce[i] = in[i];     /* FAIL_SENT: the device really performs it ... */
+                D.writes++;
+                (void)submit(T_OUT, sector, c * BLK_SECTOR, 0);
+                return BLK_EIO;                                                         /* ... but the caller is told it failed */
+            }
+        }
         if (D.drop_after >= 0 && (D.dropping || D.drop_after == 0)) { D.dropping = 1; in += c * BLK_SECTOR; sector += c; nsect -= c; continue; }   /* power cut: lost */
         if (D.drop_after > 0) D.drop_after--;
         for (uint32_t i = 0; i < c * BLK_SECTOR; i++) D.bounce[i] = in[i];
@@ -307,6 +337,11 @@ int blk_write(uint64_t sector, const void *buf, uint32_t nsect)
 int blk_flush(void)
 {
     if (!blk_present()) return BLK_ENODEV;
+    if (D.inj_f >= 0 && D.inj_f-- == 0) {
+        D.inj_f = -1;
+        if (D.inj_f_kind == BLK_INJ_FAIL_SENT && !D.readonly && D.has_flush) (void)submit(T_FLUSH, 0, 0, 0);
+        return BLK_EIO;
+    }
     if (D.dropping) return BLK_OK;                              /* tests only: after the simulated power cut nothing reaches the device */
     if (D.readonly || !D.has_flush) return BLK_OK;               /* nothing cached to flush */
     return submit(T_FLUSH, 0, 0, 0);

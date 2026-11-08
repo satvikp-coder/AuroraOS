@@ -25,7 +25,8 @@
 enum {
     FS_OK = 0, FS_EARG = -1, FS_ENOENT = -2, FS_EEXIST = -3, FS_ENOSPC = -4, FS_ENFILE = -5, FS_EFBIG = -6, FS_EACCES = -7,
     FS_EBADID = -8, FS_ECORRUPT = -9, FS_EVERSION = -10, FS_ENOFS = -11, FS_EIO = -12, FS_ENAME = -13, FS_EMOUNT = -14,
-    FS_ENODEV = -15, FS_ERO = -16
+    FS_ENODEV = -15, FS_ERO = -16,
+    FS_EUNCERTAIN = -17   /* a metadata update failed in a way that leaves its durability UNKNOWN: the filesystem has been unmounted; remount to learn the outcome */
 };
 
 typedef uint64_t fs_id_t;      /* (generation << 8) | inode index: a stale or forged id never names a different, newer file */

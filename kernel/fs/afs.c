@@ -74,7 +74,7 @@ const char *fs_strerror(int rc)
     case FS_OK: return "ok"; case FS_EARG: return "invalid argument"; case FS_ENOENT: return "no such file"; case FS_EEXIST: return "file exists";
     case FS_ENOSPC: return "no space"; case FS_ENFILE: return "no free file slot"; case FS_EFBIG: return "file too large"; case FS_EACCES: return "permission denied";
     case FS_EBADID: return "invalid file id"; case FS_ECORRUPT: return "corrupt"; case FS_EVERSION: return "unsupported version"; case FS_ENOFS: return "no filesystem";
-    case FS_EIO: return "I/O error"; case FS_ENAME: return "invalid name"; case FS_EMOUNT: return "not mounted"; case FS_ENODEV: return "no device"; case FS_ERO: return "read-only";
+    case FS_EIO: return "I/O error"; case FS_ENAME: return "invalid name"; case FS_EMOUNT: return "not mounted"; case FS_ENODEV: return "no device"; case FS_ERO: return "read-only"; case FS_EUNCERTAIN: return "update outcome uncertain: remount required";
     default: return "unknown error";
     }
 }
@@ -195,7 +195,20 @@ static int can(uint32_t principal, const struct inode *n, int write)
 }
 static int can_see(uint32_t principal, const struct inode *n) { return can(principal, n, 0) || can(principal, n, 1); }
 
-/* write one inode sector from the cache with `cand` substituted for inode idx; commits to the cache only on success */
+/*
+ * Publish one inode: write its sector, flush, then (only on success) update the cache.
+ *
+ * Outcome classes (this is the heart of the recovery design):
+ *   - FS_OK                the update is durable and the cache matches the disk.
+ *   - a definite error     the block layer REJECTED the write before it reached the device (blk_error_definite): nothing changed on
+ *                          the disk, the cache is still exact, the filesystem stays mounted and the caller may retry.
+ *   - FS_EUNCERTAIN        the write was submitted (or the flush after a submitted write failed) and its outcome is UNKNOWN: the sector may or
+ *                          may not hold the new inode. The cache and the allocation map may now disagree with the disk, and trusting them could
+ *                          let a later write reuse sectors the new inode references. So the filesystem UNMOUNTS ITSELF: every operation fails
+ *                          with FS_EMOUNT until fs_mount() rebuilds everything from the disk (and validates it). The operation may or may not
+ *                          have committed; the next mount shows which. Nothing is repaired or formatted automatically.
+ * Failures BEFORE this point (data writes, data flush) never touch metadata, so they are ordinary definite errors.
+ */
 static int commit_inode(uint32_t idx, struct inode *cand)
 {
     cand->crc = inode_crc(cand);
@@ -203,8 +216,13 @@ static int commit_inode(uint32_t idx, struct inode *cand)
     uint8_t buf[BLK_SECTOR];
     copy(buf, &F.t.raw[sec * BLK_SECTOR], BLK_SECTOR);
     copy(buf + (idx & 1) * INODE_SIZE, cand, INODE_SIZE);
-    int rc = blkrc(blk_write(INODE_START + sec, buf, 1)); if (rc) return rc;
-    rc = blkrc(blk_flush()); if (rc) return rc;
+    int rc = blk_write(INODE_START + sec, buf, 1);
+    if (rc) {
+        if (blk_error_definite(rc)) return blkrc(rc);           /* never reached the device: cache still exact */
+        F.mounted = 0; return FS_EUNCERTAIN;
+    }
+    rc = blk_flush();
+    if (rc) { F.mounted = 0; return FS_EUNCERTAIN; }             /* the sector was submitted; whether it is durable is unknown */
     copy(&F.t.ino[idx], cand, INODE_SIZE);
     return FS_OK;
 }

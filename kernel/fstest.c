@@ -56,6 +56,33 @@ static void persist_content(uint8_t *out, uint32_t *n)
     fill(out + h, 3000, 11); *n = h + 3000;
 }
 
+/* ---- helpers for the error-injection tests ---- */
+static uint8_t A0[700], B0[900], A1[1500], B1[900];
+static fs_id_t g_ia, g_ib;
+static int inj_setup(void)
+{
+    fill(A0, 700, 31); fill(B0, 900, 32); fill(A1, 1500, 33); fill(B1, 900, 34);
+    blk_test_inject_clear();
+    return fs_format(0) == FS_OK && fs_mount() == FS_OK && put_file(3, "A", 3, A0, 700, &g_ia) && put_file(3, "B", 3, B0, 900, &g_ib);
+}
+static int state_is(const uint8_t *a, uint32_t na, const uint8_t *b, uint32_t nb)
+{ return fs_mount() == FS_OK && file_is(3, "A", a, na) && file_is(3, "B", b, nb); }
+static int all_refused(void)
+{
+    fs_id_t x; struct fs_stat st[2]; uint8_t t[8]; zero(t, sizeof t);
+    return !fs_mounted() && fs_read(3, g_ia, 0, t, 8) == FS_EMOUNT && fs_write(3, g_ib, 0, t, 8) == FS_EMOUNT && fs_create(3, "Z", 3, &x) == FS_EMOUNT &&
+           fs_delete(3, g_ib) == FS_EMOUNT && fs_set_perm(3, g_ia, 1) == FS_EMOUNT && fs_lookup(3, "A", &x) == FS_EMOUNT &&
+           fs_list(3, st, 2) == FS_EMOUNT && fs_stat(3, g_ia, st) == FS_EMOUNT;
+}
+/* the block list of inode idx exactly as it is ON THE DISK (not the cache) */
+static int disk_blocks(uint32_t idx, uint32_t *bl, uint32_t *n)
+{
+    uint8_t s[BLK_SECTOR]; if (blk_read(1 + idx / 2, s, 1)) return 0;
+    const uint8_t *p = s + (idx & 1) * 256; *n = get32(p + 20); if (*n > FS_MAX_BLOCKS) return 0;
+    for (uint32_t i = 0; i < *n; i++) bl[i] = get32(p + 60 + 4 * i);
+    return 1;
+}
+
 static void phase_functional(void)
 {
     fs_id_t a, c;
@@ -241,6 +268,125 @@ static void phase_functional(void)
             if (mr != FS_OK || present != (k == 0)) c_ok = 0;
         }
         check("crash injection for create and delete: the file exists afterwards exactly when its inode sector reached the disk; the filesystem always mounts", c_ok);
+    }
+
+    /* ---- error injection: updates that are KNOWN not to have committed vs. updates whose durability is UNCERTAIN ---- */
+    {
+        fs_id_t x; int rc, ok;
+        uint8_t tmp8[8];
+        (void)tmp8;
+
+        /* 1. inode write rejected before reaching the device: definite, the filesystem stays usable */
+        ok = inj_setup();
+        blk_test_inject_write(BLK_INJ_REJECT, 3);
+        rc = fs_write(3, g_ia, 0, A1, 1500);
+        int still = fs_mounted() && rc < 0 && rc != FS_EUNCERTAIN && file_is(3, "A", A0, 700) && file_is(3, "B", B0, 900);
+        int retry = fs_write(3, g_ia, 0, A1, 1500) == 1500 && file_is(3, "A", A1, 1500) && state_is(A1, 1500, B0, 900);
+        check("inject: an inode write rejected before reaching the device is a DEFINITE failure: error returned, filesystem stays mounted and unchanged, a retry succeeds and survives a remount", ok && still && retry);
+
+        /* 2. inode write lost, outcome unknown */
+        ok = inj_setup();
+        blk_test_inject_write(BLK_INJ_FAIL_UNSENT, 3);
+        rc = fs_write(3, g_ia, 0, A1, 1500);
+        int refused = rc == FS_EUNCERTAIN && all_refused();
+        check("inject: an inode write that fails with unknown outcome returns FS_EUNCERTAIN, UNMOUNTS the filesystem, and every operation (read, write, create, delete, chmod, lookup, list, stat) then fails with FS_EMOUNT", ok && refused);
+        check("inject: ... and a fresh mount finds the OLD state exactly (this time the write had not reached the disk); the other file is intact", state_is(A0, 700, B0, 900));
+
+        /* 3. inode write reached the disk, completion reported as an error */
+        ok = inj_setup();
+        blk_test_inject_write(BLK_INJ_FAIL_SENT, 3);
+        rc = fs_write(3, g_ia, 0, A1, 1500);
+        refused = rc == FS_EUNCERTAIN && all_refused();
+        check("inject: an inode write that LANDED but was reported as failed: FS_EUNCERTAIN, unmounted, all operations refused", ok && refused);
+        check("inject: ... and a fresh mount finds the NEW state exactly (the operation had committed despite the error); the other file is intact", state_is(A1, 1500, B0, 900));
+
+        /* 4. the dangerous follow-up: with a stale allocation map a second write would reuse the sectors the new inode references */
+        ok = inj_setup();
+        {
+            blk_test_inject_write(BLK_INJ_FAIL_SENT, 3);
+            rc = fs_write(3, g_ia, 0, A1, 1500);
+            uint32_t bl[FS_MAX_BLOCKS], nbk = 0, k; uint8_t before[3][BLK_SECTOR], after[3][BLK_SECTOR];
+            int have = disk_blocks(0, bl, &nbk) && nbk == 3;
+            for (k = 0; have && k < 3; k++) blk_read(bl[k], before[k], 1);
+            int w2 = fs_write(3, g_ib, 0, B1, 900);                          /* would overwrite those sectors if the stale cache were trusted */
+            int same_sectors = have;
+            for (k = 0; have && k < 3; k++) { blk_read(bl[k], after[k], 1); if (!same(before[k], after[k], BLK_SECTOR)) same_sectors = 0; }
+            check("inject: after an uncertain commit a second write is refused (FS_EMOUNT) and the physical sectors referenced by the new inode are byte-for-byte untouched",
+                  ok && rc == FS_EUNCERTAIN && have && w2 == FS_EMOUNT && same_sectors);
+            int fine = state_is(A1, 1500, B0, 900);
+            int w3 = fs_write(3, g_ib, 0, B1, 900) == 900;
+            uint32_t ab[FS_MAX_BLOCKS], bb[FS_MAX_BLOCKS], na = 0, nb = 0; int disjoint = disk_blocks(0, ab, &na) && disk_blocks(1, bb, &nb);
+            for (k = 0; disjoint && k < na; k++) for (uint32_t j = 0; j < nb; j++) if (ab[k] == bb[j]) disjoint = 0;
+            check("inject: after remount both files are exact, a write to the second file succeeds, the first stays exact, and the two files own disjoint sectors (no duplicate ownership)",
+                  fine && w3 && disjoint && file_is(3, "A", A1, 1500) && file_is(3, "B", B1, 900) && fs_mount() == FS_OK);
+        }
+
+        /* 5. flush after the inode write fails */
+        {
+            int both = 1;
+            for (int kind = BLK_INJ_FAIL_UNSENT; kind <= BLK_INJ_FAIL_SENT; kind++) {
+                ok = inj_setup(); blk_test_inject_flush(kind, 1);              /* flush 0 = data, flush 1 = after the inode */
+                rc = fs_write(3, g_ia, 0, A1, 1500);
+                if (!(ok && rc == FS_EUNCERTAIN && all_refused() && state_is(A1, 1500, B0, 900))) both = 0;
+            }
+            check("inject: a failed flush AFTER the inode write is uncertain too: FS_EUNCERTAIN, unmounted, and the remount shows the new state (the write had reached the disk)", both);
+        }
+
+        /* 6. data-block write fails before the inode is published */
+        {
+            int both = 1;
+            for (int kind = BLK_INJ_REJECT; kind <= BLK_INJ_FAIL_SENT; kind++) {
+                ok = inj_setup(); blk_test_inject_write(kind, 1);              /* second data sector */
+                rc = fs_write(3, g_ia, 0, A1, 1500);
+                int mid = fs_mounted() && rc < 0 && rc != FS_EUNCERTAIN && file_is(3, "A", A0, 700) && file_is(3, "B", B0, 900);
+                int rt = fs_write(3, g_ia, 0, A1, 1500) == 1500 && state_is(A1, 1500, B0, 900);
+                if (!(ok && mid && rt)) both = 0;
+            }
+            check("inject: a data-block write failure (rejected, lost, or landed-but-reported) before the inode is published is a definite failure: mounted, old content intact, retry succeeds", both);
+        }
+
+        /* 7. data flush fails */
+        ok = inj_setup(); blk_test_inject_flush(BLK_INJ_FAIL_SENT, 0);
+        rc = fs_write(3, g_ia, 0, A1, 1500);
+        int dfl = fs_mounted() && rc < 0 && rc != FS_EUNCERTAIN && file_is(3, "A", A0, 700) && fs_write(3, g_ia, 0, A1, 1500) == 1500 && state_is(A1, 1500, B0, 900);
+        check("inject: a failed data flush stops the update before the inode is written: error, still mounted, old content intact, retry succeeds", ok && dfl);
+
+        /* 8. create */
+        {
+            int c_ok = 1;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_REJECT, 0); rc = fs_create(3, "C", 3, &x);
+            if (!(ok && rc < 0 && rc != FS_EUNCERTAIN && fs_mounted() && fs_lookup(3, "C", &x) == FS_ENOENT && fs_create(3, "C", 3, &x) == FS_OK)) c_ok = 0;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_FAIL_UNSENT, 0); rc = fs_create(3, "C", 3, &x);
+            if (!(ok && rc == FS_EUNCERTAIN && all_refused() && fs_mount() == FS_OK && fs_lookup(3, "C", &x) == FS_ENOENT && fs_file_count() == 2)) c_ok = 0;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_FAIL_SENT, 0); rc = fs_create(3, "C", 3, &x);
+            if (!(ok && rc == FS_EUNCERTAIN && all_refused() && fs_mount() == FS_OK && fs_lookup(3, "C", &x) == FS_OK && fs_file_count() == 3 && state_is(A0, 700, B0, 900))) c_ok = 0;
+            check("inject create: rejected = not created and still mounted; lost = uncertain and absent after remount; landed = uncertain and present after remount; other files intact", c_ok);
+        }
+
+        /* 9. delete */
+        {
+            int d_ok = 1;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_REJECT, 0); rc = fs_delete(3, g_ib);
+            if (!(ok && rc < 0 && rc != FS_EUNCERTAIN && fs_mounted() && file_is(3, "B", B0, 900))) d_ok = 0;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_FAIL_UNSENT, 0); rc = fs_delete(3, g_ib);
+            if (!(ok && rc == FS_EUNCERTAIN && all_refused() && state_is(A0, 700, B0, 900))) d_ok = 0;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_FAIL_SENT, 0); rc = fs_delete(3, g_ib);
+            if (!(ok && rc == FS_EUNCERTAIN && all_refused() && fs_mount() == FS_OK && fs_lookup(3, "B", &x) == FS_ENOENT && file_is(3, "A", A0, 700) && fs_file_count() == 1)) d_ok = 0;
+            check("inject delete: rejected = file kept and still mounted; lost = uncertain and file present after remount; landed = uncertain and file gone after remount; the other file intact", d_ok);
+        }
+
+        /* 10. permission change */
+        {
+            int p_ok = 1; struct fs_stat st;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_REJECT, 0); rc = fs_set_perm(3, g_ia, 0xF);
+            if (!(ok && rc < 0 && rc != FS_EUNCERTAIN && fs_mounted() && fs_stat(3, g_ia, &st) == FS_OK && st.perm == 3)) p_ok = 0;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_FAIL_UNSENT, 0); rc = fs_set_perm(3, g_ia, 0xF);
+            if (!(ok && rc == FS_EUNCERTAIN && all_refused() && fs_mount() == FS_OK && fs_stat(3, g_ia, &st) == FS_OK && st.perm == 3)) p_ok = 0;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_FAIL_SENT, 0); rc = fs_set_perm(3, g_ia, 0xF);
+            if (!(ok && rc == FS_EUNCERTAIN && all_refused() && fs_mount() == FS_OK && fs_stat(3, g_ia, &st) == FS_OK && st.perm == 0xF)) p_ok = 0;
+            check("inject chmod: rejected = unchanged and mounted; lost = uncertain, old permissions after remount; landed = uncertain, new permissions after remount", p_ok);
+        }
+        blk_test_inject_clear();
     }
 
     /* ---- leave persistent files for the next boots ---- */

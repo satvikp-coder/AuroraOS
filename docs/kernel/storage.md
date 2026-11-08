@@ -99,3 +99,19 @@ timestamps, no concurrency control (single CPU, callers are not preempted inside
 **Tests:** `tests/qemu/fs-tests.sh` (81 checks, in CI): three boots on one image (format + 39 checks; then 17 checks each on mount without
 formatting incl. injected corruption), host-side proof that the bytes are in the image file, host-damaged images (flipped inode bit, wrong
 version, foreign content, flipped superblock bit) reported precisely with the image checksum unchanged, read-only disk, no disk.
+
+## Uncertain metadata updates (fail-safe recovery, review fix for PR #28)
+
+Every metadata change (create, delete, chmod, and the inode publication of a write) goes through one function, `commit_inode`, with three outcomes:
+
+| Outcome | Meaning | Filesystem state |
+|---|---|---|
+| `FS_OK` | inode sector written and flushed; cache updated | mounted |
+| definite error (`FS_EIO`, ...) | the block layer rejected the write before it reached the device (`blk_error_definite`), or a failure happened before any metadata was touched (data-block write, data flush) | mounted, cache still exact, retry allowed |
+| `FS_EUNCERTAIN` | the inode write was submitted and failed or timed out, or the flush after a submitted write failed: durability unknown | **unmounted**: every operation returns `FS_EMOUNT` until `fs_mount()` |
+
+Why: after an uncertain inode write the disk may hold the new inode while the in-memory table and allocation map still describe the old file, so a later write could be handed sectors the new inode references. Unmounting makes that impossible; the next mount rebuilds the inode table and the allocation map from the disk and validates them (checksums, ranges, no sector owned twice, no duplicate names). The operation that returned `FS_EUNCERTAIN` **may or may not have committed**; the mount shows which, and (under the documented assumptions: in-order device, flush honoured, 512-byte sector writes atomic) the result is exactly the old or exactly the new state. Nothing is repaired or formatted automatically. Not claimed: recovery from torn sectors, reordered writes, or real power loss.
+
+Tests (test-only injection in the block driver: reject / lost-with-error / landed-but-reported-as-error, for writes and flushes): inode write rejected, lost, landed; the dangerous follow-up (a second write after an uncertain commit is refused and the sectors of the new inode stay byte-for-byte untouched; after remount both files are exact and own disjoint sectors); inode-flush failure; data-block write failure; data-flush failure; the same three cases for create, delete and chmod. The new tests were run against the previous `commit_inode` first: 8 of them failed, including the sector-overwrite case.
+
+Driver audit: `blk_init` is now idempotent (no remap, no allocation on a second call) and frees its three pages on every failure path after resetting the device. Timeout recovery re-initialises the device and the request returns `BLK_ETIMEOUT` (an uncertain outcome for writes, which the filesystem treats as `FS_EUNCERTAIN` when it concerns an inode). Failure paths *during* queue setup are covered by code review only; they have no injection test.

@@ -12,6 +12,7 @@
 #include <console.h>
 #include <mm.h>
 
+uint64_t boot_dtb_address(void);   /* kernel.c */
 static int nfail;
 #ifdef AURORA_BLK_TEST
 static int npass;
@@ -120,6 +121,14 @@ void blktest_run(void)
     int rd_after = blk_read(400, buf2, 1) == BLK_OK && same(buf, buf2, BLK_SECTOR);
     check("a request whose doorbell is lost times out (BLK_ETIMEOUT), the device is reset and re-initialised, and later I/O works with old data intact",
           ok_before && st == BLK_ETIMEOUT && blk_timeouts() == t0 + 1 && ok_after && rd_after && blk_present());
+
+    /* initialisation is idempotent and allocation-neutral */
+    {
+        struct pmm_stats s0, s1; pmm_get_stats(&s0);
+        int again = blk_init((const void *)(uintptr_t)boot_dtb_address());
+        pmm_get_stats(&s1);
+        check("blk_init called again is a no-op: returns BLK_OK, allocates no page, and the device keeps working", again == BLK_OK && s1.free_pages == s0.free_pages && blk_read(0, buf2, 1) == BLK_OK);
+    }
 
     /* persistence across reboots of the emulator on the same image */
     uint8_t m[BLK_SECTOR], got[BLK_SECTOR];

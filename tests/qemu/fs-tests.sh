@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_FS_BOOT1=39
+EXPECTED_FS_BOOT1=52
 EXPECTED_FS_BOOTN=17
 EXPECTED_FS_RO=2
 EXPECTED_PROC_TESTS=79
@@ -65,7 +65,7 @@ for n in 1 2 3; do
 done
 expect "$OUT/boot1.log" "\[fs\] initial mount: no filesystem" "boot1: empty disk detected, not formatted automatically"
 expect "$OUT/boot1.log" "AURORA-FS-SELFTEST: $EXPECTED_FS_BOOT1 passed, 0 failed" "boot1: all $EXPECTED_FS_BOOT1 checks pass"
-for t in "unmounted filesystem fail with FS_EMOUNT" "oversized: writing 24 KiB" "invalid ids" "owner-only file: another principal gets FS_EACCES" "GUESSES the exact id" "full disk: a write that does not fit is FS_ENOSPC" "100 create/write/read/delete cycles" "crash injection \(write k" "crash injection for create and delete" "boot 1: filesystem formatted and persistent files written"; do
+for t in "unmounted filesystem fail with FS_EMOUNT" "oversized: writing 24 KiB" "invalid ids" "owner-only file: another principal gets FS_EACCES" "GUESSES the exact id" "full disk: a write that does not fit is FS_ENOSPC" "100 create/write/read/delete cycles" "crash injection \(write k" "crash injection for create and delete" "boot 1: filesystem formatted and persistent files written" "inject: an inode write rejected before reaching the device is a DEFINITE failure" "inject: an inode write that fails with unknown outcome returns FS_EUNCERTAIN, UNMOUNTS" "inject: an inode write that LANDED but was reported as failed" "inject: after an uncertain commit a second write is refused" "inject: after remount both files are exact" "inject: a failed flush AFTER the inode write is uncertain too" "inject: a data-block write failure" "inject: a failed data flush" "inject create" "inject delete" "inject chmod"; do
     expect "$OUT/boot1.log" "\[fs-test\] .*$t.*: PASS" "boot1: $t"
 done
 expect "$OUT/boot2.log" "\[fs\] initial mount: ok" "boot2: mounted without formatting"
