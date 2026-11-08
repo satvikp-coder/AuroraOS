@@ -29,6 +29,16 @@ CFLAGS="-march=armv8-a -mgeneral-regs-only -mstrict-align -ffreestanding -nostdl
 -Wall -Wextra -Werror -O2 -I kernel/include"
 # AURORA_FIXED_RAM=1: DEV-ONLY fallback that assumes 256 MiB at 0x40000000 when no device tree is found.
 # Normal builds refuse to boot without a validated device tree.
+# AURORA_TEST_ENTRY=spsel0|el1t builds CONTROLLED boot-entry variants (tests only): spsel0 enters at EL1 with SPSel=0
+# and junk stack pointers; el1t (use a machine with virtualization=on) ERETs from EL2 to EL1t. Both prove that
+# start.S selects each stack pointer explicitly instead of assuming the entry state.
+ASFLAGS=""
+case "$AURORA_TEST_ENTRY" in
+    "") ;;
+    spsel0) ASFLAGS="--defsym AURORA_TEST_ENTRY_SPSEL0=1"; CFLAGS="$CFLAGS -DAURORA_TEST_ENTRY=1" ;;
+    el1t)   ASFLAGS="--defsym AURORA_TEST_ENTRY_EL1T=1";   CFLAGS="$CFLAGS -DAURORA_TEST_ENTRY=2" ;;
+    *) echo "unknown AURORA_TEST_ENTRY=$AURORA_TEST_ENTRY" >&2; exit 2 ;;
+esac
 if [ -n "$AURORA_FIXED_RAM" ]; then
     CFLAGS="$CFLAGS -DAURORA_FIXED_RAM=1"
 fi
@@ -41,14 +51,14 @@ mkdir -p "$BUILD_DIR"
 OBJS=""
 
 echo "[build] Assembling..."
-for s in boot/aarch64/start.S kernel/arch/aarch64/vectors.S; do
+for s in boot/aarch64/start.S kernel/arch/aarch64/vectors.S kernel/arch/aarch64/exc_selftest.S; do
     o="$BUILD_DIR/$(basename "$s" .S).o"
-    $AS -march=armv8-a -o "$o" "$s"
+    $AS -march=armv8-a $ASFLAGS -o "$o" "$s"
     OBJS="$OBJS $o"
 done
 
 echo "[build] Compiling kernel..."
-for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c \
+for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
          kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do
     o="$BUILD_DIR/$(basename "$c" .c).o"
     $CC $CFLAGS -c "$c" -o "$o"

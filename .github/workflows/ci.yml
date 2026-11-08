@@ -97,6 +97,10 @@ jobs:
         run: |
           chmod +x tests/kernel-host/run.sh
           ./tests/kernel-host/run.sh
+      - name: Run interrupt, timer and exception-stack tests
+        run: |
+          chmod +x tests/qemu/irq-tests.sh
+          ./tests/qemu/irq-tests.sh
       - name: Run memory-management tests (allocator, MMU, deliberate faults)
         run: |
           chmod +x tests/qemu/mm-tests.sh

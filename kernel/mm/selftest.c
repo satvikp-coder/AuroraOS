@@ -283,6 +283,7 @@ int selftest_summary(void)
 /* Deliberate faults: each build triggers exactly one genuine hardware exception. */
 void selftest_fault(void)
 {
+    if (AURORA_FAULT_TEST >= 6) return;            /* cases 6 and 7 live in irqtest.c */
     console_puts("[fault-test] case "); console_dec(AURORA_FAULT_TEST); console_puts(": ");
     switch (AURORA_FAULT_TEST) {
     case 1: console_puts("read unmapped 0xDEAD0000\n");   (void)*(volatile uint32_t *)0xDEAD0000UL; break;

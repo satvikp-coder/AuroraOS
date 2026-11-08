@@ -90,11 +90,9 @@ aligned. All vectors currently end in a panic; there is no interrupt handling ye
 
 ## Known limits (honest)
 
-* **Stack guard page.** The guard page is unmapped, so an access to it faults, and that is what the test
-  proves. It does **not** prove that a real stack overflow can always be diagnosed: the exception entry pushes
-  its frame onto the same SP, which is by then in or below the guard page, so it faults again (a double fault
-  that loops without a diagnostic). Reliable overflow reporting needs a separate exception stack (planned
-  with interrupts, issue #5).
+* **Stack guard page.** An unmapped guard page proves an access to it faults. Reliable *diagnosis* of a real overflow
+  needs the exception entry to run on a different stack, which is now the case: see
+  [interrupts-timers.md](interrupts-timers.md) (exception stack on SP_EL1, tested with a genuine recursion overflow).
 * Page-table pages are never freed; there is no `vmm_unmap` yet.
 * `vmm_map` is all-or-nothing against *validation* (conflicts, ranges, free pages for tables). It is not
   concurrent-safe; locking comes with interrupts/SMP.

@@ -43,6 +43,13 @@ SECTIONS
         __stack_bottom = .;
         . += 16384;
         __stack_top = .;
+        /* Separate exception stack (SP_EL1) with its own unmapped guard page, so a fault caused by an
+         * exhausted kernel stack can still save its frame and print diagnostics. */
+        __exc_guard = .;
+        . += 4096;
+        __exc_stack_bottom = .;
+        . += 8192;
+        __exc_stack_top = .;
     }
     . = ALIGN(4096);
     __kernel_end = .;

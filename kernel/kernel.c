@@ -13,11 +13,17 @@
  */
 #include <arch.h>
 #include <console.h>
+#include <gic.h>
+#include <irq.h>
+#include <irqtest.h>
+#include <timer.h>
 #include <mm.h>
 #include <selftest.h>
 
 #define QEMU_VIRT_RAM_BASE 0x40000000UL   /* used only by the explicit AURORA_FIXED_RAM dev mode */
 
+/* Set by start.S just after BSS is cleared: the exception level and SPSel the CPU was entered with. */
+uint64_t boot_entry_el, boot_entry_spsel;
 static struct fdt_info boot_info;
 static uint64_t boot_dtb;
 uint64_t boot_dtb_address(void) { return boot_dtb; }
@@ -44,6 +50,11 @@ void kernel_main(uint64_t dtb)
     console_puts("Welcome to AuroraOS\n");
 
     exceptions_init();
+    console_puts("[info] boot entry: EL"); console_dec(boot_entry_el); console_puts(", SPSel="); console_dec(boot_entry_spsel);
+#ifdef AURORA_TEST_ENTRY
+    console_puts(" (CONTROLLED TEST ENTRY MODE "); console_dec(AURORA_TEST_ENTRY); console_puts(")");
+#endif
+    console_puts("\n");
     console_puts("Exception vectors installed at EL"); console_dec(read_current_el()); console_puts("\n");
 
     /* 1. Memory map from a validated device tree (x0 is the Linux arm64 boot-protocol DTB pointer). */
@@ -100,7 +111,26 @@ void kernel_main(uint64_t dtb)
     if (failures) { console_puts("MEMORY MANAGEMENT SELFTEST FAILED\n"); halt_forever(); }
     console_puts("Memory management OK\n");
 
-    selftest_fault();   /* no-op unless this is a deliberate fault-test build */
+    /* 4. Interrupt controller, timer, and their tests. The platform description must come from the device tree. */
+    if (dtb) {
+        struct fdt_platform plat;
+        int pr = fdt_platform_parse((const void *)(uintptr_t)dtb, &plat);
+        if (pr || plat.gic_version != 2 || !plat.have_timer) fatal("device tree does not describe a supported interrupt controller (GICv2) and ARM timer");
+        int gr = gicv2_init(&plat);
+        if (gr) { console_puts("gicv2_init error "); console_dec((uint64_t)(-gr)); console_puts("\n"); fatal("interrupt controller setup failed"); }
+        int tr = timer_init(&plat);
+        if (tr) { console_puts("timer_init error "); console_dec((uint64_t)(-tr)); console_puts("\n"); fatal("timer setup failed"); }
+        console_puts("GICv2 at "); console_hex(plat.gicd_base); console_puts("/"); console_hex(plat.gicc_base);
+        console_puts(", timer frequency "); console_dec(timer_freq()); console_puts(" Hz, interrupt ID "); console_dec(timer_intid()); console_puts("\n");
+        irqtest_run(&plat);
+        if (irqtest_summary()) { console_puts("INTERRUPT SELFTEST FAILED\n"); halt_forever(); }
+        console_puts("Interrupts and timer OK\n");
+    } else {
+        console_puts("Interrupt tests skipped: no device tree (dev mode)\n");
+    }
+
+    selftest_fault();   /* no-ops unless this is a deliberate fault-test build */
+    irqtest_fault();
     console_puts("Boot complete, idling.\n");
     halt_forever();
 }

@@ -38,6 +38,17 @@ struct fdt_info {
 int fdt_parse(const void *fdt, struct fdt_info *out);   /* FDT_OK or FDT_ERR_* */
 const char *fdt_strerror(int err);
 
+/* Interrupt controller and architected timer, from a blob that fdt_parse() accepts. */
+struct fdt_platform {
+    int      gic_version;                    /* 0 none found, 2 = GICv2 (supported), 3 = GICv3 (recognised only) */
+    uint64_t gicd_base, gicd_size;           /* GICv2 distributor */
+    uint64_t gicc_base, gicc_size;           /* GICv2 CPU interface */
+    int      have_timer;
+    uint32_t timer_intid_phys_ns;            /* GIC interrupt ID of the non-secure EL1 physical timer */
+    uint32_t timer_intid_virt;               /* ... of the virtual timer */
+};
+int fdt_platform_parse(const void *fdt, struct fdt_platform *out);
+
 /* ---- Physical page allocator ---------------------------------------- */
 #define PMM_MAX_RAM   (1UL << 30)                 /* managed RAM cap: 1 GiB */
 #define PMM_MAX_PAGES (PMM_MAX_RAM >> PAGE_SHIFT)
@@ -88,6 +99,6 @@ int      vmm_hw_translate(uint64_t va, int write, uint64_t *pa);
 /* Linker-provided section boundaries */
 extern uint8_t __image_start[], __text_start[], __text_end[], __rodata_start[], __rodata_end[],
                __data_start[], __data_end[], __stack_guard[], __stack_bottom[], __stack_top[],
-               __kernel_end[];
+               __exc_guard[], __exc_stack_bottom[], __exc_stack_top[], __kernel_end[];
 
 #endif
