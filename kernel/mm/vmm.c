@@ -14,8 +14,15 @@
  * vmm_map() is all-or-nothing: the whole request is validated (arguments, ranges, conflicts
  * with existing mappings, and that enough free pages exist for every page table it could
  * need) BEFORE any descriptor is written. A failed call changes nothing.
+ *
+ * Every mapping (including the boot identity map) is checked against the physical-target policy in
+ * mmpolicy.c: no writable alias of kernel text/rodata, no executable memory outside text, no mapping of
+ * device-tree no-map memory, Normal attributes only on RAM, Device attributes only inside registered
+ * MMIO windows. There is deliberately no bypass flag; a driver registers its window with
+ * vmm_register_mmio() first.
  */
 #include <mm.h>
+#include <mmpolicy.h>
 
 #define PTE_VALID    (1ULL << 0)
 #define PTE_TABLE    (1ULL << 1)            /* level 1/2: table descriptor; level 3: page */
@@ -33,6 +40,8 @@
 #define BLOCK_2M     0x200000ULL
 
 static uint64_t *l1;
+static struct mm_policy policy;
+static int last_denial;
 
 struct hole { uint64_t start, end; };
 static struct hole nomap[FDT_MAX_RESERVED];
@@ -115,6 +124,10 @@ int vmm_map(uint64_t va, uint64_t pa, uint64_t size, int attr)
     int pab = vmm_pa_bits();
     if (pa + size < pa || (pab < 64 && pab > 0 && pa + size > (1ULL << pab))) return VMM_ERR_RANGE;
 
+    /* Physical-target policy, before anything is allocated or written. */
+    int pr = mm_policy_check(&policy, pa, size, attr);
+    if (pr) { last_denial = pr; return VMM_ERR_POLICY; }
+
     /* Phase 1: validate everything; nothing is written yet. */
     uint64_t tables = 0;
     int rc = preflight(va, pa, size, &tables);
@@ -149,6 +162,14 @@ int vmm_map(uint64_t va, uint64_t pa, uint64_t size, int attr)
     return VMM_OK;
 }
 
+int vmm_last_denial(void) { return last_denial; }
+
+int vmm_register_mmio(uint64_t addr, uint64_t size)
+{
+    if ((addr | size) & (PAGE_SIZE - 1)) return VMM_ERR_ALIGN;
+    return mm_policy_add_mmio(&policy, addr, size) ? VMM_ERR_POLICY : VMM_OK;
+}
+
 int vmm_add_nomap(uint64_t addr, uint64_t size)
 {
     if (size == 0 || addr + size < addr || nnomap >= FDT_MAX_RESERVED) return VMM_ERR_ARG;
@@ -170,6 +191,15 @@ int vmm_init(void)
     uintptr_t t = pmm_alloc_page();
     if (!t) return VMM_ERR_NOMEM;
     l1 = (uint64_t *)t;
+
+    /* Build the physical-target policy from the kernel layout and the device tree. */
+    policy.nnomap = 0; policy.nmmio = 0;
+    policy.ram.start = pmm_ram_base(); policy.ram.end = pmm_ram_end();
+    policy.text.start = (uint64_t)(uintptr_t)__text_start; policy.text.end = (uint64_t)(uintptr_t)__text_end;
+    policy.rodata.start = (uint64_t)(uintptr_t)__rodata_start; policy.rodata.end = (uint64_t)(uintptr_t)__rodata_end;
+    for (int i = 0; i < nnomap; i++)
+        if (mm_policy_add_nomap(&policy, nomap[i].start, nomap[i].end - nomap[i].start)) return VMM_ERR_POLICY;
+    if (vmm_register_mmio(0x08000000ULL, BLOCK_2M) || vmm_register_mmio(0x09000000ULL, PAGE_SIZE)) return VMM_ERR_POLICY;
 
     /* Devices (QEMU virt): GIC window 0x08000000 (2 MiB) and the PL011 UART page. */
     if (vmm_map(0x08000000ULL, 0x08000000ULL, BLOCK_2M, VMM_ATTR_DEVICE)) return -2;

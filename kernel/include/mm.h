@@ -69,7 +69,11 @@ void      pmm_get_stats(struct pmm_stats *s);
 #define VMM_ATTR_DEVICE      4   /* Device-nGnRnE, read/write, no exec   */
 
 enum { VMM_OK = 0, VMM_ERR_ARG = -1, VMM_ERR_ALIGN = -2, VMM_ERR_RANGE = -3, VMM_ERR_NOMEM = -4,
-       VMM_ERR_CONFLICT = -5 /* overlaps an existing mapping or block */ };
+       VMM_ERR_CONFLICT = -5, /* overlaps an existing mapping or block */
+       VMM_ERR_POLICY = -6    /* physical-target policy denied it; see vmm_last_denial() / mmpolicy.h */ };
+
+int      vmm_last_denial(void);                    /* MMP_DENY_* reason of the most recent VMM_ERR_POLICY */
+int      vmm_register_mmio(uint64_t addr, uint64_t size); /* declare a device window (only Device mappings may target it) */
 
 int      vmm_add_nomap(uint64_t addr, uint64_t size);   /* device-tree no-map region: left unmapped (call before vmm_init) */
 int      vmm_pa_bits(void);                       /* implemented physical address width */

@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_TESTS=70      # number of "[test]" lines a healthy boot prints (kept in sync with kernel/mm/selftest.c)
+EXPECTED_TESTS=93      # (70 before the physical-target policy tests, +23) number of "[test]" lines a healthy boot prints (kept in sync with kernel/mm/selftest.c)
 
 OUT="$ROOT/build/mm-tests"
 rm -rf "$OUT"; mkdir -p "$OUT"
@@ -67,6 +67,9 @@ healthy() { # logname log ramsize
     expect "$2" "AURORA-MM-SELFTEST: $EXPECTED_TESTS passed, 0 failed" "$1: all $EXPECTED_TESTS in-kernel tests pass"
     expect_not "$2" "\[test\].*FAIL" "$1: no failing test"
     expect "$2" "Memory management OK" "$1: memory management OK"
+    expect "$2" "\[info\] no-map regions policy-tested: 0" "$1: policy tests ran (default device tree has no no-map region, so that case is vacuous here)"
+    expect "$2" "\[test\] policy: RW alias of the first kernel-text page is refused \(TEXT_WRITE\): PASS" "$1: writable alias of kernel text refused"
+    expect "$2" "\[test\] policy: RW alias of the first rodata page is refused \(RODATA_WRITE\): PASS" "$1: writable alias of rodata refused"
     expect "$2" "Boot complete" "$1: reached the end of boot"
     expect_not "$2" "KERNEL PANIC|WARNING|FATAL|DEV MODE" "$1: no panic, warning or dev-mode banner"
 }
@@ -113,6 +116,8 @@ no_timeout "reserved-dtb"; produced_output "reserved-dtb" "$OUT/reserved.log"
 expect "$OUT/reserved.log" "reserved regions: 3" "reserved-dtb: all 3 reservations (1 reserve-map + 2 reserved-memory) were parsed"
 expect "$OUT/reserved.log" "AURORA-MM-SELFTEST: $EXPECTED_TESTS passed, 0 failed" "reserved-dtb: allocator and MMU tests pass with the reservations"
 expect "$OUT/reserved.log" "\[test\] pmm: exhaustion never hands out the device-tree blob or its reserved regions: PASS" "reserved-dtb: no allocation fell inside a reserved region"
+expect "$OUT/reserved.log" "\[info\] no-map regions policy-tested: 1" "reserved-dtb: the policy was tested against the real no-map region (1 region)"
+expect "$OUT/reserved.log" "\[test\] policy: no-map memory is refused for every attribute, also inside mixed requests, and nothing is installed: PASS" "reserved-dtb: aliases of no-map memory refused for every attribute"
 expect "$OUT/reserved.log" "\[test\] mmu: no-map regions are unmapped, other reserved regions stay mapped: PASS" "reserved-dtb: the no-map region is unmapped"
 expect_not "$OUT/reserved.log" "KERNEL PANIC|FATAL|\[test\].*FAIL" "reserved-dtb: no panic"
 

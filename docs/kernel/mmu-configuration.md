@@ -43,6 +43,27 @@ Hierarchical `APTable/XNTable/PXNTable` bits are 0. Section permissions:
 | device-tree `no-map` regions | **unmapped** |
 | GIC window (2 MiB), UART page | Device-nGnRnE, `PXN|UXN` |
 
+## Physical-target policy (`kernel/mm/mmpolicy.c`)
+
+Page-table construction (`vmm.c`) is separate from the question of *which physical memory may be mapped how*.
+Every `vmm_map()` call, including the boot identity map, is checked by the pure function `mm_policy_check()`
+before anything is allocated or written:
+
+1. size 0 or `pa+size` overflow: denied.
+2. any overlap with a device-tree **no-map** region: denied for every attribute.
+3. **Device** attributes: only wholly inside a registered MMIO window (UART, GIC, plus anything registered with
+   `vmm_register_mmio()`), never on RAM.
+4. **Normal** attributes: only wholly inside RAM (never MMIO or unknown space); RW may not overlap kernel text or
+   rodata; RX only inside kernel text (so no executable alias of writable memory); RO is always fine in RAM.
+
+A request mixing protected and unprotected pages is judged as a whole. There is intentionally **no bypass flag**: a
+future driver registers its window, it does not skip the check.
+
+Found by review: before this policy a writable alias of text, rodata and a no-map page, and a Normal mapping of the
+UART, all succeeded (observed on QEMU: `rc=0`, and a write through the alias translated). The goal is correct
+mapping contracts, not protection against malicious EL1 code, which can rewrite its own page tables. Not yet
+protected: aliases of the page-table pages themselves.
+
 ## EL2 to EL1
 
 QEMU `virt` enters at EL1 unless started with `virtualization=on`; both are tested. At EL2 we set

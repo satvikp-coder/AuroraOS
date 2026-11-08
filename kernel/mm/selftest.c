@@ -11,6 +11,7 @@
 #include <arch.h>
 #include <console.h>
 #include <mm.h>
+#include <mmpolicy.h>
 #include <selftest.h>
 
 const struct fdt_info *boot_fdt_info(void);
@@ -142,6 +143,91 @@ void selftest_mmu(void)
         check("vmm: physical address beyond the implemented width is refused", vmm_map(0xB0000000ULL, 1ULL << 47, PAGE_SIZE, VMM_ATTR_NORMAL_RW) == VMM_ERR_RANGE);
         check("vmm: zero size and bad attribute are refused", vmm_map(0xB0000000ULL, pg, 0, VMM_ATTR_NORMAL_RW) == VMM_ERR_ARG && vmm_map(0xB0000000ULL, pg, PAGE_SIZE, 0) == VMM_ERR_ARG);
         check("vmm: refused requests mapped nothing", vmm_hw_translate(0xB0000000ULL, 0, &dummy) == -1 && vmm_hw_translate((1ULL << 39) - PAGE_SIZE, 0, &dummy) == -1);
+    }
+
+    /* ---- physical-target policy: aliases through DIFFERENT virtual addresses ---- */
+    {
+        uint64_t d, va = 0x1C0000000ULL;                 /* an unused 1 GiB slot, so these never collide with identity maps */
+        const uint64_t text0 = (uint64_t)(uintptr_t)__text_start, text_end = (uint64_t)(uintptr_t)__text_end;
+        const uint64_t ro0 = (uint64_t)(uintptr_t)__rodata_start, ro_end = (uint64_t)(uintptr_t)__rodata_end;
+        const uint64_t data0 = (uint64_t)(uintptr_t)__data_start;
+        const uint64_t ram_end = pmm_ram_end(), uart = 0x09000000ULL;
+        struct pmm_stats pa_, pb_;
+        uintptr_t freepg = pmm_alloc_page();            /* a normal RAM page for control cases */
+
+        /* Rejected requests first: they must change neither accounting nor translations. */
+        pmm_get_stats(&pa_);
+        int r1 = vmm_map(va + 0x0000, text0, PAGE_SIZE, VMM_ATTR_NORMAL_RW);       int d1 = vmm_last_denial();
+        int r2 = vmm_map(va + 0x1000, text_end - PAGE_SIZE, PAGE_SIZE, VMM_ATTR_NORMAL_RW);
+        int r3 = vmm_map(va + 0x2000, ro0, PAGE_SIZE, VMM_ATTR_NORMAL_RW);         int d3 = vmm_last_denial();
+        int r4 = vmm_map(va + 0x3000, ro_end - PAGE_SIZE, PAGE_SIZE, VMM_ATTR_NORMAL_RW);
+        int r5 = vmm_map(va + 0x10000, text0 - PAGE_SIZE, 2 * PAGE_SIZE, VMM_ATTR_NORMAL_RW);   /* boot-region page + text page */
+        int d5 = vmm_last_denial();
+        int r6 = vmm_map(va + 0x20000, text_end - PAGE_SIZE, 2 * PAGE_SIZE, VMM_ATTR_NORMAL_RW); /* text page + rodata page */
+        int r7 = vmm_map(va + 0x30000, data0, PAGE_SIZE, VMM_ATTR_NORMAL_RX);      int d7 = vmm_last_denial();
+        int r8 = vmm_map(va + 0x31000, ro0, PAGE_SIZE, VMM_ATTR_NORMAL_RX);
+        int r9 = vmm_map(va + 0x32000, freepg, PAGE_SIZE, VMM_ATTR_NORMAL_RX);
+        int r10 = vmm_map(va + 0x33000, text0, text_end - text0 + PAGE_SIZE, VMM_ATTR_NORMAL_RX);   /* text + first rodata page */
+        int r11 = vmm_map(va + 0x40000, uart, PAGE_SIZE, VMM_ATTR_NORMAL_RW);      int d11 = vmm_last_denial();
+        int r12 = vmm_map(va + 0x41000, ram_end, PAGE_SIZE, VMM_ATTR_NORMAL_RW);   int d12 = vmm_last_denial();
+        int r13 = vmm_map(va + 0x42000, ram_end - PAGE_SIZE, 2 * PAGE_SIZE, VMM_ATTR_NORMAL_RW);   /* crosses the end of RAM */
+        int r14 = vmm_map(va + 0x50000, freepg, PAGE_SIZE, VMM_ATTR_DEVICE);       int d14 = vmm_last_denial();
+        int r15 = vmm_map(va + 0x51000, 0x0a000000ULL, PAGE_SIZE, VMM_ATTR_DEVICE); int d15 = vmm_last_denial();
+        int r16 = vmm_map(va + 0x52000, uart, 2 * PAGE_SIZE, VMM_ATTR_DEVICE);     /* runs past the 1-page UART window */
+        pmm_get_stats(&pb_);
+
+        check("policy: RW alias of the first kernel-text page is refused (TEXT_WRITE)", r1 == VMM_ERR_POLICY && d1 == MMP_DENY_TEXT_WRITE);
+        check("policy: RW alias of the last kernel-text page is refused", r2 == VMM_ERR_POLICY);
+        check("policy: RW alias of the first rodata page is refused (RODATA_WRITE)", r3 == VMM_ERR_POLICY && d3 == MMP_DENY_RODATA_WRITE);
+        check("policy: RW alias of the last rodata page is refused", r4 == VMM_ERR_POLICY);
+        check("policy: mixed request (unprotected page + text page) is refused as a whole", r5 == VMM_ERR_POLICY && d5 == MMP_DENY_TEXT_WRITE);
+        check("policy: request crossing the text/rodata boundary is refused", r6 == VMM_ERR_POLICY);
+        check("policy: executable alias of a data page is refused (W^X across aliases)", r7 == VMM_ERR_POLICY && d7 == MMP_DENY_EXEC_OUTSIDE_TEXT);
+        check("policy: executable alias of rodata or free RAM is refused", r8 == VMM_ERR_POLICY && r9 == VMM_ERR_POLICY);
+        check("policy: executable request extending past the end of text is refused", r10 == VMM_ERR_POLICY);
+        check("policy: cacheable mapping of UART MMIO is refused (NORMAL_ON_MMIO)", r11 == VMM_ERR_POLICY && d11 == MMP_DENY_NORMAL_ON_MMIO);
+        check("policy: cacheable mapping outside or crossing the end of RAM is refused", r12 == VMM_ERR_POLICY && d12 == MMP_DENY_NORMAL_OUTSIDE_RAM && r13 == VMM_ERR_POLICY);
+        check("policy: device attributes on RAM are refused (DEVICE_ON_RAM)", r14 == VMM_ERR_POLICY && d14 == MMP_DENY_DEVICE_ON_RAM);
+        check("policy: device mapping outside a registered window is refused", r15 == VMM_ERR_POLICY && d15 == MMP_DENY_DEVICE_OUTSIDE_WINDOW && r16 == VMM_ERR_POLICY);
+        int any = 0;
+        for (uint64_t off = 0; off < 0x53000; off += PAGE_SIZE) if (vmm_hw_translate(va + off, 0, &d) == 0) any = 1;
+        check("policy: no refused request installed any mapping (hardware translation of every alias VA faults)", !any);
+        check("policy: refused requests changed no allocation accounting", pa_.free_pages == pb_.free_pages && pa_.allocated_pages == pb_.allocated_pages);
+        check("policy: the original kernel-text and rodata mappings are still read-only", vmm_hw_translate(text0, 1, 0) == -1 && vmm_hw_translate(ro0, 1, 0) == -1 && vmm_hw_translate(text0, 0, 0) == 0);
+        check("policy: unaligned and overflowing physical ranges are rejected before policy", vmm_map(va + 0x60000, text0 + 1, PAGE_SIZE, VMM_ATTR_NORMAL_RO) == VMM_ERR_ALIGN && vmm_map(va + 0x60000, ~0ULL - 0xFFF, 2 * PAGE_SIZE, VMM_ATTR_NORMAL_RO) == VMM_ERR_RANGE);
+
+        /* Legitimate mappings still work, and hardware translation agrees with the policy. */
+        int a1 = vmm_map(va + 0x70000, text0, PAGE_SIZE, VMM_ATTR_NORMAL_RO);
+        int a2 = vmm_map(va + 0x71000, text0, text_end - text0, VMM_ATTR_NORMAL_RX);
+        int a3 = vmm_map(va + 0x80000, ro0, PAGE_SIZE, VMM_ATTR_NORMAL_RO);
+        int a4 = vmm_map(va + 0x81000, data0, PAGE_SIZE, VMM_ATTR_NORMAL_RW);
+        int a5 = vmm_map(va + 0x82000, freepg, PAGE_SIZE, VMM_ATTR_NORMAL_RW);
+        int a6 = vmm_map(va + 0x83000, uart, PAGE_SIZE, VMM_ATTR_DEVICE);
+        check("policy: read-only aliases of text and rodata are allowed and read-only in hardware",
+              a1 == VMM_OK && a3 == VMM_OK && vmm_hw_translate(va + 0x70000, 0, &d) == 0 && d == text0 &&
+              vmm_hw_translate(va + 0x70000, 1, 0) == -1 && vmm_hw_translate(va + 0x80000, 0, &d) == 0 && d == ro0 && vmm_hw_translate(va + 0x80000, 1, 0) == -1);
+        check("policy: an executable alias of exactly the text range is allowed", a2 == VMM_OK && vmm_hw_translate(va + 0x71000, 0, &d) == 0 && d == text0);
+        check("policy: writable aliases of data and free RAM are allowed", a4 == VMM_OK && a5 == VMM_OK && vmm_hw_translate(va + 0x81000, 1, &d) == 0 && d == data0 && vmm_hw_translate(va + 0x82000, 1, &d) == 0 && d == freepg);
+        check("policy: a device alias of the registered UART window is allowed", a6 == VMM_OK && vmm_hw_translate(va + 0x83000, 1, &d) == 0 && d == uart);
+        check("policy: MMIO windows can be registered, but never over RAM", vmm_register_mmio(pmm_ram_base(), PAGE_SIZE) == VMM_ERR_POLICY && vmm_register_mmio(0x0a000000ULL + 1, PAGE_SIZE) == VMM_ERR_ALIGN &&
+              vmm_register_mmio(0x0a000000ULL, PAGE_SIZE) == VMM_OK && vmm_map(va + 0x84000, 0x0a000000ULL, PAGE_SIZE, VMM_ATTR_DEVICE) == VMM_OK);
+        pmm_free_page(freepg);
+
+        /* Device-tree no-map memory: never mappable by any attribute, alone or as part of a larger request. */
+        const struct fdt_info *fi = boot_fdt_info(); int nm_ok = 1, nm_tested = 0;
+        for (int i = 0; i < fi->nreserved; i++) {
+            if (!fi->reserved[i].nomap) continue;
+            uint64_t base = fi->reserved[i].addr & ~(PAGE_SIZE - 1); nm_tested++;
+            static const int attrs[] = { VMM_ATTR_NORMAL_RW, VMM_ATTR_NORMAL_RO, VMM_ATTR_NORMAL_RX, VMM_ATTR_DEVICE };
+            for (int k = 0; k < 4; k++) {
+                uint64_t v = va + 0x100000 + (uint64_t)(i * 8 + k) * 0x4000;
+                if (vmm_map(v, base, PAGE_SIZE, attrs[k]) != VMM_ERR_POLICY || vmm_last_denial() != MMP_DENY_NOMAP) nm_ok = 0;
+                if (vmm_map(v + 0x1000, base - PAGE_SIZE, 2 * PAGE_SIZE, attrs[k]) != VMM_ERR_POLICY) nm_ok = 0;   /* starts in the neighbouring page */
+                if (vmm_hw_translate(v, 0, &d) == 0 || vmm_hw_translate(v + 0x1000, 0, &d) == 0 || vmm_hw_translate(v + 0x2000, 0, &d) == 0) nm_ok = 0;
+            }
+        }
+        console_puts("[info] no-map regions policy-tested: "); console_dec((uint64_t)nm_tested); console_puts("\n");
+        check("policy: no-map memory is refused for every attribute, also inside mixed requests, and nothing is installed", nm_ok);
     }
 
     /* Exhaustion, with the MMU on: every free page is handed out exactly once, then 0. */
