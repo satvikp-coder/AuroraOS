@@ -199,10 +199,11 @@ int vmm_init(void)
     policy.rodata.start = (uint64_t)(uintptr_t)__rodata_start; policy.rodata.end = (uint64_t)(uintptr_t)__rodata_end;
     for (int i = 0; i < nnomap; i++)
         if (mm_policy_add_nomap(&policy, nomap[i].start, nomap[i].end - nomap[i].start)) return VMM_ERR_POLICY;
-    if (vmm_register_mmio(0x08000000ULL, BLOCK_2M) || vmm_register_mmio(0x09000000ULL, PAGE_SIZE)) return VMM_ERR_POLICY;
+    /* Only the console UART is a boot-time window. Other devices (the interrupt controller, ...) are
+     * declared by their drivers via vmm_register_mmio() using addresses from the device tree. */
+    if (vmm_register_mmio(0x09000000ULL, PAGE_SIZE)) return VMM_ERR_POLICY;
 
-    /* Devices (QEMU virt): GIC window 0x08000000 (2 MiB) and the PL011 UART page. */
-    if (vmm_map(0x08000000ULL, 0x08000000ULL, BLOCK_2M, VMM_ATTR_DEVICE)) return -2;
+    /* Boot console: the PL011 UART page (QEMU virt). */
     if (vmm_map(0x09000000ULL, 0x09000000ULL, PAGE_SIZE, VMM_ATTR_DEVICE)) return -3;
 
     /* RAM, section by section. The stack guard page is intentionally not mapped. */
@@ -213,7 +214,9 @@ int vmm_init(void)
     if (map_ident((uintptr_t)__text_start, (uintptr_t)__text_end, VMM_ATTR_NORMAL_RX)) return -5;
     if (map_ident((uintptr_t)__rodata_start, (uintptr_t)__rodata_end, VMM_ATTR_NORMAL_RO)) return -6;
     if (map_ident((uintptr_t)__data_start, (uintptr_t)__data_end, VMM_ATTR_NORMAL_RW)) return -7;
-    if (map_ident((uintptr_t)__stack_bottom, (uintptr_t)__kernel_end, VMM_ATTR_NORMAL_RW)) return -8;
+    /* Kernel stack and exception stack; both guard pages (below each) stay unmapped. */
+    if (map_ident((uintptr_t)__stack_bottom, (uintptr_t)__stack_top, VMM_ATTR_NORMAL_RW)) return -8;
+    if (map_ident((uintptr_t)__exc_stack_bottom, (uintptr_t)__kernel_end, VMM_ATTR_NORMAL_RW)) return -8;
 
     /* The rest of RAM, skipping device-tree no-map holes (kept unmapped so nothing can touch them). */
     uintptr_t cur = (uintptr_t)__kernel_end;

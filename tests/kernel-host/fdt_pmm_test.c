@@ -213,6 +213,58 @@ static void tests(void)
       CHECK("strings block without any NUL terminator", parse(&c, &i) == FDT_ERR_STRING); }
 }
 
+/* ---- interrupt controller / timer description ---- */
+static void fb_cells(struct fb *b, const char *name, const uint32_t *v, int n)
+{ uint8_t t[256]; for (int i = 0; i < n; i++) p32(t + 4 * i, v[i]); fb_prop(b, name, t, (uint32_t)(4 * n)); }
+
+static void add_gic(struct fb *b, const char *compat, uint32_t compat_len, const uint32_t *reg, int ncells)
+{ fb_begin(b, "intc@8000000"); fb_prop(b, "compatible", compat, compat_len); fb_empty(b, "interrupt-controller"); fb_cells(b, "reg", reg, ncells); fb_end(b); }
+static void add_timer(struct fb *b, const uint32_t *irq, int n)
+{ fb_begin(b, "timer"); fb_prop(b, "compatible", "arm,armv8-timer\0arm,armv7-timer", 32); fb_cells(b, "interrupts", irq, n); fb_end(b); }
+
+static void platform_tests(void)
+{
+    struct fb b; struct fdt_platform p; int rc;
+    static const uint32_t reg[8] = { 0, 0x08000000, 0, 0x10000, 0, 0x08010000, 0, 0x10000 };
+    static const uint32_t irq[12] = { 1, 13, 0x104, 1, 14, 0x104, 1, 11, 0x104 };   /* 3 triples + below */
+    static const uint32_t irq4[12] = { 1, 13, 0x104, 1, 14, 0x104, 1, 11, 0x104, 1, 10, 0x104 };
+    (void)irq;
+    printf("-- platform: GIC and timer --\n");
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, "arm,cortex-a15-gic", 19, reg, 8); add_timer(&b, irq4, 12); base_close(&b);
+    rc = fdt_platform_parse(b.out, &p);
+    CHECK("QEMU virt style GICv2 + timer parse", rc == FDT_OK && p.gic_version == 2 && p.gicd_base == 0x08000000ULL && p.gicd_size == 0x10000 && p.gicc_base == 0x08010000ULL && p.gicc_size == 0x10000);
+    CHECK("timer interrupt IDs are 16 + PPI number (non-secure physical = 30, virtual = 27)", p.have_timer && p.timer_intid_phys_ns == 30 && p.timer_intid_virt == 27);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, "arm,gic-400\0arm,cortex-a15-gic", 31, reg, 8); base_close(&b);
+    rc = fdt_platform_parse(b.out, &p);
+    CHECK("compatible string lists are searched; a missing timer is reported, not invented", rc == FDT_OK && p.gic_version == 2 && !p.have_timer);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, "arm,gic-v3", 11, reg, 8); base_close(&b);
+    rc = fdt_platform_parse(b.out, &p);
+    CHECK("a GICv3 is recognised as unsupported (version 3), never treated as v2", rc == FDT_OK && p.gic_version == 3 && p.gicd_base == 0);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); base_close(&b);
+    rc = fdt_platform_parse(b.out, &p);
+    CHECK("no interrupt controller: version 0, no timer", rc == FDT_OK && p.gic_version == 0 && !p.have_timer);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, "arm,cortex-a15-gic", 19, reg, 6); base_close(&b);
+    CHECK("GICv2 reg too short for two windows is an error", fdt_platform_parse(b.out, &p) == FDT_ERR_CELLS);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, "arm,cortex-a15-gic", 19, reg, 8); add_gic(&b, "arm,cortex-a15-gic", 19, reg, 8); base_close(&b);
+    CHECK("two interrupt controllers are rejected as ambiguous", fdt_platform_parse(b.out, &p) < 0);
+    { static const uint32_t spi[12] = { 0, 27, 4, 0, 28, 4, 0, 29, 4, 0, 30, 4 };
+      base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, "arm,cortex-a15-gic", 19, reg, 8); add_timer(&b, spi, 12); base_close(&b);
+      rc = fdt_platform_parse(b.out, &p);
+      CHECK("timer interrupts that are not PPIs are not accepted", rc == FDT_OK && !p.have_timer); }
+    { static const uint32_t big[12] = { 1, 99, 4, 1, 99, 4, 1, 99, 4, 1, 99, 4 };
+      base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, "arm,cortex-a15-gic", 19, reg, 8); add_timer(&b, big, 12); base_close(&b);
+      rc = fdt_platform_parse(b.out, &p); CHECK("PPI numbers out of range are not accepted", rc == FDT_OK && !p.have_timer); }
+    { static const uint32_t shortirq[6] = { 1, 13, 0x104, 1, 14, 0x104 };
+      base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, "arm,cortex-a15-gic", 19, reg, 8); add_timer(&b, shortirq, 6); base_close(&b);
+      rc = fdt_platform_parse(b.out, &p); CHECK("a truncated timer interrupts list is not accepted", rc == FDT_OK && !p.have_timer); }
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, "arm,cortex-a15-gic", 19, reg, 8); base_close(&b);
+    { struct fb c = b; p32(c.out, 0x12345678); CHECK("an invalid blob is rejected before platform parsing", fdt_platform_parse(c.out, &p) == FDT_ERR_MAGIC && p.gic_version == 0); }
+    CHECK("NULL arguments are rejected", fdt_platform_parse(b.out, 0) == FDT_ERR_NULL && fdt_platform_parse(0, &p) == FDT_ERR_NULL);
+    { uint8_t unterminated[8] = { 'a','r','m',',','g','i','c','x' };
+      base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_gic(&b, (const char *)unterminated, 8, reg, 8); base_close(&b);
+      rc = fdt_platform_parse(b.out, &p); CHECK("an unterminated compatible string never matches", rc == FDT_OK && p.gic_version == 0); }
+}
+
 static void pmm_tests(void)
 {
     struct pmm_stats s;
@@ -244,6 +296,9 @@ int main(int argc, char **argv)
         struct fb b; char path[512]; uint64_t r1[2] = { 0x4a000000ULL, 0x100000ULL }, r2[2] = { 0x4b000000ULL, 0x4000ULL };
         base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL);
         fb_rsv(&b, 0x4c000000ULL, 0x10000ULL);
+        { static const uint32_t greg[8] = { 0, 0x08000000, 0, 0x10000, 0, 0x08010000, 0, 0x10000 };
+          static const uint32_t tirq[12] = { 1, 13, 0x104, 1, 14, 0x104, 1, 11, 0x104, 1, 10, 0x104 };
+          add_gic(&b, "arm,cortex-a15-gic", 19, greg, 8); add_timer(&b, tirq, 12); }   /* same nodes QEMU virt provides */
         rm_open(&b, 2, 2); rm_child(&b, "fw@4a000000", 2, 2, r1, 1, 0, 0); rm_child(&b, "hole@4b000000", 2, 2, r2, 1, 1, 0); fb_end(&b);
         base_close(&b);
         snprintf(path, sizeof path, "%s/reserved.dtb", argv[2]);
@@ -252,6 +307,7 @@ int main(int argc, char **argv)
         return 0;
     }
     tests();
+    platform_tests();
     pmm_tests();
     printf("\n== Summary ==\nPassed: %d\nFailed: %d\n", passed, failed);
     return failed ? 1 : 0;

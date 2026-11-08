@@ -1,12 +1,20 @@
 /*
- * kernel/arch/aarch64/exceptions.c — exception diagnostics.
+ * kernel/arch/aarch64/exceptions.c — exception dispatch and diagnostics.
  *
- * Decodes ESR_EL1 (ARM DDI 0487 D17.2) and prints a serial report. Any
- * unexpected synchronous exception is fatal: the kernel prints
- * "KERNEL PANIC" and halts. Interrupts are not handled yet (issue #5).
+ * Kernel code runs on SP_EL0 (kind 0-3 vectors: "current EL, SP_EL0"). Every exception taken to EL1
+ * switches to SP_EL1, a dedicated exception stack with its own guard page, so entry cannot be broken by
+ * an exhausted kernel stack. Supported cases:
+ *   - IRQ from kernel code (kind 1)       -> irq_dispatch(), then return (ERET) to the interrupted code
+ *   - synchronous exception from kernel   -> decoded diagnostics, then panic (no recovery yet)
+ *   - anything taken while already on the exception stack (kinds 4-7: a fault inside a handler)
+ *                                         -> reported as NESTED and panics
+ *   - FIQ, SError, and exceptions from EL0 / AArch32 -> panic (none are expected yet)
+ * Interrupts are masked on exception entry, so handlers never nest.
  */
 #include <arch.h>
 #include <console.h>
+#include <irq.h>
+#include <mm.h>
 
 void exceptions_init(void)
 {
@@ -57,11 +65,29 @@ static const char *fsc_name(uint64_t fsc)
     }
 }
 
+static int in_page(uint64_t a, const uint8_t *page) { return a >= (uint64_t)(uintptr_t)page && a < (uint64_t)(uintptr_t)page + PAGE_SIZE; }
+
+static void panic_halt(void)
+{
+    console_puts("KERNEL PANIC: unhandled exception, halting.\n");
+    for (;;) __asm__ volatile ("msr daifset, #0xf\n wfi");
+}
+
 void exception_handler(struct exc_frame *f)
 {
+    /* The frame lives on the exception stack and must be 16-byte aligned and inside it. */
+    uint64_t fp = (uint64_t)(uintptr_t)f;
+    int frame_ok = !(fp & 15) && fp >= (uint64_t)(uintptr_t)__exc_stack_bottom && fp + sizeof *f <= (uint64_t)(uintptr_t)__exc_stack_top;
+
+    if (frame_ok && f->kind == 1) {                  /* IRQ taken from kernel code running on SP_EL0 */
+        irq_dispatch();
+        return;
+    }
+
     uint64_t ec = (f->esr >> 26) & 0x3F, iss = f->esr & 0x1FFFFFF;
-    console_puts("\n[FAULT] exception ");
-    console_puts(kind_name(f->kind));
+    console_puts("\n[FAULT] exception "); console_puts(kind_name(f->kind));
+    if (f->kind >= 4 && f->kind <= 7) console_puts("\n[FAULT] NESTED exception: taken while already on the exception stack");
+    if (!frame_ok) console_puts("\n[FAULT] exception frame is misaligned or outside the exception stack");
     console_puts("\n[FAULT] EC="); console_hex(ec); console_puts(" ("); console_puts(ec_name(ec)); console_puts(")");
     if (ec == 0x24 || ec == 0x25 || ec == 0x20 || ec == 0x21) {
         console_puts("\n[FAULT] FSC="); console_hex(iss & 0x3F); console_puts(" ("); console_puts(fsc_name(iss & 0x3F)); console_puts(")");
@@ -71,6 +97,12 @@ void exception_handler(struct exc_frame *f)
     console_puts("\n[FAULT] ELR="); console_hex(f->elr);
     console_puts(" ESR="); console_hex(f->esr);
     console_puts(" SPSR="); console_hex(f->spsr);
-    console_puts("\nKERNEL PANIC: unhandled exception, halting.\n");
-    for (;;) __asm__ volatile ("msr daifset, #0xf\n wfi");
+    console_puts("\n[FAULT] interrupted SP_EL0="); console_hex(f->sp_el0);
+    console_puts(" handler SP="); console_hex(fp);
+    if (in_page(f->far, __stack_guard) || in_page(f->sp_el0, __stack_guard))
+        console_puts("\n[FAULT] STACK OVERFLOW detected: kernel stack hit its guard page; diagnostics are running on the separate exception stack");
+    if (in_page(f->far, __exc_guard))
+        console_puts("\n[FAULT] EXCEPTION STACK OVERFLOW detected: exception stack hit its guard page");
+    console_puts("\n");
+    panic_halt();
 }

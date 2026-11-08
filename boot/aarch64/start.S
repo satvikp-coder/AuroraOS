@@ -59,8 +59,13 @@ el1_entry:
     msr     cpacr_el1, x2
     isb
 
+    /* Two stacks: kernel code runs on SP_EL0 (SPSel=0); every exception taken to EL1 switches to SP_EL1
+     * automatically, so exception entry never touches (possibly exhausted) kernel stack memory. */
+    ldr     x0, =__exc_stack_top
+    mov     sp, x0                      /* SP_EL1 (SPSel is 1 after reset / the EL2->EL1 ERET) */
     ldr     x0, =__stack_top
-    mov     sp, x0
+    msr     sp_el0, x0
+    msr     spsel, #0                   /* from here on SP is SP_EL0 */
 
     ldr     x0, =__bss_start
     ldr     x1, =__bss_end

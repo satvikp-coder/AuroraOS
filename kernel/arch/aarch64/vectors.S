@@ -3,7 +3,7 @@
  *
  * 16 entries x 128 bytes, table aligned to 2 KiB (VBAR_EL1 requirement).
  * Each entry saves a full register frame (see struct exc_frame in
- * arch.h, 288 bytes) and calls exception_handler(frame). If the handler
+ * arch.h, 304 bytes) and calls exception_handler(frame). If the handler
  * returns, the frame is restored and ERET resumes the interrupted code.
  *
  * Kinds: 0-3 current EL SP0, 4-7 current EL SPx, 8-11 lower EL A64,
@@ -12,7 +12,7 @@
 .section .text
 .macro ventry kind
     .balign 128
-    sub     sp, sp, #288
+    sub     sp, sp, #304
     stp     x0, x1, [sp, #0]
     mov     x0, #\kind
     b       exc_common
@@ -61,6 +61,8 @@ exc_common:
     mrs     x2, far_el1
     stp     x1, x2,   [sp, #264]
     str     x0,       [sp, #280]          /* kind */
+    mrs     x1, sp_el0
+    str     x1,       [sp, #288]          /* interrupted SP_EL0 (kernel stack) */
     mov     x0, sp
     bl      exception_handler
     ldp     x1, x2,   [sp, #248]
@@ -82,5 +84,5 @@ exc_common:
     ldp     x28, x29, [sp, #224]
     ldr     x30,      [sp, #240]
     ldp     x0, x1,   [sp, #0]
-    add     sp, sp, #288
+    add     sp, sp, #304
     eret

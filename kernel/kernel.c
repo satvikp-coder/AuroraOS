@@ -13,6 +13,10 @@
  */
 #include <arch.h>
 #include <console.h>
+#include <gic.h>
+#include <irq.h>
+#include <irqtest.h>
+#include <timer.h>
 #include <mm.h>
 #include <selftest.h>
 
@@ -100,7 +104,26 @@ void kernel_main(uint64_t dtb)
     if (failures) { console_puts("MEMORY MANAGEMENT SELFTEST FAILED\n"); halt_forever(); }
     console_puts("Memory management OK\n");
 
-    selftest_fault();   /* no-op unless this is a deliberate fault-test build */
+    /* 4. Interrupt controller, timer, and their tests. The platform description must come from the device tree. */
+    if (dtb) {
+        struct fdt_platform plat;
+        int pr = fdt_platform_parse((const void *)(uintptr_t)dtb, &plat);
+        if (pr || plat.gic_version != 2 || !plat.have_timer) fatal("device tree does not describe a supported interrupt controller (GICv2) and ARM timer");
+        int gr = gicv2_init(&plat);
+        if (gr) { console_puts("gicv2_init error "); console_dec((uint64_t)(-gr)); console_puts("\n"); fatal("interrupt controller setup failed"); }
+        int tr = timer_init(&plat);
+        if (tr) { console_puts("timer_init error "); console_dec((uint64_t)(-tr)); console_puts("\n"); fatal("timer setup failed"); }
+        console_puts("GICv2 at "); console_hex(plat.gicd_base); console_puts("/"); console_hex(plat.gicc_base);
+        console_puts(", timer frequency "); console_dec(timer_freq()); console_puts(" Hz, interrupt ID "); console_dec(timer_intid()); console_puts("\n");
+        irqtest_run(&plat);
+        if (irqtest_summary()) { console_puts("INTERRUPT SELFTEST FAILED\n"); halt_forever(); }
+        console_puts("Interrupts and timer OK\n");
+    } else {
+        console_puts("Interrupt tests skipped: no device tree (dev mode)\n");
+    }
+
+    selftest_fault();   /* no-ops unless this is a deliberate fault-test build */
+    irqtest_fault();
     console_puts("Boot complete, idling.\n");
     halt_forever();
 }

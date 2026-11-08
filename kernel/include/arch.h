@@ -2,11 +2,13 @@
 #define AURORA_ARCH_H
 #include <stdint.h>
 
-/* Register frame pushed by the exception vectors (must match exceptions.S, 288 bytes). */
+/* Register frame pushed by the exception vectors (must match vectors.S, 304 bytes). */
 struct exc_frame {
     uint64_t x[31];
     uint64_t elr, spsr, esr, far;
     uint64_t kind;
+    uint64_t sp_el0;      /* interrupted kernel stack pointer */
+    uint64_t pad;
 };
 
 extern char exception_vectors[];

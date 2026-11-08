@@ -167,3 +167,92 @@ int fdt_parse(const void *fdt, struct fdt_info *out)
     out->valid = 1;
     return FDT_OK;
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * Platform description: interrupt controller and architected timer.
+ *
+ * Runs after fdt_parse() has validated the blob, so offsets are known to be in bounds. Recognises
+ * a GICv2 ("arm,cortex-a15-gic" / "arm,gic-400": reg = distributor, CPU interface) and the ARMv8
+ * timer node (interrupts = four <type number flags> triples: secure phys, non-secure phys, virtual,
+ * hypervisor). Anything else is reported, never guessed.
+ * ---------------------------------------------------------------------------------------------- */
+static int has_string(const uint8_t *v, uint32_t len, const char *want)
+{   /* property value is a list of NUL-terminated strings */
+    uint32_t i = 0;
+    while (i < len) {
+        const char *s = (const char *)(v + i);
+        uint32_t n = 0;
+        while (i + n < len && s[n]) n++;
+        if (i + n >= len) return 0;                 /* unterminated last string */
+        if (streq(s, want)) return 1;
+        i += n + 1;
+    }
+    return 0;
+}
+
+int fdt_platform_parse(const void *fdt, struct fdt_platform *out)
+{
+    struct fdt_info scratch;
+    int rc = fdt_parse(fdt, &scratch);
+    if (!out) return FDT_ERR_NULL;
+    out->gic_version = 0; out->gicd_base = out->gicd_size = out->gicc_base = out->gicc_size = 0;
+    out->have_timer = 0; out->timer_intid_phys_ns = out->timer_intid_virt = 0;
+    if (rc) return rc;
+
+    const uint8_t *b = (const uint8_t *)fdt;
+    uint32_t off_struct = be32(b + 8), off_str = be32(b + 12), size_str = be32(b + 32), size_struct = be32(b + 36);
+    uint32_t root_ac = 2, root_sc = 1;
+    int depth = 0;
+    int is_timer = 0, gic_ver = 0;
+    const uint8_t *reg = 0, *irqs = 0; uint32_t reg_len = 0, irqs_len = 0;
+    uint32_t o = off_struct, end = off_struct + size_struct;
+
+    while ((uint64_t)o + 4 <= end) {
+        uint32_t tok = be32(b + o); o += 4;
+        if (tok == FDT_BEGIN_NODE) {
+            const char *name = (const char *)(b + o); uint32_t n = 0;
+            while ((uint64_t)o + n < end && name[n]) n++;
+            depth++;
+            if (depth == 2) { is_timer = gic_ver = 0; reg = irqs = 0; reg_len = irqs_len = 0; }
+            o += (n + 1 + 3) & ~3u;
+        } else if (tok == FDT_END_NODE) {
+            if (depth == 2) {
+                if (gic_ver == 2 && reg) {
+                    uint32_t tuple = 4 * (root_ac + root_sc);
+                    if (root_ac < 1 || root_ac > 2 || root_sc < 1 || root_sc > 2 || reg_len < 2 * tuple) return FDT_ERR_CELLS;
+                    if (out->gic_version) return FDT_ERR_STRUCT;   /* two interrupt controllers: ambiguous, rejected */
+                    out->gic_version = 2;
+                    out->gicd_base = cells(reg, root_ac);                   out->gicd_size = cells(reg + 4 * root_ac, root_sc);
+                    out->gicc_base = cells(reg + tuple, root_ac);           out->gicc_size = cells(reg + tuple + 4 * root_ac, root_sc);
+                } else if (gic_ver == 3 && !out->gic_version) {
+                    out->gic_version = 3;                                   /* recognised, not supported by this kernel */
+                }
+                if (is_timer && irqs && irqs_len >= 4 * 12) {
+                    uint32_t t1 = be32(irqs + 12), n1 = be32(irqs + 16), t2 = be32(irqs + 24), n2 = be32(irqs + 28);
+                    if (t1 == 1 && n1 < 16 && t2 == 1 && n2 < 16) {         /* PPIs only */
+                        out->timer_intid_phys_ns = 16 + n1; out->timer_intid_virt = 16 + n2; out->have_timer = 1;
+                    }
+                }
+            }
+            depth--;
+        } else if (tok == FDT_PROP) {
+            uint32_t len = be32(b + o), noff = be32(b + o + 4); o += 8;
+            const char *pname = (const char *)(b + off_str + noff);
+            const uint8_t *val = b + o;
+            if (noff < size_str) {
+                if (depth == 1 && streq(pname, "#address-cells") && len == 4) root_ac = be32(val);
+                else if (depth == 1 && streq(pname, "#size-cells") && len == 4) root_sc = be32(val);
+                else if (depth == 2 && streq(pname, "compatible")) {
+                    if (has_string(val, len, "arm,cortex-a15-gic") || has_string(val, len, "arm,gic-400")) gic_ver = 2;
+                    else if (has_string(val, len, "arm,gic-v3")) gic_ver = 3;
+                    if (has_string(val, len, "arm,armv8-timer")) is_timer = 1;
+                } else if (depth == 2 && streq(pname, "reg")) { reg = val; reg_len = len; }
+                else if (depth == 2 && streq(pname, "interrupts")) { irqs = val; irqs_len = len; }
+            }
+            o += (len + 3) & ~3u;
+        } else if (tok == FDT_END) {
+            break;
+        }
+    }
+    return FDT_OK;
+}
