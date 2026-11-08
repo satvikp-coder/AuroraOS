@@ -1,10 +1,23 @@
 /* aurora-glass/prototype/broker.js — Aura Action Broker contract + Quick Commands parser.
  *
- * HOST-TESTABLE SIMULATION. This defines the contract between "something that proposes an
- * action" (a deterministic parser today, possibly a local model later) and the OS-side
- * authority that decides whether the action may run. The proposer never grants itself
- * permission: validation, permission checks, risk class and confirmation are all enforced
- * here. It uses only explicitly registered mock adapters. No eval, no shell, no file access.
+ * HOST-TESTABLE SIMULATION. This defines how a *proposal* (from a deterministic parser today,
+ * possibly a local model later) becomes an *authorized action*. Only explicitly registered mock
+ * adapters run. No eval, no shell, no filesystem, no network.
+ *
+ * TRUST MODEL (read this):
+ *  - Untrusted proposers (parser, future model) receive ONLY `broker.proposer`: propose / preview /
+ *    getProposal. They hold no authority to approve, edit, execute or undo.
+ *  - Approval is granted only through the trusted-UI facet, obtainable exactly once via
+ *    `broker.takeTrustedUI()` by the shell code that renders the review screen.
+ *  - SIMULATION BOUNDARY: this is plain JavaScript in one browser context. Any script that runs
+ *    before the shell takes the trusted facet, or that can reach the full `broker` object, could
+ *    misuse it. This does NOT create an OS trust boundary. The future native Action Broker MUST
+ *    enforce approvals through a privileged OS service and a secure input path, never through
+ *    strings or objects supplied by a model or an app.
+ *
+ * LIFECYCLE: DRAFT -> VALIDATED -> PREVIEWED -> APPROVED -> RUNNING -> COMPLETED | FAILED | CANCELLED
+ * (also EXPIRED / REJECTED / SUPERSEDED). Proposals are immutable; editing or skipping a step
+ * creates a successor proposal with a new digest and invalidates the old one and its approval.
  */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) module.exports = factory();
@@ -16,29 +29,35 @@
   const APPS = ["notes", "files", "calculator", "clock", "settings", "calendar"];
   const SPACES = ["study", "work", "projects", "personal"];
   const MAX_PLAN_STEPS = 12;
+  const MAX_PAYLOAD_CHARS = 4096;
+  const MAX_LIVE_PROPOSALS = 100;
+  const RISK_RANK = { S0: 0, S1: 1, S2: 2, S3: 3 };
+  const TERMINAL = ["COMPLETED", "FAILED", "CANCELLED", "EXPIRED", "REJECTED", "SUPERSEDED"];
 
   // Risk classes: S0 safe, S1 reversible config, S2 edit/move user data, S3 delete/send/install.
+  // `reversible` is CONTRACT METADATA ("undo is expected"); actual undo is known only from receipts.
   const ACTIONS = {
-    "app.open":     { risk: "S0", permission: "apps.open",       reversible: true,  args: { app: { enum: APPS } } },
-    "space.switch": { risk: "S0", permission: "spaces.switch",   reversible: true,  args: { space: { enum: SPACES } } },
-    "timer.start":  { risk: "S0", permission: "timer.control",   reversible: true,  args: { seconds: { int: [1, 86400] } } },
-    "search.query": { risk: "S0", permission: "index.search",    reversible: true,  args: { query: { str: [1, 100] } } },
-    "focus.set":    { risk: "S1", permission: "settings.write",  reversible: true,  args: { enabled: { bool: true } } },
-    "file.move":    { risk: "S2", permission: "files.edit",      reversible: true,  args: { id: { id: true }, destination: { enum: SPACES } } },
-    "file.delete":  { risk: "S3", permission: "files.delete",    reversible: true,  args: { id: { id: true } } },        // moves to Trail
-    "share.send":   { risk: "S3", permission: "external.send",   reversible: false, args: { id: { id: true }, to: { str: [1, 80] } } },
+    "app.open":     { risk: "S0", permission: "apps.open",      reversible: true,  args: { app: { enum: APPS } } },
+    "space.switch": { risk: "S0", permission: "spaces.switch",  reversible: true,  args: { space: { enum: SPACES } } },
+    "timer.start":  { risk: "S0", permission: "timer.control",  reversible: true,  args: { seconds: { int: [1, 86400] } } },
+    "search.query": { risk: "S0", permission: "index.search",   reversible: false, args: { query: { str: [1, 100] } } },
+    "focus.set":    { risk: "S1", permission: "settings.write", reversible: true,  args: { enabled: { bool: true } } },
+    "file.move":    { risk: "S2", permission: "files.edit",     reversible: true,  args: { id: { id: true }, destination: { enum: SPACES } } },
+    "file.delete":  { risk: "S3", permission: "files.delete",   reversible: true,  args: { id: { id: true } } },      // moves to Trail
+    "share.send":   { risk: "S3", permission: "external.send",  reversible: false, args: { id: { id: true }, to: { str: [1, 80] } } },
   };
 
+  const BAD_TEXT = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩​-‏﻿]/;
   function validateArg(spec, v) {
     if (spec.enum) return typeof v === "string" && spec.enum.includes(v);
     if (spec.int) return Number.isInteger(v) && v >= spec.int[0] && v <= spec.int[1];
-    if (spec.str) return typeof v === "string" && v.trim().length >= spec.str[0] && v.length <= spec.str[1] && !/[\u0000-\u001f]/.test(v);
+    if (spec.str) return typeof v === "string" && v.trim().length >= spec.str[0] && v.length <= spec.str[1] && !BAD_TEXT.test(v);
     if (spec.bool) return typeof v === "boolean";
     if (spec.id) return typeof v === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(v);
     return false;
   }
 
-  /** Strict schema validation. Returns {ok:true} or {ok:false, error}. */
+  /** Strict schema validation of an already-plain action. Returns {ok:true} or {ok:false, error}. */
   function validateAction(action) {
     if (action === null || typeof action !== "object" || Array.isArray(action)) return { ok: false, error: "malformed" };
     const keys = Object.keys(action);
@@ -47,8 +66,7 @@
     const def = ACTIONS[action.type];
     const a = action.arguments;
     if (a === null || typeof a !== "object" || Array.isArray(a)) return { ok: false, error: "missing-arguments" };
-    const given = Object.keys(a);
-    if (given.some((k) => !has(def.args, k))) return { ok: false, error: "unexpected-argument" };
+    if (Object.keys(a).some((k) => !has(def.args, k))) return { ok: false, error: "unexpected-argument" };
     for (const k of Object.keys(def.args)) {
       if (!has(a, k)) return { ok: false, error: "missing-argument:" + k };
       if (!validateArg(def.args[k], a[k])) return { ok: false, error: "invalid-argument:" + k };
@@ -56,19 +74,46 @@
     return { ok: true };
   }
 
-  function canonical(action) {
+  /** Copy caller data once into a plain object (no getters/proxies/prototype tricks). null if unsafe. */
+  function snapshotAction(action) {
+    try {
+      if (action === null || typeof action !== "object" || Array.isArray(action)) return null;
+      const out = {};
+      for (const k of Object.keys(action)) {
+        const d = Object.getOwnPropertyDescriptor(action, k);
+        if (!d || !has(d, "value")) return null; // accessor
+        let val = d.value;
+        if (k === "arguments") {
+          if (val === null || typeof val !== "object" || Array.isArray(val)) return null;
+          const inner = {};
+          for (const ak of Object.keys(val)) {
+            const ad = Object.getOwnPropertyDescriptor(val, ak);
+            if (!ad || !has(ad, "value")) return null;
+            if (ad.value !== null && typeof ad.value === "object") return null; // arguments are primitives only
+            Object.defineProperty(inner, ak, { value: ad.value, enumerable: true, writable: true, configurable: true });
+          }
+          val = inner;
+        }
+        Object.defineProperty(out, k, { value: val, enumerable: true, writable: true, configurable: true });
+      }
+      return out;
+    } catch (e) { return null; }
+  }
+
+  function canonicalAction(action) {
     const def = ACTIONS[action.type];
     return action.type + "|" + Object.keys(def.args).sort().map((k) => k + "=" + JSON.stringify(action.arguments[k])).join("&");
   }
+  function deepFreezeAction(a) { Object.freeze(a.arguments); return Object.freeze(a); }
 
-  /** Permission store: decisions are 'allow' | 'deny' | 'ask'. Unknown permissions default to 'deny'. */
+  /** Permission store: 'allow' | 'deny' | 'ask'. Unknown permissions default to 'deny'. */
   function createPermissions(initial) {
-    const d = {};
+    const d = Object.create(null);
     Object.keys(initial || {}).forEach((k) => { d[k] = initial[k]; });
     return {
-      get(p) { return has(d, p) ? d[p] : "deny"; },
+      get(p) { return typeof p === "string" && p in d ? d[p] : "deny"; },
       set(p, v) {
-        if (!["allow", "deny", "ask"].includes(v)) return false;
+        if (typeof p !== "string" || !["allow", "deny", "ask"].includes(v)) return false;
         d[p] = v; return true;
       },
     };
@@ -79,168 +124,305 @@
     const adapters = opts.adapters || {};
     const nextNonce = opts.nonce || (() => Math.random().toString(36).slice(2) + Date.now().toString(36));
     const clock = opts.now || (() => Date.now());
+    const previewTtlMs = opts.previewTtlMs || 5 * 60 * 1000;
+    const approvalTtlMs = opts.approvalTtlMs || 60 * 1000;
+
     const receipts = [];
     const undoFns = new Map();
-    const tokens = new Map(); // token -> canonical action (single use)
+    const proposals = new Map();
     let counter = 0;
-    let chain = Promise.resolve();
+    let rcounter = 0;
+    let busyWith = null; // one active run/undo at a time; always cleared in finally
+    let trustedTaken = false;
 
-    function receipt(action, status, extra) {
-      const def = has(ACTIONS, action && action.type) ? ACTIONS[action.type] : null;
-      const r = Object.assign({
-        id: "r" + (++counter), at: clock(), type: action && typeof action.type === "string" ? action.type : "unknown",
-        risk: def ? def.risk : null, status, undoable: false, undone: false,
-      }, extra || {});
-      receipts.push(r);
-      return r;
+    // ---------------- helpers ----------------
+    function setState(p, state, reason) {
+      p.state = state; p.history.push(state);
+      if (reason) p.reason = reason;
     }
+    function refreshExpiry(p) {
+      const t = clock();
+      if (p.state === "PREVIEWED" && t > p.previewExpiresAt) setState(p, "EXPIRED", "preview-expired");
+      else if (p.state === "APPROVED" && t > p.approvalExpiresAt) setState(p, "EXPIRED", "approval-expired");
+    }
+    function stepList(p) { return p.steps.map((s, i) => ({ s, i })).filter((x) => !p.skips.includes(x.i)); }
 
-    /** What WOULD happen — no side effects, no execution. */
-    function preview(action) {
-      const v = validateAction(action);
-      if (!v.ok) return { ok: false, error: v.error };
+    function previewStep(action) {
       const def = ACTIONS[action.type];
       const decision = permissions.get(def.permission);
+      const supported = !!adapters[action.type];
       return {
-        ok: true, type: action.type, risk: def.risk, permission: def.permission, decision,
-        needsConfirmation: def.risk === "S3" || decision === "ask",
-        reversible: def.reversible && !!adapters[action.type],
-        supported: !!adapters[action.type],
+        type: action.type, risk: def.risk, permission: def.permission, decision, supported,
+        needsConfirmation: def.risk === "S3", needsReview: def.risk === "S2" || def.risk === "S3" || decision === "ask",
+        undoExpected: def.reversible && supported, // contract expectation only; not a guarantee
+      };
+    }
+    function buildPreview(p) {
+      const steps = p.steps.map((s, i) => Object.assign({ index: i, skipped: p.skips.includes(i) }, previewStep(s)));
+      const live = steps.filter((s) => !s.skipped);
+      const risk = live.reduce((m, s) => (RISK_RANK[s.risk] > RISK_RANK[m] ? s.risk : m), "S0");
+      const exp = live.length === 0 ? "none" : live.every((s) => s.undoExpected) ? "full" : live.every((s) => !s.undoExpected) ? "none" : "limited";
+      const needsReview = !p.single || live.some((s) => s.needsReview);
+      return { steps, risk, needsReview, expectedRollback: exp, rollbackNote: "Expected from contract; actual undo is known only after execution.", s3Indices: live.filter((s) => s.needsConfirmation).map((s) => s.index) };
+    }
+
+    function digestOf(p) {
+      return (p.single ? "action" : "plan") + "\n" + p.steps.map((s, i) => (p.skips.includes(i) ? "~" : "") + canonicalAction(s)).join("\n");
+    }
+
+    function newProposal(steps, single, skips) {
+      const live = [...proposals.values()].filter((p) => !TERMINAL.includes(p.state)).length;
+      if (live >= MAX_LIVE_PROPOSALS) return { ok: false, error: "too-many-proposals" };
+      const p = {
+        id: "p" + (++counter) + "-" + nextNonce(), single, steps: steps.map(deepFreezeAction), skips: (skips || []).slice().sort(),
+        state: "DRAFT", history: ["DRAFT"], createdAt: clock(), previewExpiresAt: clock() + previewTtlMs,
+        approvalExpiresAt: null, reason: null, confirmedS3: null, cancelRequested: false, result: null,
+      };
+      Object.freeze(p.steps);
+      p.digest = digestOf(p);
+      setState(p, "VALIDATED"); setState(p, "PREVIEWED");
+      proposals.set(p.id, p);
+      return { ok: true, p };
+    }
+    function publicView(p) {
+      refreshExpiry(p);
+      return {
+        id: p.id, kind: p.single ? "action" : "plan", state: p.state, history: p.history.slice(), reason: p.reason, digest: p.digest,
+        steps: p.steps.map((s) => ({ type: s.type, arguments: Object.assign({}, s.arguments) })), skips: p.skips.slice(),
+        preview: buildPreview(p), result: p.result ? JSON.parse(JSON.stringify(p.result)) : null,
       };
     }
 
-    /** Issued only by trusted UI code after the user has seen the preview. Bound to this exact action. */
-    function requestConfirmation(action) {
-      if (!validateAction(action).ok) return null;
-      const t = "c-" + nextNonce();
-      tokens.set(t, canonical(action));
-      return t;
+    /** Validates and snapshots a payload. Returns {ok, steps, single} or {ok:false, error}. */
+    function intake(payload) {
+      let raw;
+      try { raw = JSON.stringify(payload); } catch (e) { return { ok: false, error: "malformed" }; }
+      if (typeof raw !== "string" || raw.length > MAX_PAYLOAD_CHARS) return { ok: false, error: "too-large" };
+      if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return { ok: false, error: "malformed" };
+      if (has(payload, "steps")) {
+        if (Object.keys(payload).some((k) => k !== "steps")) return { ok: false, error: "unexpected-field" };
+        const list = payload.steps;
+        if (!Array.isArray(list) || list.length === 0) return { ok: false, error: "no-steps" };
+        if (list.length > MAX_PLAN_STEPS) return { ok: false, error: "too-many-steps" };
+        const steps = [];
+        for (let i = 0; i < list.length; i++) {
+          const snap = snapshotAction(list[i]);
+          const v = snap ? validateAction(snap) : { ok: false, error: "malformed" };
+          if (!v.ok) return { ok: false, error: v.error, step: i };
+          steps.push(snap);
+        }
+        const seen = new Set();
+        for (let i = 0; i < steps.length; i++) {
+          if (["file.move", "file.delete", "share.send"].includes(steps[i].type)) {
+            const id = steps[i].arguments.id;
+            if (seen.has(id)) return { ok: false, error: "conflicting-steps", step: i };
+            seen.add(id);
+          }
+        }
+        return { ok: true, steps, single: false };
+      }
+      const snap = snapshotAction(payload);
+      const v = snap ? validateAction(snap) : { ok: false, error: "malformed" };
+      return v.ok ? { ok: true, steps: [snap], single: true } : { ok: false, error: v.error };
     }
 
-    async function runOne(action, confirmation) {
-      const v = validateAction(action);
-      if (!v.ok) return receipt(action, "invalid", { error: v.error });
-      const def = ACTIONS[action.type];
-      const decision = permissions.get(def.permission);
-      if (decision === "deny") return receipt(action, "denied", { error: "permission-denied:" + def.permission });
-      const adapter = adapters[action.type];
-      if (!adapter) return receipt(action, "unsupported", { error: "no-adapter" });
-      if (def.risk === "S3" || decision === "ask") {
-        // A token must be one this broker issued for this exact action; it is consumed on first use.
-        const ok = typeof confirmation === "string" && tokens.get(confirmation) === canonical(action);
-        if (!ok) return receipt(action, "needs-confirmation", { preview: preview(action) });
-        tokens.delete(confirmation);
-      }
+    // ---------------- untrusted-safe surface ----------------
+    function propose(payload) {
+      const i = intake(payload);
+      if (!i.ok) return i;
+      const r = newProposal(i.steps, i.single, []);
+      return r.ok ? { ok: true, proposal: publicView(r.p) } : r;
+    }
+    function preview(payload) {
+      const i = intake(payload);
+      if (!i.ok) return i;
+      const tmp = { single: i.single, steps: i.steps, skips: [] };
+      return Object.assign({ ok: true }, buildPreview(tmp));
+    }
+    function getProposal(id) { const p = proposals.get(id); return p ? publicView(p) : null; }
+
+    // ---------------- receipts ----------------
+    function addReceipt(action, status, extra) {
+      const def = action && has(ACTIONS, action.type) ? ACTIONS[action.type] : null;
+      const r = Object.assign({ id: "r" + (++rcounter), at: clock(), type: def ? action.type : "unknown", risk: def ? def.risk : null,
+        status, undoState: "unavailable" }, extra || {});
+      receipts.push(r);
+      return r;
+    }
+    const copyReceipt = (r) => Object.assign({ undoable: r.undoState === "available" }, JSON.parse(JSON.stringify(r)));
+
+    // ---------------- execution ----------------
+    async function runStep(p, index, step) {
+      const def = ACTIONS[step.type];
+      const meta = { proposalId: p.id, stepIndex: index };
+      // Permissions are re-checked at execution time, so revocation after preview/approval is honored.
+      if (permissions.get(def.permission) === "deny") return addReceipt(step, "denied", Object.assign({ error: "permission-denied:" + def.permission }, meta));
+      const adapter = adapters[step.type];
+      if (!adapter) return addReceipt(step, "unsupported", Object.assign({ error: "no-adapter" }, meta));
       try {
-        const out = (await adapter(action.arguments)) || {};
-        const r = receipt(action, "done", { result: out.result === undefined ? null : out.result });
-        if (typeof out.undo === "function") { r.undoable = true; undoFns.set(r.id, out.undo); }
+        const out = (await adapter(step.arguments)) || {};
+        const r = addReceipt(step, "done", Object.assign({ result: out.result === undefined ? null : out.result }, meta));
+        if (typeof out.undo === "function") { r.undoState = "available"; undoFns.set(r.id, out.undo); }
         return r;
       } catch (e) {
-        return receipt(action, "failed", { error: String(e && e.message || e) });
+        return addReceipt(step, "failed", Object.assign({ error: String((e && e.message) || e) }, meta));
       }
     }
 
-    /** Executions are serialized so concurrent callers cannot interleave adapter effects. */
-    function execute(action, confirmation) {
-      const p = chain.then(() => runOne(action, confirmation));
-      chain = p.catch(() => {});
-      return p;
+    function actualRollback(stepResults) {
+      const done = stepResults.filter((s) => s.status === "done").map((s) => receipts.find((r) => r.id === s.receiptId));
+      if (done.length === 0) return "none";
+      const avail = done.filter((r) => r.undoState === "available").length;
+      return avail === done.length ? "full" : avail === 0 ? "none" : "limited";
     }
 
-    async function undo(receiptId) {
+    async function execute(id, options) {
+      const o = options || {};
+      const p = proposals.get(id);
+      if (!p) return { ok: false, reason: "not-found" };
+      refreshExpiry(p);
+      if (busyWith) return { ok: false, reason: "busy" };
+      const view = buildPreview(p);
+      if (view.needsReview) {
+        if (p.state !== "APPROVED") return { ok: false, reason: p.state === "EXPIRED" ? p.reason : "approval-required", state: p.state };
+      } else if (p.state !== "PREVIEWED" && p.state !== "APPROVED") {
+        return { ok: false, reason: p.state === "EXPIRED" ? p.reason : "wrong-state", state: p.state };
+      }
+      // Claim synchronously (before any await): the approval is single-use and only one run may be active.
+      busyWith = p.id; setState(p, "RUNNING");
+      const stepResults = [];
+      const progress = (e) => { try { if (o.onProgress) o.onProgress(e); } catch (x) { /* observer errors must not break the run */ } };
+      try {
+        let stopped = null;
+        for (const { s, i } of stepList(p)) {
+          if (p.cancelRequested || (o.isCancelled && o.isCancelled())) { stopped = "cancelled"; stepResults.push({ index: i, status: "cancelled" }); break; }
+          progress({ index: i, status: "running", total: p.steps.length });
+          const r = await runStep(p, i, s);
+          stepResults.push({ index: i, status: r.status, receiptId: r.id, error: r.error });
+          progress({ index: i, status: r.status, total: p.steps.length });
+          if (r.status !== "done") { stopped = "failed"; break; }
+        }
+        if (stopped === null && p.cancelRequested) stopped = "cancelled";
+        for (const { i } of p.steps.map((s, i) => ({ i })).filter((x) => p.skips.includes(x.i))) stepResults.push({ index: i, status: "skipped" });
+        stepResults.sort((a, b) => a.index - b.index);
+        setState(p, stopped === "cancelled" ? "CANCELLED" : stopped === "failed" ? "FAILED" : "COMPLETED");
+        p.result = { steps: stepResults, actualRollback: actualRollback(stepResults), expectedRollback: view.expectedRollback };
+        return Object.assign({ ok: stopped === null, state: p.state }, JSON.parse(JSON.stringify(p.result)));
+      } catch (e) {
+        setState(p, "FAILED", "internal-error");
+        return { ok: false, reason: "internal-error", state: p.state };
+      } finally {
+        busyWith = null;
+      }
+    }
+
+    function cancel(id) {
+      const p = proposals.get(id);
+      if (!p) return { ok: false, reason: "not-found" };
+      refreshExpiry(p);
+      if (p.state === "RUNNING") { p.cancelRequested = true; return { ok: true, pending: true }; } // current step finishes, rest do not run
+      if (TERMINAL.includes(p.state)) return { ok: false, reason: "already-" + p.state.toLowerCase() };
+      setState(p, "CANCELLED", "cancelled"); return { ok: true };
+    }
+
+    async function undoOne(receiptId) {
       const r = receipts.find((x) => x.id === receiptId);
       if (!r) return { ok: false, reason: "not-found" };
-      if (!r.undoable || r.undone) return { ok: false, reason: r.undone ? "already-undone" : "not-undoable" };
+      if (r.undoState === "used") return { ok: false, reason: "already-undone" };
+      if (r.undoState === "in-progress") return { ok: false, reason: "in-progress" };
+      if (r.undoState === "failed") return { ok: false, reason: "undo-failed-before" };
+      if (r.undoState !== "available") return { ok: false, reason: "not-undoable" };
+      r.undoState = "in-progress"; // synchronous claim: concurrent callers cannot both run the same undo
       const fn = undoFns.get(receiptId);
-      try { await fn(); } catch (e) { return { ok: false, reason: "undo-failed" }; }
-      r.undone = true; r.undoable = false; undoFns.delete(receiptId);
+      try { await fn(); } catch (e) { r.undoState = "failed"; undoFns.delete(receiptId); return { ok: false, reason: "undo-failed" }; }
+      r.undoState = "used"; undoFns.delete(receiptId);
       return { ok: true };
     }
-
-    // ---------------- Plans ----------------
-    function validatePlan(plan) {
-      if (plan === null || typeof plan !== "object" || Array.isArray(plan)) return { ok: false, error: "malformed" };
-      if (Object.keys(plan).some((k) => k !== "steps")) return { ok: false, error: "unexpected-field" };
-      if (!Array.isArray(plan.steps) || plan.steps.length === 0) return { ok: false, error: "no-steps" };
-      if (plan.steps.length > MAX_PLAN_STEPS) return { ok: false, error: "too-many-steps" };
-      for (let i = 0; i < plan.steps.length; i++) {
-        const v = validateAction(plan.steps[i]);
-        if (!v.ok) return { ok: false, error: v.error, step: i };
-      }
-      // Conflicting operations: the same file may not be acted on by more than one step.
-      const seen = new Map();
-      for (let i = 0; i < plan.steps.length; i++) {
-        const s = plan.steps[i];
-        if (s.type === "file.move" || s.type === "file.delete" || s.type === "share.send") {
-          const id = s.arguments.id;
-          if (seen.has(id)) return { ok: false, error: "conflicting-steps", step: i };
-          seen.set(id, i);
-        }
-      }
-      return { ok: true };
+    async function undo(receiptId) {
+      if (busyWith) return { ok: false, reason: "busy" };
+      busyWith = "undo:" + receiptId;
+      try { return await undoOne(receiptId); } finally { busyWith = null; }
+    }
+    /** Undo every currently-available step of a finished proposal, newest first. */
+    async function undoProposal(id) {
+      const p = proposals.get(id);
+      if (!p || !p.result) return { ok: false, reason: "nothing-to-undo" };
+      if (busyWith) return { ok: false, reason: "busy" };
+      busyWith = "undo:" + id;
+      try {
+        const out = [];
+        for (const s of p.result.steps.filter((x) => x.status === "done").reverse()) out.push(Object.assign({ receiptId: s.receiptId }, await undoOne(s.receiptId)));
+        return { ok: out.every((x) => x.ok), steps: out };
+      } finally { busyWith = null; }
     }
 
-    function previewPlan(plan) {
-      const v = validatePlan(plan);
-      if (!v.ok) return v;
-      const steps = plan.steps.map((s) => preview(s));
-      const rank = { S0: 0, S1: 1, S2: 2, S3: 3 };
-      const risk = steps.reduce((m, s) => (rank[s.risk] > rank[m] ? s.risk : m), "S0");
-      const allReversible = steps.every((s) => s.reversible);
-      const noneReversible = steps.every((s) => !s.reversible);
-      return { ok: true, steps, risk, rollback: allReversible ? "full" : noneReversible ? "none" : "limited" };
-    }
-
-    /**
-     * Run a plan in order. options: { skip:Set<number>, confirmations:{[index]:token}, isCancelled:()=>bool }.
-     * Stops at the first step that does not complete. Returns step receipts and an honest rollback level.
-     */
-    async function runPlan(plan, options) {
-      const o = options || {};
-      const v = validatePlan(plan);
-      if (!v.ok) return { ok: false, error: v.error, step: v.step, receipts: [] };
-      const out = [];
-      let stoppedAt = null;
-      for (let i = 0; i < plan.steps.length; i++) {
-        if (o.isCancelled && o.isCancelled()) { stoppedAt = i; out.push({ step: i, status: "cancelled" }); break; }
-        if (o.skip && o.skip.has(i)) { out.push({ step: i, status: "skipped" }); continue; }
-        const r = await execute(plan.steps[i], o.confirmations && o.confirmations[i]);
-        out.push({ step: i, status: r.status, receiptId: r.id, error: r.error });
-        if (r.status !== "done") { stoppedAt = i; break; }
-      }
-      const done = out.filter((s) => s.status === "done").map((s) => receipts.find((r) => r.id === s.receiptId));
-      const undoableCount = done.filter((r) => r.undoable).length;
-      const rollback = done.length === 0 ? "none" : undoableCount === done.length ? "full" : undoableCount === 0 ? "none" : "limited";
-      return { ok: stoppedAt === null, stoppedAt, steps: out, rollback };
-    }
-
-    /** Undo every undoable step of a plan result, newest first. */
-    async function undoPlan(result) {
-      const ids = result.steps.filter((s) => s.status === "done").map((s) => s.receiptId).reverse();
-      const outcomes = [];
-      for (const id of ids) outcomes.push(Object.assign({ receiptId: id }, await undo(id)));
-      return outcomes;
-    }
-
-    /** Return a NEW plan with step i replaced; the result is re-validated. */
-    function editStep(plan, i, action) {
-      if (!plan || !Array.isArray(plan.steps) || !Number.isInteger(i) || i < 0 || i >= plan.steps.length) return { ok: false, error: "bad-index" };
-      const next = { steps: plan.steps.slice() };
-      next.steps[i] = action;
-      const v = validatePlan(next);
-      return v.ok ? { ok: true, plan: next } : v;
+    // ---------------- trusted UI facet (one holder only) ----------------
+    function takeTrustedUI() {
+      if (trustedTaken) throw new Error("trusted-ui-already-taken");
+      trustedTaken = true;
+      return Object.freeze({
+        /** Approve the exact content the user was shown. S3 steps must be confirmed explicitly by index. */
+        approve(id, a) {
+          const p = proposals.get(id);
+          if (!p) return { ok: false, reason: "not-found" };
+          refreshExpiry(p);
+          if (p.state !== "PREVIEWED") return { ok: false, reason: p.state === "EXPIRED" ? p.reason : "wrong-state", state: p.state };
+          if (!a || typeof a.digest !== "string" || a.digest !== p.digest) return { ok: false, reason: "digest-mismatch" };
+          const live = stepList(p);
+          if (live.length === 0) return { ok: false, reason: "nothing-to-run" };
+          for (const { s } of live) {
+            if (permissions.get(ACTIONS[s.type].permission) === "deny") return { ok: false, reason: "permission-denied" };
+            if (!adapters[s.type]) return { ok: false, reason: "unsupported-step" };
+          }
+          const need = buildPreview(p).s3Indices.slice().sort((x, y) => x - y);
+          const given = Array.isArray(a.confirmS3) ? a.confirmS3.slice().sort((x, y) => x - y) : [];
+          if (JSON.stringify(need) !== JSON.stringify(given)) return { ok: false, reason: "s3-confirmation-required", required: need };
+          p.confirmedS3 = need; p.approvalExpiresAt = clock() + approvalTtlMs;
+          setState(p, "APPROVED");
+          return { ok: true, expiresAt: p.approvalExpiresAt };
+        },
+        reject(id) {
+          const p = proposals.get(id);
+          if (!p || TERMINAL.includes(p.state) || p.state === "RUNNING") return { ok: false, reason: "not-rejectable" };
+          setState(p, "REJECTED", "rejected-by-user"); return { ok: true };
+        },
+        /** Editing creates a NEW proposal; the old proposal and its approval are invalidated. */
+        editStep(id, index, action) {
+          const p = proposals.get(id);
+          if (!p || p.single || !Number.isInteger(index) || index < 0 || index >= p.steps.length) return { ok: false, error: "bad-index" };
+          if (p.state === "RUNNING" || TERMINAL.includes(p.state)) return { ok: false, error: "not-editable" };
+          const steps = p.steps.map((s) => ({ type: s.type, arguments: Object.assign({}, s.arguments) }));
+          steps[index] = action;
+          const i = intake({ steps });
+          if (!i.ok) return i;
+          const r = newProposal(i.steps, false, p.skips);
+          if (!r.ok) return r;
+          setState(p, "SUPERSEDED", "edited");
+          return { ok: true, proposal: publicView(r.p) };
+        },
+        skipStep(id, index, skipped) {
+          const p = proposals.get(id);
+          if (!p || p.single || !Number.isInteger(index) || index < 0 || index >= p.steps.length) return { ok: false, error: "bad-index" };
+          if (p.state === "RUNNING" || TERMINAL.includes(p.state)) return { ok: false, error: "not-editable" };
+          const set = new Set(p.skips); if (skipped === false) set.delete(index); else set.add(index);
+          const r = newProposal(p.steps.map((s) => ({ type: s.type, arguments: Object.assign({}, s.arguments) })), false, [...set]);
+          if (!r.ok) return r;
+          setState(p, "SUPERSEDED", "skips-changed");
+          return { ok: true, proposal: publicView(r.p) };
+        },
+      });
     }
 
     return {
-      preview, previewPlan, validatePlan, requestConfirmation, execute, undo, runPlan, undoPlan, editStep,
-      receipts: () => receipts.map((r) => Object.assign({}, r)),
+      /** Hand ONLY this to untrusted proposers (parser / model). */
+      proposer: Object.freeze({ propose, preview, getProposal }),
+      propose, preview, getProposal, execute, cancel, undo, undoProposal, takeTrustedUI,
+      receipts: () => receipts.map(copyReceipt),
     };
   }
 
   // ------------------------------------------------------------------
-  // Quick Commands: deterministic text -> typed proposal. No model involved.
-  // The result is only a PROPOSAL; the broker still decides everything.
+  // Quick Commands: deterministic text -> typed proposal. No model, no authority.
   // ------------------------------------------------------------------
   function parseCommand(text) {
     if (typeof text !== "string") return { ok: false, error: "not-text" };
@@ -269,11 +451,10 @@
   }
   function one(type, args) {
     const action = { type, arguments: args };
-    // The parser only ever returns schema-valid proposals (e.g. rejects "0 minute" or absurd durations).
     return validateAction(action).ok ? { ok: true, kind: "action", action } : { ok: false, error: "invalid-arguments" };
   }
 
-  /** Mock adapters over a plain state object (used by tests and the prototype). Never touches a real OS. */
+  /** Mock adapters over a plain state object. Never touches a real OS. */
   function createMockAdapters(s) {
     return {
       "app.open": async ({ app }) => { const was = s.openApp; s.openApp = app; return { result: app, undo: () => { s.openApp = was; } }; },
@@ -290,9 +471,9 @@
         s.trail.push(id); delete s.files[id];
         return { undo: () => { s.files[id] = f; s.trail = s.trail.filter((x) => x !== id); } };
       },
-      // share.send intentionally has no mock adapter in the default set: external sending is unsupported here.
+      // share.send intentionally has no mock adapter: external sending is unsupported in this simulation.
     };
   }
 
-  return { ACTIONS, APPS, SPACES, MAX_PLAN_STEPS, validateAction, createPermissions, createBroker, parseCommand, createMockAdapters };
+  return { ACTIONS, APPS, SPACES, MAX_PLAN_STEPS, TERMINAL, validateAction, createPermissions, createBroker, parseCommand, createMockAdapters };
 });
