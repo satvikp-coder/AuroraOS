@@ -83,9 +83,24 @@ proportionally more, the watchdog still fires, and 12 rounds of create/run/destr
 5 of those checks. Assumptions: single CPU, one 1 kHz scheduler tick shared with the watchdog, IRQs masked throughout the kernel's
 exception handling (no kernel preemption).
 
+## Bounded IPC and blocking
+
+* **Mailboxes:** each process owns one fixed mailbox (4 messages x 64 bytes) in the kernel's process table. `SYS_SEND(dest, buf, len)`
+  validates length, that dest is a live process, that the sender is authorised (an explicit bit granted with `proc_ipc_allow`; self
+  is always allowed), that the mailbox is not full, and only then copies the bytes with `copy_from_user`. No user pointer is kept.
+  `SYS_RECV(buf, cap, flags)` can only dequeue from the caller's OWN mailbox (no syscall names another process's queue), copies with
+  `copy_to_user`, and returns the length in x0 and the sender's pid in x1. If the copy fails or the buffer is too small the message
+  stays queued. New errors: `-EAGAIN` (full / empty non-blocking), `-ESRCH` (no live process), `-EPERM` (not authorised).
+* **Blocking receive without busy-waiting:** with an empty mailbox the process is parked as `BLOCKED` (its saved frame; no kernel
+  stack is held). A send to a blocked receiver makes it `READY`; its receive completes when it is next scheduled, with ITS page tables
+  live, so the copy into its buffer uses the normal hardware EL0 check. If nothing is runnable and some process is blocked,
+  `sched_run` returns `SCHED_DEADLOCK` to the kernel instead of hanging.
+* **Lifetime:** queued messages survive their sender; a receiver's mailbox is wiped when it exits, faults or is destroyed, and later
+  sends to it return `-ESRCH`.
+* Limits: no capability to receive from a specific sender, no timeouts on blocking receive, no message priorities, no shared memory.
+
 ## Not done (issue #4 stays open)
 
-* **IPC** and **blocking** (so `BLOCKED` is reachable only by the table, not by any syscall) are not implemented.
 * No TTBR1/higher-half kernel and no KPTI: kernel addresses are present (EL1-only) in every user table. That is correct for
   EL0 access control but offers no protection against speculative side channels. L1 slots beyond 0-1 are not shared, so new
   kernel mappings outside those slots would not appear in existing processes.

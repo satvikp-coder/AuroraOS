@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_PROC_TESTS=53   # keep in sync with kernel/proctest.c
+EXPECTED_PROC_TESTS=68   # keep in sync with kernel/proctest.c
 EXPECTED_MM_TESTS=93
 EXPECTED_IRQ_TESTS=43
 
@@ -63,9 +63,14 @@ normal_boot() { # name machine mem
     expect "$log" "\[proc-test\] preemption: each timer interrupt hit the middle of user code.*: PASS" "$name: preemption landed mid-user-code and registers/SP_EL0 survived"
     expect "$log" "\[proc-test\] preemption: TTBR0_EL1 .*: PASS" "$name: TTBR0/ASID matched the running process on every EL0 exception"
     expect "$log" "\[proc-test\] preemption stress: .*: PASS" "$name: sustained preemption stress passed without leaks"
+    expect "$log" "\[proc-test\] ipc: a blocking receiver parks as BLOCKED.*: PASS" "$name: blocking receive parks, is woken by a send, exact bytes in order"
+    expect "$log" "\[proc-test\] ipc validation: oversized.*: PASS" "$name: IPC rejects oversized, bad pid, kernel pointer and unauthorised destinations"
+    expect "$log" "\[proc-test\] ipc cleanup: a receiver that exits.*: PASS" "$name: a dead receiver's mailbox is freed and later sends fail"
+    expect "$log" "\[proc-test\] ipc: a lone blocked receiver is reported as SCHED_DEADLOCK.*: PASS" "$name: a receiver nobody will wake is reported, not hung"
+    expect "$log" "\[proc-test\] ipc: 12 rounds.*: PASS" "$name: repeated create/send/receive/destroy leaks nothing"
     expect "$log" "\[proc-test\] watchdog: .*: PASS" "$name: a never-yielding loop cannot hang the kernel"
     c="$(grep -c '^\[proc [0-9]*\] FAULT at EL0' "$log")"
-    if [ "$c" -eq 13 ]; then ok "$name: the 13 intentional user faults were each reported as an EL0 fault"; else bad "$name: saw $c EL0 fault reports, expected 13"; fi
+    if [ "$c" -eq 14 ]; then ok "$name: the 14 intentional user faults were each reported as an EL0 fault"; else bad "$name: saw $c EL0 fault reports, expected 14"; fi
     expect "$log" "^\[user p1\] A" "$name: kernel-tagged output of an EL0 program (A) reached the console"
     expect "$log" "^\[user p2\] B" "$name: kernel-tagged output of an EL0 program (B) reached the console"
     expect "$log" "Userspace OK" "$name: userspace reported OK"

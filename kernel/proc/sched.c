@@ -97,6 +97,13 @@ static void switch_to(struct exc_frame *f, int pid)
     cur_pid = pid; slice = 0; need_resched = 0;
     set_ttbr0(aspace_ttbr(&p->as));                          /* kernel slots are identical in every table: this code keeps running */
     *f = p->ctx;
+    if (p->rx_pending) {                                     /* a woken receiver: finish its receive now, with ITS page tables live */
+        uint64_t from = 0;
+        int r = ipc_dequeue(p, p->rx_buf, p->rx_max, &from);
+        if (r == AE_EAGAIN) bug("receiver woken with an empty mailbox");
+        f->x[0] = (uint64_t)(int64_t)r; f->x[1] = from;
+        p->rx_pending = 0;
+    }
 }
 
 /* The current process (if any) has just left RUNNING (and, if READY, had its context saved). Pick what runs next. */
@@ -158,10 +165,32 @@ static void do_syscall(struct exc_frame *f, struct proc *p)
         p->ctx = *f; set_state(p, PROC_READY);
         reschedule(f);
         return;
+    case SYS_SEND: {
+        uint64_t dest = f->x[0];
+        int r = ipc_send(p, dest, f->x[1], f->x[2]);
+        f->x[0] = (uint64_t)(int64_t)r;
+        if (r == AE_OK) {                                    /* wake a receiver that was parked waiting for a message */
+            struct proc *to = proc_get((int)dest);
+            if (to && to->state == PROC_BLOCKED && to->rx_pending) set_state(to, PROC_READY);
+        }
+        return;
+    }
+    case SYS_RECV: {
+        uint64_t buf = f->x[0], max = f->x[1], flags = f->x[2], from = 0;
+        if (max == 0 || max > PAGE_SIZE) { f->x[0] = (uint64_t)(int64_t)AE_EINVAL; return; }
+        int r = ipc_dequeue(p, buf, max, &from);
+        if (r != AE_EAGAIN) { f->x[0] = (uint64_t)(int64_t)r; f->x[1] = from; return; }
+        if (flags & IPC_NONBLOCK) { f->x[0] = (uint64_t)(int64_t)AE_EAGAIN; return; }
+        if (!user_writable(buf, (size_t)max)) { f->x[0] = (uint64_t)(int64_t)AE_EFAULT; return; }   /* refuse before blocking */
+        p->rx_pending = 1; p->rx_buf = buf; p->rx_max = max;
+        p->ctx = *f; set_state(p, PROC_BLOCKED);             /* parked as a saved frame: no busy waiting, no kernel stack held */
+        reschedule(f);
+        return;
+    }
     case SYS_GETPID: f->x[0] = (uint64_t)p->pid; return;
     case SYS_TICKS:  f->x[0] = ticks; return;
     case SYS_EXIT:
-        p->exit_code = (int)(int64_t)f->x[0];
+        p->exit_code = (int)(int64_t)f->x[0]; ipc_cleanup(p);
         set_state(p, PROC_TERMINATED);
         reschedule(f);
         return;
@@ -187,6 +216,7 @@ static void do_fault(struct exc_frame *f, struct proc *p, uint64_t ec)
     }
     console_puts(" ELR="); console_hex(f->elr); console_puts("; process stopped, kernel continues\n");
     p->ctx = *f;                                             /* kept for post-mortem; a FAULTED process is never scheduled */
+    ipc_cleanup(p);
     set_state(p, PROC_FAULTED);
     reschedule(f);
 }

@@ -393,6 +393,110 @@ void proctest_run(void)
         sched_set_preempt(0, 0);
     }
 
+    /* ---- bounded IPC: mailboxes, blocking receive, wake-up, authorisation, cleanup ---- */
+    {
+        check("the user program image still fits its single code page", (size_t)(user_blob_end - user_blob_start) <= PAGE_SIZE);
+
+        /* blocking receiver created FIRST: it must park as BLOCKED (not spin), then be woken by the sender */
+        destroy_all();
+        int rb = proc_create(61, 3, "recv"), sa = proc_create(60, 1, "send");
+        proc_ipc_allow(sa, rb);
+        r = sched_run(2000);
+        struct proc *R = proc_get(rb), *S = proc_get(sa);
+        check("ipc: a blocking receiver parks as BLOCKED, is woken by the send, and receives all three messages in order with the exact bytes and the sender's pid",
+              r == SCHED_ALL_DONE && R->state == PROC_TERMINATED && S->state == PROC_TERMINATED && ud(R, 8) == 0x1CC &&
+              ud(R, 0x20) == 2 && ud(R, 0x28) == 2 && ud(R, 0x30) == 2 && ud(R, 0x50) == (uint64_t)sa && ud(R, 0x58) == (uint64_t)sa && ud(R, 0x60) == (uint64_t)sa &&
+              ud(R, 0x80) == 0x316D && ud(R, 0x88) == 0x326D && ud(R, 0x90) == 0x336D && ud(S, 0x20) == 0 && ud(S, 0x28) == 0 && ud(S, 0x30) == 0);
+        check("ipc: the receiver really slept: it ran, blocked, and was resumed exactly once (2 switches in), consuming no CPU while waiting", R->switches_in == 2 && R->yields == 0 && R->mbox.count == 0);
+        destroy_all();
+
+        /* the sender exits while its messages are still queued */
+        int sa2 = proc_create(60, 2, "send"), rb2 = proc_create(61, 3, "recv");
+        proc_ipc_allow(sa2, rb2);
+        r = sched_run(2000);
+        R = proc_get(rb2); S = proc_get(sa2);
+        check("ipc: messages queued by a sender that has since exited are still delivered intact",
+              r == SCHED_ALL_DONE && S->state == PROC_TERMINATED && S->switches_in == 1 && R->state == PROC_TERMINATED && ud(R, 0x80) == 0x316D && ud(R, 0x90) == 0x336D && ud(R, 0x50) == (uint64_t)sa2);
+        destroy_all();
+
+        /* every rejection path of the syscalls */
+        int pp = proc_create(62, (uint64_t)(uintptr_t)&kernel_secret, "probe"), po = proc_create(41, 0, "other");
+        proc_get(pp)->ctx.x[2] = (uint64_t)po;                      /* the pid it will try (and must fail) to message */
+        proc_ipc_allow(pp, pp);                                     /* self is always allowed; nothing else is granted */
+        r = sched_run(2000);
+        struct proc *P = proc_get(pp), *O = proc_get(po);
+        (void)O;
+        check("ipc validation: oversized (-E2BIG), pid 0 and out-of-range pid (-ESRCH), kernel source pointer (-EFAULT), unauthorised destination (-EPERM)",
+              r == SCHED_ALL_DONE && P->state == PROC_TERMINATED && (int64_t)ud(P, 0x20) == AE_E2BIG && (int64_t)ud(P, 0x28) == AE_ESRCH && (int64_t)ud(P, 0x30) == AE_ESRCH &&
+              (int64_t)ud(P, 0x38) == AE_EFAULT && (int64_t)ud(P, 0x68) == AE_EPERM && ud(P, 0x40) == 0);
+        check("ipc validation: a valid self-send works; receive into a kernel address is refused (-EFAULT) and the message stays queued, then arrives (2 bytes); empty mailbox gives -EAGAIN",
+              (int64_t)ud(P, 0x48) == 0 && (int64_t)ud(P, 0x50) == AE_EFAULT && (int64_t)ud(P, 0x58) == 2 && (int64_t)ud(P, 0x60) == AE_EAGAIN);
+        check("ipc validation: a mailbox holds exactly 4 messages (the 5th send is -EAGAIN); a too-small receive buffer is -E2BIG and a zero capacity -EINVAL",
+              ud(P, 0x70) == 0 && ud(P, 0x78) == 0 && ud(P, 0x80) == 0 && ud(P, 0x88) == 0 && (int64_t)ud(P, 0x90) == AE_EAGAIN && (int64_t)ud(P, 0x98) == AE_E2BIG && (int64_t)ud(P, 0xA0) == AE_EINVAL);
+        check("ipc authorisation: the process it was NOT allowed to message has an empty mailbox, and an exited process's mailbox is empty (nothing left to read)",
+              po > 0 && O->mbox.count == 0 && P->mbox.count == 0);
+        destroy_all();
+
+        /* the receiver exits while messages are queued; later sends to it fail */
+        int sa3 = proc_create(60, 2, "send"), rb3 = proc_create(41, 0, "exits");
+        proc_ipc_allow(sa3, rb3);
+        r = sched_run(2000);
+        struct proc *RB = proc_get(rb3);
+        int first_ok = r == SCHED_ALL_DONE && ud(proc_get(sa3), 0x20) == 0 && ud(proc_get(sa3), 0x28) == 0 && ud(proc_get(sa3), 0x30) == 0 && RB->state == PROC_TERMINATED && RB->exit_code == 7 && RB->mbox.count == 0;
+        int sa4 = proc_create(60, 2, "late");
+        proc_ipc_allow(sa4, rb3);
+        sched_run(2000);
+        check("ipc cleanup: a receiver that exits with queued messages loses its mailbox (count 0), and later sends to it fail with -ESRCH",
+              first_ok && (int64_t)ud(proc_get(sa4), 0x20) == AE_ESRCH && (int64_t)ud(proc_get(sa4), 0x28) == AE_ESRCH);
+        destroy_all();
+
+        /* a full mailbox, then the receiver drains it */
+        int fl = proc_create(65, 2, "flood"), dr = proc_create(61, 4, "drain");
+        proc_ipc_allow(fl, dr);
+        r = sched_run(2000);
+        struct proc *F = proc_get(fl), *D = proc_get(dr);
+        check("ipc: a flood of six messages into a 4-slot mailbox: 4 accepted, 2 report -EAGAIN; the receiver then drains exactly the 4 in order",
+              r == SCHED_ALL_DONE && ud(F, 0x20) == 0 && ud(F, 0x28) == 0 && ud(F, 0x30) == 0 && ud(F, 0x38) == 0 && (int64_t)ud(F, 0x40) == AE_EAGAIN && (int64_t)ud(F, 0x48) == AE_EAGAIN &&
+              D->state == PROC_TERMINATED && ud(D, 0x20) == 2 && ud(D, 0x38) == 2 && ud(D, 8) == 0x1CC);
+        destroy_all();
+
+        /* several processes waiting at once: no deadlock when senders exist */
+        int w1 = proc_create(64, 0, "wait1"), w2 = proc_create(64, 0, "wait2"), ws = proc_create(68, w1, "sender");
+        proc_ipc_allow(ws, w1); proc_ipc_allow(ws, w2);
+        r = sched_run(2000);
+        check("ipc: two processes blocked in receive are both woken by one sender; no deadlock, both get a 2-byte message from the sender",
+              r == SCHED_ALL_DONE && proc_get(w1)->state == PROC_TERMINATED && proc_get(w2)->state == PROC_TERMINATED && proc_get(w1)->exit_code == 2 && proc_get(w2)->exit_code == 2 &&
+              ud(proc_get(w1), 0x50) == (uint64_t)ws && ud(proc_get(w2), 0x50) == (uint64_t)ws);
+        destroy_all();
+
+        /* a receiver nobody will ever send to: the scheduler reports it instead of hanging */
+        int lone = proc_create(64, 0, "lonely");
+        r = sched_run(2000);
+        check("ipc: a lone blocked receiver is reported as SCHED_DEADLOCK (the kernel regains control, state BLOCKED, mailbox untouched) instead of spinning or hanging",
+              r == SCHED_DEADLOCK && proc_get(lone)->state == PROC_BLOCKED && proc_get(lone)->rx_pending && !sched_active() && get_ttbr0() == vmm_kernel_l1_pa());
+        check("ipc: a BLOCKED process can be destroyed cleanly", proc_destroy(lone) == 0 && proc_get(lone) == 0);
+
+        /* the sender faults after sending */
+        int fa = proc_create(63, 2, "sendfault"), fb = proc_create(61, 2, "recv");
+        proc_ipc_allow(fa, fb);
+        r = sched_run(2000);
+        check("ipc: a sender that faults right after sending does not corrupt its queued messages; the receiver still gets both intact",
+              r == SCHED_ALL_DONE && proc_get(fa)->state == PROC_FAULTED && proc_get(fb)->state == PROC_TERMINATED && ud(proc_get(fb), 0x80) == 0x316D && ud(proc_get(fb), 0x88) == 0x326D && ud(proc_get(fb), 0x50) == (uint64_t)fa);
+        destroy_all();
+
+        /* repeated create/send/receive/destroy */
+        uint64_t base = free_pages(); int cyc = 1;
+        for (int i = 0; i < 12; i++) {
+            int rx = proc_create(61, 3, "recv"), tx = proc_create(60, 1, "send");
+            proc_ipc_allow(tx, rx);
+            uint64_t rr = sched_run(2000);
+            if (rr != SCHED_ALL_DONE || ud(proc_get(rx), 8) != 0x1CC || ud(proc_get(rx), 0x90) != 0x336D) cyc = 0;
+            destroy_all();
+            if (free_pages() != base) cyc = 0;
+        }
+        check("ipc: 12 rounds of create / send / blocking receive / destroy: always correct and no page leaks", cyc);
+    }
+
     /* ---- table limits and bookkeeping ---- */
     int ids[PROC_MAX + 1], made = 0;
     for (int i = 0; i < PROC_MAX + 1; i++) { ids[i] = proc_create(41, 0, "fill"); if (ids[i] > 0) made++; }

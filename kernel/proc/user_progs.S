@@ -16,6 +16,8 @@
     .equ SYS_GETPID, 3
     .equ SYS_EXIT,  4
     .equ SYS_TICKS, 5
+    .equ SYS_SEND,  6
+    .equ SYS_RECV,  7
 
     .macro sys nr
     mov     x8, #\nr
@@ -73,6 +75,20 @@ user_blob_start:
     b.eq    role_badsvc
     cmp     x0, #50
     b.eq    role_cpu
+    cmp     x0, #60
+    b.eq    role_send3
+    cmp     x0, #61
+    b.eq    role_recv_n
+    cmp     x0, #62
+    b.eq    role_ipc_probe
+    cmp     x0, #63
+    b.eq    role_send_fault
+    cmp     x0, #64
+    b.eq    role_recv_once
+    cmp     x0, #65
+    b.eq    role_flood
+    cmp     x0, #68
+    b.eq    role_send_two
     mov     x0, #99
     sys     SYS_EXIT
     b       .
@@ -363,6 +379,198 @@ cpu_inner:
     sys     SYS_EXIT
     b       .
 
+/* ---- IPC programs. Data page: results in 8-byte slots; receive buffer at +0x200. ---- */
+
+/* role 60: send "m1","m2","m3" to pid x1; store each send's return value at [0x20+8i] */
+role_send3:
+    ldr     x20, =DATA_VA
+    mov     x19, x1
+    mov     x21, #0
+    adr     x22, msg_m
+s3_loop:
+    mov     x0, x19
+    add     x1, x22, x21, lsl #1
+    mov     x2, #2
+    sys     SYS_SEND
+    add     x3, x20, x21, lsl #3
+    str     x0, [x3, #0x20]
+    add     x21, x21, #1
+    cmp     x21, #3
+    b.lt    s3_loop
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
+/* role 61: BLOCKING receive of x1 messages (0 means 3). Per message i: length [0x20+8i], sender [0x50+8i], first 2 bytes [0x80+8i]. */
+role_recv_n:
+    ldr     x20, =DATA_VA
+    mov     x19, x1
+    cbnz    x19, 1f
+    mov     x19, #3
+1:  mov     x21, #0
+    add     x22, x20, #0x200
+rn_loop:
+    mov     x0, x22
+    mov     x1, #64
+    mov     x2, #0
+    sys     SYS_RECV
+    add     x3, x20, x21, lsl #3
+    str     x0, [x3, #0x20]
+    str     x1, [x3, #0x50]
+    ldrh    w4, [x22]
+    str     x4, [x3, #0x80]
+    add     x21, x21, #1
+    cmp     x21, x19
+    b.lt    rn_loop
+    ldr     x3, =0x1CC
+    str     x3, [x20, #8]
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
+/* role 62: probe every rejection path. x1 = a kernel address, x2 = a pid this process is NOT allowed to send to. */
+role_ipc_probe:
+    ldr     x20, =DATA_VA
+    mov     x19, x1
+    mov     x23, x2
+    sys     SYS_GETPID
+    mov     x21, x0
+    adr     x22, msg_m
+    mov     x0, x21                     /* (a) message too long */
+    mov     x1, x22
+    mov     x2, #65
+    sys     SYS_SEND
+    str     x0, [x20, #0x20]
+    mov     x0, #0                      /* (b) pid 0 */
+    mov     x1, x22
+    mov     x2, #2
+    sys     SYS_SEND
+    str     x0, [x20, #0x28]
+    mov     x0, #99                     /* (c) pid out of range */
+    mov     x1, x22
+    mov     x2, #2
+    sys     SYS_SEND
+    str     x0, [x20, #0x30]
+    mov     x0, x21                     /* (d) source buffer inside the kernel */
+    mov     x1, x19
+    mov     x2, #4
+    sys     SYS_SEND
+    str     x0, [x20, #0x38]
+    mov     x0, x21                     /* (e) a valid send to itself */
+    mov     x1, x22
+    mov     x2, #2
+    sys     SYS_SEND
+    str     x0, [x20, #0x48]
+    mov     x0, x19                     /* (f) receive into a kernel address: refused, the message stays queued */
+    mov     x1, #64
+    mov     x2, #1
+    sys     SYS_RECV
+    str     x0, [x20, #0x50]
+    add     x0, x20, #0x200             /* (g) receive into its own buffer: the message that stayed queued arrives */
+    mov     x1, #64
+    mov     x2, #1
+    sys     SYS_RECV
+    str     x0, [x20, #0x58]
+    add     x0, x20, #0x200             /* (h) empty mailbox, non-blocking */
+    mov     x1, #64
+    mov     x2, #1
+    sys     SYS_RECV
+    str     x0, [x20, #0x60]
+    mov     x0, x23                     /* (i) destination it has no authority for */
+    mov     x1, x22
+    mov     x2, #2
+    sys     SYS_SEND
+    str     x0, [x20, #0x68]
+    mov     x24, #0                     /* (j) fill its own mailbox: 4 accepted, then "full" */
+pr_fill:
+    mov     x0, x21
+    mov     x1, x22
+    mov     x2, #2
+    sys     SYS_SEND
+    add     x3, x20, x24, lsl #3
+    str     x0, [x3, #0x70]
+    add     x24, x24, #1
+    cmp     x24, #5
+    b.lt    pr_fill
+    add     x0, x20, #0x200             /* (k) capacity smaller than the queued message */
+    mov     x1, #1
+    mov     x2, #1
+    sys     SYS_RECV
+    str     x0, [x20, #0x98]
+    add     x0, x20, #0x200             /* (l) zero capacity */
+    mov     x1, #0
+    mov     x2, #1
+    sys     SYS_RECV
+    str     x0, [x20, #0xa0]
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
+/* role 63: send two messages to pid x1, THEN fault. The queued messages must survive the sender's fault. */
+role_send_fault:
+    mov     x19, x1
+    mov     x0, x19
+    adr     x1, msg_m
+    mov     x2, #2
+    sys     SYS_SEND
+    mov     x0, x19
+    adr     x1, msg_m + 2
+    mov     x2, #2
+    sys     SYS_SEND
+    ldr     x2, =0xDEAD0000
+    ldr     x3, [x2]
+    after_fault
+
+/* role 64: ONE blocking receive; exit code = message length. Slots: length [0x20], sender [0x50]. */
+role_recv_once:
+    ldr     x20, =DATA_VA
+    add     x0, x20, #0x200
+    mov     x1, #64
+    mov     x2, #0
+    sys     SYS_RECV
+    str     x0, [x20, #0x20]
+    str     x1, [x20, #0x50]
+    sys     SYS_EXIT
+    b       .
+
+/* role 65: send six messages to pid x1 as fast as possible: the first four fit, the rest report "full". */
+role_flood:
+    ldr     x20, =DATA_VA
+    mov     x19, x1
+    mov     x21, #0
+    adr     x22, msg_m
+fl_loop:
+    mov     x0, x19
+    mov     x1, x22
+    mov     x2, #2
+    sys     SYS_SEND
+    add     x3, x20, x21, lsl #3
+    str     x0, [x3, #0x20]
+    add     x21, x21, #1
+    cmp     x21, #6
+    b.lt    fl_loop
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
+/* role 68: send "ab" to pid x1 and "cd" to pid x1+1 */
+role_send_two:
+    ldr     x20, =DATA_VA
+    mov     x19, x1
+    mov     x0, x19
+    adr     x1, msg_ab
+    mov     x2, #2
+    sys     SYS_SEND
+    str     x0, [x20, #0x20]
+    add     x0, x19, #1
+    adr     x1, msg_cd
+    mov     x2, #2
+    sys     SYS_SEND
+    str     x0, [x20, #0x28]
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
 role_spin:                              /* never yields: only preemption or the watchdog can stop it */
     ldr     x20, =DATA_VA
 1:  ldr     x2, [x20]
@@ -377,6 +585,9 @@ role_exit7:
 msg_a:  .ascii "A"
 msg_b:  .ascii "B"
 msg_ok: .ascii "ok"
+msg_m:  .ascii "m1m2m3"
+msg_ab: .ascii "ab"
+msg_cd: .ascii "cd"
     .balign 8
     .ltorg
     .balign 16

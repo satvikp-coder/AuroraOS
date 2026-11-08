@@ -68,6 +68,7 @@ int proc_destroy(int pid)
     struct proc *p = proc_get(pid);
     if (!p) return -1;
     if (!proc_transition_ok(p->state, PROC_UNUSED)) return -2;     /* e.g. RUNNING: refuse */
+    ipc_cleanup(p);
     aspace_destroy(&p->as);
     kzero(p, sizeof *p);                                      /* state = UNUSED */
     return 0;
@@ -101,6 +102,34 @@ int copy_from_user(void *dst, uint64_t uva, size_t n)
         const volatile uint8_t *s = (const volatile uint8_t *)(uintptr_t)pa;
         for (size_t i = 0; i < chunk; i++) d[i] = s[i];
         d += chunk; uva += chunk; n -= chunk;
+    }
+    return AE_OK;
+}
+
+int user_writable(uint64_t uva, size_t n)
+{
+    if (!user_range_ok(uva, n)) return 0;
+    uint64_t pa;
+    for (uint64_t a = uva & ~(PAGE_SIZE - 1); n && a < uva + n; a += PAGE_SIZE)
+        if (vmm_hw_translate_el0(a < uva ? uva : a, 1, &pa) != 0) return 0;
+    return 1;
+}
+
+/* Mirror of copy_from_user for the other direction: AT S1E0W asks the hardware whether EL0 may WRITE each page. */
+int copy_to_user(uint64_t uva, const void *src, size_t n)
+{
+    if (n == 0) return AE_OK;
+    if (!src || !user_range_ok(uva, n)) return AE_EFAULT;
+    if (!user_writable(uva, n)) return AE_EFAULT;                  /* check everything first: no partial copy on failure */
+    const uint8_t *s = (const uint8_t *)src;
+    while (n) {
+        uint64_t pa;
+        if (vmm_hw_translate_el0(uva, 1, &pa) != 0) return AE_EFAULT;
+        size_t chunk = PAGE_SIZE - (size_t)(uva & (PAGE_SIZE - 1));
+        if (chunk > n) chunk = n;
+        volatile uint8_t *d = (volatile uint8_t *)(uintptr_t)pa;
+        for (size_t i = 0; i < chunk; i++) d[i] = s[i];
+        s += chunk; uva += chunk; n -= chunk;
     }
     return AE_OK;
 }
