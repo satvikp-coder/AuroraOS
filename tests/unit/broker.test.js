@@ -152,12 +152,6 @@ test("modifying or skipping a step after approval invalidates it", async () => {
 });
 
 // ---------------- review policy: permission != approval ----------------
-test("S0 and S1 single actions run directly when permitted", async () => {
-  const { broker, propose, state } = setup({});
-  assert.strictEqual((await broker.execute(propose(act("app.open", { app: "notes" })).id)).state, "COMPLETED");
-  assert.strictEqual((await broker.execute(propose(act("focus.set", { enabled: true })).id)).state, "COMPLETED");
-  assert.strictEqual(state.focus, true);
-});
 test("S2 file.move needs explicit review even with files.edit = allow", async () => {
   const { broker, propose, approve, state } = setup({});
   const p = propose(act("file.move", { id: "report", destination: "study" }));
@@ -439,6 +433,160 @@ test("Quick Commands reject unsupported, dangerous or out-of-range text and neve
     "start a 0 minute timer", "start a 9999 hour timer", "go to narnia", "format the disk && open notes", "open notes; open files",
     42, null, undefined, "x".repeat(300)].forEach((t) => assert.strictEqual(B.parseCommand(t).ok, false, String(t)));
   const r = B.parseCommand("Open Notes"); assert.deepStrictEqual(Object.keys(r.action).sort(), ["arguments", "type"]);
+});
+
+// ---------------- PR #18 review round 2: permission state ----------------
+test("S1 standalone requires review (conservative reading of DESIGN.md); S0 runs directly", async () => {
+  const { broker, propose, approve, state } = setup({});
+  const s0 = propose(act("app.open", { app: "notes" }));
+  assert.strictEqual(s0.preview.needsReview, false);
+  assert.strictEqual((await broker.execute(s0.id)).state, "COMPLETED");
+  const s1 = propose(act("focus.set", { enabled: true }));
+  assert.strictEqual(s1.preview.risk, "S1"); assert.strictEqual(s1.preview.needsReview, true);
+  assert.strictEqual((await broker.execute(s1.id)).reason, "approval-required");
+  assert.strictEqual(state.focus, false);
+  assert.ok(approve(s1.id).ok);
+  assert.strictEqual((await broker.execute(s1.id)).state, "COMPLETED"); assert.strictEqual(state.focus, true);
+  // in a plan, S1 is covered by plan-level approval (already tested), and a plan of only S0 still needs approval
+});
+
+test("invalid initial permission values fail closed (never become allow)", () => {
+  const bad = [undefined, null, "", "ALLOW", "Allow", "yes", "true", 1, true, {}, [], ["allow"], () => "allow", { toString: () => "allow" }];
+  bad.forEach((v) => {
+    const p = B.createPermissions({ "apps.open": v });
+    assert.strictEqual(p.get("apps.open"), "deny", String(v));
+  });
+  const p = B.createPermissions({ "a": "allow", "b": "ask", "c": "deny" });
+  assert.deepStrictEqual([p.get("a"), p.get("b"), p.get("c")], ["allow", "ask", "deny"]);
+  assert.strictEqual(B.createPermissions(null).get("a"), "deny");
+  assert.strictEqual(B.createPermissions("allow").get("a"), "deny");
+  assert.strictEqual(B.createPermissions([["a", "allow"]]).get("a"), "deny");
+});
+test("permission store ignores prototype names, getters, unknown ids and bad set() calls", () => {
+  const getter = {}; Object.defineProperty(getter, "apps.open", { enumerable: true, get() { return "allow"; } });
+  assert.strictEqual(B.createPermissions(getter).get("apps.open"), "deny"); // accessor values are never trusted
+  const p = B.createPermissions({ x: "allow" });
+  ["__proto__", "constructor", "toString", "hasOwnProperty", "valueOf", "", "nope", 5, null, undefined, {}].forEach((k) => assert.strictEqual(p.get(k), "deny", String(k)));
+  assert.strictEqual(p.set("__proto__", "allow"), true);  // a null-prototype store keeps it as plain data
+  assert.strictEqual(Object.getPrototypeOf(p.get), Function.prototype);
+  assert.strictEqual({}.allow, undefined); assert.strictEqual(Object.prototype.polluted, undefined);
+  [undefined, null, "ALLOW", 1, {}, "", "allowed"].forEach((v) => { assert.strictEqual(p.set("x", v), false); assert.strictEqual(p.get("x"), "allow"); });
+  assert.strictEqual(p.set("", "allow"), false); assert.strictEqual(p.set(5, "allow"), false); assert.strictEqual(p.set(null, "allow"), false);
+});
+test("a corrupted or throwing permission store can never authorize an adapter", async () => {
+  const garbage = [undefined, null, "ALLOW", "yes", 1, true, {}, [], "allow ", () => "allow"];
+  for (const g of garbage) {
+    const calls = [];
+    const broker = B.createBroker({ permissions: { get: () => g, set: () => true }, adapters: { "app.open": async () => { calls.push(1); return {}; } } });
+    const ui = broker.takeTrustedUI();
+    const p = broker.propose(act("app.open", { app: "notes" })).proposal;
+    assert.strictEqual(p.preview.steps[0].decision, "deny", String(g));
+    assert.strictEqual((await broker.execute(p.id)).state, "FAILED");
+    assert.strictEqual(ui.approve(p.id, { digest: p.digest }).ok, false);
+    assert.deepStrictEqual(calls, []);
+  }
+  const calls = [];
+  const thrower = B.createBroker({ permissions: { get() { throw new Error("corrupt"); } }, adapters: { "app.open": async () => { calls.push(1); return {}; } } });
+  const p = thrower.propose(act("app.open", { app: "notes" })).proposal;
+  assert.strictEqual((await thrower.execute(p.id)).steps[0].status, "denied");
+  assert.deepStrictEqual(calls, []);
+});
+test("a store that turns invalid after the proposal was created is treated as deny", async () => {
+  let mode = "allow";
+  const calls = [];
+  const permissions = { get: () => mode, set: () => true };
+  const adapters = { "app.open": async () => { calls.push(1); return {}; }, "space.switch": async () => { calls.push(2); return {}; } };
+  const broker = B.createBroker({ permissions, adapters });
+  const p = broker.propose(act("app.open", { app: "notes" })).proposal;
+  mode = undefined; // corrupted after preview
+  const r = await broker.execute(p.id);
+  assert.strictEqual(r.state, "FAILED"); assert.strictEqual(r.steps[0].status, "denied"); assert.deepStrictEqual(calls, []);
+  mode = "allow";
+  const ui = broker.takeTrustedUI();
+  const q = broker.propose({ steps: [act("app.open", { app: "notes" }), act("space.switch", { space: "study" })] }).proposal;
+  assert.ok(ui.approve(q.id, { digest: q.digest }).ok);
+  mode = "ALLOW"; // corrupted after approval
+  const r2 = await broker.execute(q.id);
+  assert.strictEqual(r2.steps[0].status, "denied"); assert.deepStrictEqual(calls, []);
+});
+
+test("allow -> ask between approval and execution voids the approval (no step runs)", async () => {
+  const { broker, permissions, propose, approve, calls, state } = setup({});
+  const p = propose(act("file.move", { id: "report", destination: "study" })); assert.ok(approve(p.id).ok);
+  permissions.set("files.edit", "ask");
+  const r = await broker.execute(p.id);
+  assert.deepStrictEqual([r.ok, r.reason, r.state], [false, "permission-changed", "EXPIRED"]);
+  assert.deepStrictEqual(calls, []); assert.strictEqual(state.files.report.space, "work");
+  assert.strictEqual(broker.getProposal(p.id).reason, "permission-changed");
+  // a fresh proposal under the new 'ask' policy can be approved and run
+  const q = propose(act("file.move", { id: "report", destination: "study" })); assert.ok(approve(q.id).ok);
+  assert.strictEqual((await broker.execute(q.id)).state, "COMPLETED");
+});
+test("allow -> deny after approval stops execution; ask -> deny stops; ask -> allow is fine", async () => {
+  const a = setup({}); const p = a.propose(act("file.move", { id: "report", destination: "study" })); a.approve(p.id);
+  a.permissions.set("files.edit", "deny");
+  const r = await a.broker.execute(p.id);
+  assert.strictEqual(r.state, "FAILED"); assert.strictEqual(r.steps[0].status, "denied"); assert.deepStrictEqual(a.calls, []);
+
+  const b = setup({ "files.edit": "ask" }); const q = b.propose(act("file.move", { id: "report", destination: "study" })); assert.ok(b.approve(q.id).ok);
+  b.permissions.set("files.edit", "deny");
+  assert.strictEqual((await b.broker.execute(q.id)).steps[0].status, "denied"); assert.deepStrictEqual(b.calls, []);
+
+  const c = setup({ "files.edit": "ask" }); const w = c.propose(act("file.move", { id: "report", destination: "study" })); assert.ok(c.approve(w.id).ok);
+  c.permissions.set("files.edit", "allow"); // less friction than what the user approved
+  assert.strictEqual((await c.broker.execute(w.id)).state, "COMPLETED");
+
+  const d = setup({ "files.edit": "ask" }); const x = d.propose(act("file.move", { id: "report", destination: "study" })); assert.ok(d.approve(x.id).ok);
+  assert.strictEqual((await d.broker.execute(x.id)).state, "COMPLETED"); // ask -> ask (unchanged) runs under the approval
+});
+test("permission changed between preview and approval: approval refused until re-previewed", async () => {
+  const { broker, ui, permissions, propose } = setup({});
+  const p = propose(act("file.move", { id: "report", destination: "study" }));
+  permissions.set("files.edit", "ask");
+  assert.strictEqual(ui.approve(p.id, { digest: p.digest }).reason, "permission-changed");
+  const fresh = ui.refreshPreview(p.id);
+  assert.ok(fresh.ok); assert.strictEqual(broker.getProposal(p.id).state, "SUPERSEDED");
+  assert.strictEqual(fresh.proposal.preview.steps[0].decision, "ask");
+  assert.ok(ui.approve(fresh.proposal.id, { digest: fresh.proposal.digest }).ok);
+  permissions.set("files.edit", "deny");
+  const q = propose(act("file.move", { id: "report", destination: "study" })); permissions.set("files.edit", "allow"); // deny at preview, allow at approval
+  assert.strictEqual(ui.approve(q.id, { digest: q.digest }).reason, "permission-changed"); // reviewed picture was stale
+});
+test("changes during a multi-step plan: deny stops later steps; allow->ask requires reapproval; completed steps keep receipts and undo", async () => {
+  // deny mid-plan, triggered from inside the first adapter (i.e. while an adapter is pending)
+  const gate = defer(); let flip;
+  const a = setup({}, { "space.switch": async () => { await gate.promise; return { undo() {} }; } });
+  const p = a.propose(studyPlan()); a.approve(p.id);
+  const running = a.broker.execute(p.id);
+  await new Promise((r) => setTimeout(r, 5));
+  a.permissions.set("settings.write", "deny");   // changes while step 0's adapter is pending
+  gate.resolve();
+  const r = await running;
+  assert.strictEqual(r.steps[0].status, "done");      // in-flight step cannot be recalled and keeps its receipt
+  assert.strictEqual(r.steps[1].status, "denied");    // the very next step is blocked
+  assert.strictEqual(r.state, "FAILED"); assert.strictEqual(a.state.focus, false); assert.strictEqual(a.state.timer, null);
+  assert.strictEqual(r.actualRollback, "full");
+  assert.strictEqual((await a.broker.undoProposal(p.id)).ok, true);
+
+  // allow -> ask mid-plan: stops at the changed step, earlier steps remain, undo works
+  const b = setup({}, { "space.switch": async () => { flip(); return { undo() {} }; } });
+  flip = () => b.permissions.set("apps.open", "ask");
+  const q = b.propose(studyPlan()); b.approve(q.id);
+  const r2 = await b.broker.execute(q.id);
+  assert.strictEqual(r2.state, "FAILED");
+  assert.deepStrictEqual(r2.steps.map((s) => s.status), ["done", "done", "needs-reapproval"]);
+  assert.strictEqual(b.state.openApp, null); assert.strictEqual(b.state.timer, null); assert.strictEqual(b.state.focus, true);
+  assert.strictEqual((await b.broker.undoProposal(q.id)).ok, true); assert.strictEqual(b.state.focus, false);
+});
+test("approvals are not retroactively revoked for steps that already completed", async () => {
+  const { broker, permissions, propose, approve, state } = setup({});
+  const p = propose(studyPlan()); approve(p.id);
+  const r = await broker.execute(p.id);
+  assert.strictEqual(r.state, "COMPLETED");
+  permissions.set("settings.write", "deny"); permissions.set("apps.open", "deny");
+  assert.strictEqual(broker.getProposal(p.id).state, "COMPLETED");
+  assert.strictEqual(state.focus, true);                     // nothing is silently reverted
+  assert.strictEqual((await broker.undoProposal(p.id)).ok, true); // undo remains the user's explicit choice
 });
 
 (async () => {

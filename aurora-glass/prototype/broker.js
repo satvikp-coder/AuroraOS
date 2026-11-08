@@ -15,6 +15,16 @@
  *    enforce approvals through a privileged OS service and a secure input path, never through
  *    strings or objects supplied by a model or an app.
  *
+ * PERMISSION SEMANTICS: decisions are exactly allow | ask | deny. Anything else (missing, malformed, a throwing
+ *  or corrupted store) is deny. Permissions are re-read before approval and before EVERY step. Approval records
+ *  the decision each step had; later changes: -> deny always stops; allow -> ask voids the approval (no step runs
+ *  if detected before start; the changed step and later ones do not run if detected mid-plan); ask -> allow is
+ *  accepted. Steps that already completed are never reverted automatically; their undo stays the user's choice.
+ *  A step already running in an adapter cannot be recalled, so a change applies from the next step.
+ * RISK POLICY: S0 single step may run directly; S1/S2/S3 and every plan need approval (DESIGN.md says S1 is a
+ *  "plan preview"; the blueprint says "preview if in a plan" - ambiguous for a standalone S1, so the
+ *  conservative reading applies).
+ *
  * LIFECYCLE: DRAFT -> VALIDATED -> PREVIEWED -> APPROVED -> RUNNING -> COMPLETED | FAILED | CANCELLED
  * (also EXPIRED / REJECTED / SUPERSEDED). Proposals are immutable; editing or skipping a step
  * creates a successor proposal with a new digest and invalidates the old one and its approval.
@@ -106,14 +116,24 @@
   }
   function deepFreezeAction(a) { Object.freeze(a.arguments); return Object.freeze(a); }
 
-  /** Permission store: 'allow' | 'deny' | 'ask'. Unknown permissions default to 'deny'. */
+  const DECISIONS = ["allow", "deny", "ask"];
+  /** Fail closed: anything that is not exactly 'allow' or 'ask' is 'deny'. */
+  function normalizeDecision(v) { return v === "allow" || v === "ask" ? v : "deny"; }
+
+  /** Permission store: 'allow' | 'deny' | 'ask'. Missing, unknown or corrupted entries are 'deny'. */
   function createPermissions(initial) {
     const d = Object.create(null);
-    Object.keys(initial || {}).forEach((k) => { d[k] = initial[k]; });
+    if (initial !== null && typeof initial === "object") {
+      Object.keys(initial).forEach((k) => {
+        const desc = Object.getOwnPropertyDescriptor(initial, k);
+        const v = desc && has(desc, "value") ? desc.value : undefined; // never run getters from caller data
+        if (k.length > 0) d[k] = DECISIONS.includes(v) ? v : "deny";    // invalid initial value => deny, not 'allow'
+      });
+    }
     return {
-      get(p) { return typeof p === "string" && p in d ? d[p] : "deny"; },
+      get(p) { return typeof p === "string" && p in d ? normalizeDecision(d[p]) : "deny"; },
       set(p, v) {
-        if (typeof p !== "string" || !["allow", "deny", "ask"].includes(v)) return false;
+        if (typeof p !== "string" || p.length === 0 || !DECISIONS.includes(v)) return false;
         d[p] = v; return true;
       },
     };
@@ -135,6 +155,11 @@
     let busyWith = null; // one active run/undo at a time; always cleared in finally
     let trustedTaken = false;
 
+    // Every permission read goes through here: a throwing or malformed store means 'deny'.
+    function decide(permission) {
+      try { return normalizeDecision(permissions.get(permission)); } catch (e) { return "deny"; }
+    }
+
     // ---------------- helpers ----------------
     function setState(p, state, reason) {
       p.state = state; p.history.push(state);
@@ -149,11 +174,13 @@
 
     function previewStep(action) {
       const def = ACTIONS[action.type];
-      const decision = permissions.get(def.permission);
+      const decision = decide(def.permission);
       const supported = !!adapters[action.type];
+      // DESIGN.md: "S1 reversible settings: plan preview"; blueprint: "Preview if in a plan". The wording is
+      // ambiguous for a standalone S1 change, so the conservative reading applies: S1 also needs review.
       return {
         type: action.type, risk: def.risk, permission: def.permission, decision, supported,
-        needsConfirmation: def.risk === "S3", needsReview: def.risk === "S2" || def.risk === "S3" || decision === "ask",
+        needsConfirmation: def.risk === "S3", needsReview: def.risk !== "S0" || decision === "ask",
         undoExpected: def.reversible && supported, // contract expectation only; not a guarantee
       };
     }
@@ -177,7 +204,9 @@
         id: "p" + (++counter) + "-" + nextNonce(), single, steps: steps.map(deepFreezeAction), skips: (skips || []).slice().sort(),
         state: "DRAFT", history: ["DRAFT"], createdAt: clock(), previewExpiresAt: clock() + previewTtlMs,
         approvalExpiresAt: null, reason: null, confirmedS3: null, cancelRequested: false, result: null,
+        previewDecisions: null, approvedDecisions: null,
       };
+      p.previewDecisions = steps.map((s) => decide(ACTIONS[s.type].permission));
       Object.freeze(p.steps);
       p.digest = digestOf(p);
       setState(p, "VALIDATED"); setState(p, "PREVIEWED");
@@ -255,8 +284,12 @@
     async function runStep(p, index, step) {
       const def = ACTIONS[step.type];
       const meta = { proposalId: p.id, stepIndex: index };
-      // Permissions are re-checked at execution time, so revocation after preview/approval is honored.
-      if (permissions.get(def.permission) === "deny") return addReceipt(step, "denied", Object.assign({ error: "permission-denied:" + def.permission }, meta));
+      // Permissions are re-checked before EVERY step. A change that only reduces friction (ask -> allow) is
+      // fine; deny always stops; allow -> ask means the user's approval no longer covers this step.
+      const now = decide(def.permission);
+      if (now === "deny") return addReceipt(step, "denied", Object.assign({ error: "permission-denied:" + def.permission }, meta));
+      if (now === "ask" && p.approvedDecisions && p.approvedDecisions[index] !== "ask")
+        return addReceipt(step, "needs-reapproval", Object.assign({ error: "permission-changed:" + def.permission }, meta));
       const adapter = adapters[step.type];
       if (!adapter) return addReceipt(step, "unsupported", Object.assign({ error: "no-adapter" }, meta));
       try {
@@ -287,6 +320,15 @@
         if (p.state !== "APPROVED") return { ok: false, reason: p.state === "EXPIRED" ? p.reason : "approval-required", state: p.state };
       } else if (p.state !== "PREVIEWED" && p.state !== "APPROVED") {
         return { ok: false, reason: p.state === "EXPIRED" ? p.reason : "wrong-state", state: p.state };
+      }
+      // Preflight: if a permission now needs MORE interaction than the user approved, the approval is void.
+      if (p.approvedDecisions) {
+        for (const { s, i } of stepList(p)) {
+          if (decide(ACTIONS[s.type].permission) === "ask" && p.approvedDecisions[i] !== "ask") {
+            setState(p, "EXPIRED", "permission-changed");
+            return { ok: false, reason: "permission-changed", state: p.state };
+          }
+        }
       }
       // Claim synchronously (before any await): the approval is single-use and only one run may be active.
       busyWith = p.id; setState(p, "RUNNING");
@@ -370,14 +412,17 @@
           if (!a || typeof a.digest !== "string" || a.digest !== p.digest) return { ok: false, reason: "digest-mismatch" };
           const live = stepList(p);
           if (live.length === 0) return { ok: false, reason: "nothing-to-run" };
-          for (const { s } of live) {
-            if (permissions.get(ACTIONS[s.type].permission) === "deny") return { ok: false, reason: "permission-denied" };
+          for (const { s, i } of live) {
+            const d = decide(ACTIONS[s.type].permission);
+            if (d === "deny") return { ok: false, reason: "permission-denied" };
+            if (d !== p.previewDecisions[i]) return { ok: false, reason: "permission-changed" }; // user reviewed a stale picture
             if (!adapters[s.type]) return { ok: false, reason: "unsupported-step" };
           }
           const need = buildPreview(p).s3Indices.slice().sort((x, y) => x - y);
           const given = Array.isArray(a.confirmS3) ? a.confirmS3.slice().sort((x, y) => x - y) : [];
           if (JSON.stringify(need) !== JSON.stringify(given)) return { ok: false, reason: "s3-confirmation-required", required: need };
           p.confirmedS3 = need; p.approvalExpiresAt = clock() + approvalTtlMs;
+          p.approvedDecisions = p.steps.map((s) => decide(ACTIONS[s.type].permission));
           setState(p, "APPROVED");
           return { ok: true, expiresAt: p.approvalExpiresAt };
         },
@@ -398,6 +443,15 @@
           const r = newProposal(i.steps, false, p.skips);
           if (!r.ok) return r;
           setState(p, "SUPERSEDED", "edited");
+          return { ok: true, proposal: publicView(r.p) };
+        },
+        /** Re-preview with current permissions (needed after a permission change); old proposal is superseded. */
+        refreshPreview(id) {
+          const p = proposals.get(id);
+          if (!p || p.state === "RUNNING" || TERMINAL.includes(p.state)) return { ok: false, error: "not-refreshable" };
+          const r = newProposal(p.steps.map((s) => ({ type: s.type, arguments: Object.assign({}, s.arguments) })), p.single, p.skips);
+          if (!r.ok) return r;
+          setState(p, "SUPERSEDED", "refreshed");
           return { ok: true, proposal: publicView(r.p) };
         },
         skipStep(id, index, skipped) {
