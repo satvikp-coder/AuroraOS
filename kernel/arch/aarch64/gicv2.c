@@ -37,7 +37,8 @@ static uint32_t gicv2_ack(void);
 static void gic_eoi(uint32_t raw);
 static void gic_enable(uint32_t id);
 static void gic_disable(uint32_t id);
-static struct irq_controller_ops ops = { gicv2_ack, gic_eoi, gic_enable, gic_disable, 0 };
+static void gic_clear_pending(uint32_t id);
+static struct irq_controller_ops ops = { gicv2_ack, gic_eoi, gic_enable, gic_disable, gic_clear_pending, 0 };
 
 static inline uint32_t rd(volatile uint8_t *b, uint32_t off) { return *(volatile uint32_t *)(b + off); }
 static inline void wr(volatile uint8_t *b, uint32_t off, uint32_t v) { *(volatile uint32_t *)(b + off) = v; }
@@ -92,6 +93,13 @@ static void gic_disable(uint32_t id)
 {
     if (id >= nlines) return;
     wr(gicd, GICD_ICENABLER + 4 * (id / 32), 1u << (id % 32));
+    __asm__ volatile ("dsb sy" ::: "memory");
+}
+
+static void gic_clear_pending(uint32_t id)
+{
+    if (id >= nlines) return;
+    wr(gicd, GICD_ICPENDR + 4 * (id / 32), 1u << (id % 32));
     __asm__ volatile ("dsb sy" ::: "memory");
 }
 

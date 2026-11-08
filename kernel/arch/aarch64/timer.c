@@ -54,27 +54,67 @@ int timer_init(const struct fdt_platform *p)
     return TIMER_OK;
 }
 
-int timer_start_periodic(uint32_t hz)
+/*
+ * Reprogramming protocol (single CPU). The tick handler also writes period/deadline/periodic and CNTP_*, so
+ * every state change runs inside irq_save()/irq_restore(): the handler cannot observe a half-updated state.
+ * Inside the critical section the hardware is stopped FIRST (CTL=0 deasserts the level-sensitive line), any
+ * interrupt that was already pending for the OLD configuration is cleared at the GIC, then CVAL is written and
+ * the timer is enabled last. Validation happens before the critical section changes anything, so an invalid
+ * request leaves the previous timer running. The caller's mask state is restored exactly.
+ * SMP would additionally need: one timer state per CPU (CNTP_* are per-CPU registers) or a lock around shared
+ * state, and a cross-CPU protocol if one CPU may reprogram another's timer.
+ */
+static int min_period_ok(uint64_t p) { uint64_t min = freq / TIMER_MIN_PERIOD_HZ; return p >= (min ? min : 1); }
+
+static void (*crit_probe)(void);
+void timer_set_critical_probe(void (*fn)(void)) { crit_probe = fn; }
+
+static void arm_locked(uint64_t first_delta)
 {
-    if (hz == 0 || freq / hz == 0) return TIMER_ERR_ARG;
-    period = freq / hz; periodic = 1; hist_n = 0;
-    deadline = timer_count() + period;
+    if (crit_probe) crit_probe();                             /* test hook: observes the CPU state inside the critical section */
+    write_ctl(0);                                             /* stop and deassert the old condition */
+    irq_clear_pending(intid);                                 /* an interrupt raised for the old deadline must not fire */
+    deadline = timer_count() + first_delta;
     write_cval(deadline);
     write_ctl(CTL_ENABLE);
+}
+
+int timer_start_periodic(uint32_t hz)
+{
+    if (freq == 0) return TIMER_ERR_NO_FREQ;
+    if (hz == 0) return TIMER_ERR_ARG;
+    uint64_t p = freq / hz;
+    if (p == 0 || !min_period_ok(p) || p > TIMER_MAX_INTERVAL) return TIMER_ERR_ARG;
+    uint64_t fl = irq_save();
+    period = p; periodic = 1; hist_n = 0;
+    arm_locked(p);
+    irq_restore(fl);
     return TIMER_OK;
 }
 
 int timer_oneshot(uint64_t delta)
 {
-    if (delta == 0) return TIMER_ERR_ARG;
+    if (freq == 0) return TIMER_ERR_NO_FREQ;
+    if (delta == 0 || delta > TIMER_MAX_INTERVAL) return TIMER_ERR_ARG;
+    uint64_t fl = irq_save();
     periodic = 0; period = delta; hist_n = 0;
-    deadline = timer_count() + delta;
-    write_cval(deadline);
-    write_ctl(CTL_ENABLE);
+    arm_locked(delta);
+    irq_restore(fl);
     return TIMER_OK;
 }
 
-void timer_stop(void) { write_ctl(0); }
+void timer_stop(void)
+{
+    uint64_t fl = irq_save();
+    if (crit_probe) crit_probe();
+    write_ctl(0);
+    irq_clear_pending(intid);
+    irq_restore(fl);
+}
+
+int timer_enabled(void) { return (read_ctl() & CTL_ENABLE) != 0; }
+int timer_is_periodic(void) { return periodic; }
+
 uint64_t timer_ticks(void) { return *(volatile uint64_t *)&ticks; }
 uint64_t timer_missed(void) { return missed; }
 uint64_t timer_period(void) { return period; }

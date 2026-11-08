@@ -37,6 +37,27 @@ static void observe(void)
     h_calls++;
 }
 
+static uint64_t read_spsel(void) { uint64_t v; __asm__ volatile ("mrs %0, spsel" : "=r"(v)); return v; }
+/* Reads SP_EL1 by briefly selecting it. IRQs MUST be masked by the caller: an interrupt taken meanwhile would be
+ * an exception from EL1h, which is (deliberately) unsupported. */
+static uint64_t read_sp_el1(void)
+{
+    uint64_t v;
+    __asm__ volatile ("msr spsel, #1\n mov %0, sp\n msr spsel, #0\n isb" : "=r"(v) :: "memory");
+    return v;
+}
+
+/* Tick hook used by the reprogramming test: the first call replaces the periodic timer by a one-shot. */
+static volatile int hook_rc, hook_mask_after, hook_armed;
+static void reprogram_in_handler(void)
+{
+    observe();
+    if (hook_armed) { hook_armed = 0; hook_rc = timer_oneshot(timer_freq() / 500); hook_mask_after = !irq_cpu_enabled(); }
+}
+
+static volatile uint32_t probe_calls, probe_unmasked;
+static void critical_probe(void) { probe_calls++; if (irq_cpu_enabled()) probe_unmasked++; }
+
 static void spin_counter(uint64_t ticks) { uint64_t end = timer_count() + ticks; while (!timer_reached(timer_count(), end)) { } }
 
 /* Wait with IRQs enabled until `cond` returns true or 2 s of counter time pass. */
@@ -182,6 +203,169 @@ void irqtest_run(const struct fdt_platform *plat)
     check("irq: normal delivery still works after spurious interrupts", sgi_hits == hits0 + 1);
     irq_cpu_disable();
     check("irq: a handler can be unregistered", irq_unregister(0) == IRQ_OK && irq_unregister(5000) == IRQ_ERR_RANGE);
+
+    /* ---- boot stack initialisation and exception round trip ---- */
+    {
+        uint64_t fl = irq_save();                                /* SPSel is toggled below: no IRQ may arrive meanwhile */
+        uint64_t sp1 = read_sp_el1();
+        irq_restore(fl);
+        uint64_t sp0; __asm__ volatile ("mov %0, sp" : "=r"(sp0));
+        check("boot stacks: SP_EL1 is the top of the exception stack, SP_EL0 lies inside the kernel stack, both 16-byte aligned, SPSel=0",
+              sp1 == (uint64_t)(uintptr_t)__exc_stack_top && !(sp1 & 15) && !(sp0 & 15) &&
+              sp0 >= (uint64_t)(uintptr_t)__stack_bottom && sp0 <= (uint64_t)(uintptr_t)__stack_top && read_spsel() == 0);
+#if defined(AURORA_TEST_ENTRY) && AURORA_TEST_ENTRY == 1
+        int entry_ok = boot_entry_el == 1 && boot_entry_spsel == 0;     /* direct EL1 entry with SPSel=0 and junk SP_EL0/SP_EL1 */
+#elif defined(AURORA_TEST_ENTRY) && AURORA_TEST_ENTRY == 2
+        int entry_ok = boot_entry_el == 2 && boot_entry_spsel == 0;     /* EL2 entry, ERET to EL1t */
+#else
+        int entry_ok = boot_entry_el == 1 || boot_entry_el == 2;        /* default QEMU entry; the actual values are printed as [info] */
+#endif
+        check("boot entry: the CPU was entered as this build declares (controlled variants arrive with SPSel=0)", entry_ok);
+        uint64_t m = exc_roundtrip_test();
+        if (m) { console_puts("[info] round-trip mismatch mask "); console_hex(m); console_puts("\n"); }
+        check("exceptions: a synchronous exception from kernel code preserves x1-x28, restores registers FROM the saved frame, and keeps SP_EL0/SPSel",
+              m == 0);
+    }
+
+    /* ---- timer reprogramming ---- */
+    {
+        uint64_t base;
+        /* The caller's IRQ mask state is preserved by every timer call, valid or not. */
+        irq_cpu_disable();
+        int m1 = timer_start_periodic(500) == TIMER_OK && !irq_cpu_enabled();
+        m1 &= timer_oneshot(f / 100) == TIMER_OK && !irq_cpu_enabled();
+        m1 &= timer_start_periodic(0) == TIMER_ERR_ARG && !irq_cpu_enabled();
+        timer_stop(); m1 &= !irq_cpu_enabled();
+        irq_cpu_enable();
+        int m2 = timer_start_periodic(500) == TIMER_OK && irq_cpu_enabled();
+        m2 &= timer_oneshot(f / 100) == TIMER_OK && irq_cpu_enabled();
+        m2 &= timer_oneshot(0) == TIMER_ERR_ARG && irq_cpu_enabled();
+        timer_stop(); m2 &= irq_cpu_enabled();
+        irq_cpu_disable();
+        check("reprogramming: start/oneshot/stop/invalid calls preserve the caller's IRQ mask (masked stays masked, enabled stays enabled)", m1 && m2);
+
+        /* The hardware is reprogrammed ONLY with IRQs masked, even when the caller had them enabled. */
+        timer_set_critical_probe(critical_probe);
+        irq_cpu_enable(); probe_calls = probe_unmasked = 0;
+        int pr = timer_start_periodic(500) == TIMER_OK && timer_oneshot(f / 100) == TIMER_OK; timer_stop();
+        pr &= irq_cpu_enabled() && probe_calls == 3 && probe_unmasked == 0;
+        timer_set_critical_probe(0); irq_cpu_disable();
+        check("reprogramming: start, one-shot and stop each run their register updates inside an IRQ-masked critical section (probe sees IRQs masked, caller restored)", pr);
+
+        /* From inside the tick handler (IRQs masked by hardware): replacing the timer keeps them masked. */
+        hook_rc = -99; hook_mask_after = 0; hook_armed = 1;
+        timer_set_tick_hook(reprogram_in_handler);
+        irq_cpu_disable();
+        base = timer_ticks();
+        timer_start_periodic(1000);
+        irq_cpu_enable();
+        int got = wait_ticks_at_least(base + 2);                 /* tick 1 reprograms to a one-shot, tick 2 is that one-shot */
+        irq_cpu_disable(); timer_set_tick_hook(observe);
+        uint64_t after = timer_ticks();
+        irq_cpu_enable(); spin_counter(f / 50); irq_cpu_disable();
+        check("reprogramming: replacing a periodic timer by a one-shot from inside its own tick handler works, IRQs stay masked there, and only the one-shot fires",
+              got && hook_rc == TIMER_OK && hook_mask_after && !timer_is_periodic() && timer_ticks() == after && !timer_enabled());
+
+        /* periodic -> periodic while running */
+        irq_cpu_enable();
+        base = timer_ticks();
+        timer_start_periodic(250);
+        int r2 = wait_ticks_at_least(base + 2);
+        uint64_t b2 = timer_ticks();
+        timer_start_periodic(1000);
+        r2 &= timer_period() == f / 1000 && timer_is_periodic() && wait_ticks_at_least(b2 + 5) && history_sane();
+        timer_stop();
+        check("reprogramming: a running periodic timer is replaced by a faster one; ticks continue at the new period, history restarted", r2);
+
+        /* periodic -> one-shot */
+        timer_start_periodic(1000); wait_ticks_at_least(timer_ticks() + 2);
+        irq_cpu_disable(); uint64_t t3 = timer_ticks(); timer_oneshot(f / 200); irq_cpu_enable();
+        int r3 = wait_ticks_at_least(t3 + 1);
+        spin_counter(f / 50);
+        check("reprogramming: periodic replaced by one-shot fires exactly once more and then stays silent", r3 && timer_ticks() == t3 + 1 && !timer_enabled() && !timer_is_periodic());
+
+        /* one-shot -> periodic: the old (long) deadline must be discarded */
+        irq_cpu_disable();
+        timer_oneshot(f / 10);                                    /* 100 ms */
+        timer_start_periodic(1000);
+        uint64_t d0 = timer_current_deadline(); base = timer_ticks();
+        irq_cpu_enable();
+        int r4 = wait_ticks_at_least(base + 5);
+        uint32_t hn; const struct timer_tick_record *hh = timer_history(&hn);
+        timer_stop();
+        check("reprogramming: one-shot replaced by periodic discards the old deadline (first tick is at the NEW deadline) and ticks continue", r4 && hn >= 2 && hh[0].deadline == d0 && history_sane());
+
+        /* stop an active timer, with a stale pending condition */
+        irq_cpu_disable();
+        base = timer_ticks();
+        timer_start_periodic(1000);
+        spin_counter(f / 300);                                    /* 3 ms masked: the compare condition is met and pending */
+        int was_pending = gicv2_is_pending(timer_intid()) && timer_ctl_istatus();
+        timer_stop();
+        int cleared = !gicv2_is_pending(timer_intid()) && !timer_ctl_istatus() && !timer_enabled();
+        irq_cpu_enable(); spin_counter(f / 300); irq_cpu_disable();
+        check("reprogramming: stopping an active timer clears the stale pending interrupt; nothing fires after unmasking", was_pending && cleared && timer_ticks() == base);
+
+        /* repeated stop/start cycles with IRQs enabled */
+        irq_cpu_enable();
+        int cyc = 1;
+        for (int i = 0; i < 100; i++) {
+            cyc &= timer_start_periodic((i & 1) ? 1000 : 2000) == TIMER_OK;
+            spin_counter(f / 20000);
+            if (i % 3 == 0) cyc &= timer_oneshot(f / 5000) == TIMER_OK;
+            timer_stop();
+            cyc &= !timer_enabled() && irq_cpu_enabled();
+        }
+        base = timer_ticks();
+        cyc &= timer_start_periodic(1000) == TIMER_OK && wait_ticks_at_least(base + 5);
+        timer_stop();
+        check("reprogramming: 100 rapid start/one-shot/stop cycles leave a coherent timer that still delivers real interrupts", cyc);
+
+        /* reconfiguring right at an active deadline: the old deadline's interrupt must not leak through */
+        irq_cpu_disable();
+        timer_start_periodic(1000);
+        { uint64_t dl = timer_current_deadline(); while (!timer_reached(timer_count(), dl)) { } }
+        /* QEMU raises the emulated GIC line from a timer callback some time AFTER the counter passes CVAL (host
+         * scheduling dependent), so wait, bounded, until the precondition is actually observable. */
+        { uint64_t lim = timer_count() + f / 20; while (!(timer_ctl_istatus() && gicv2_is_pending(timer_intid())) && !timer_reached(timer_count(), lim)) { } }
+        int due = timer_ctl_istatus() && gicv2_is_pending(timer_intid());      /* the old deadline has passed: interrupt pending */
+        base = timer_ticks();
+        timer_oneshot(f / 50);                                    /* 20 ms away */
+        int dropped = !gicv2_is_pending(timer_intid()) && !timer_ctl_istatus();
+        irq_cpu_enable(); spin_counter(f / 200);                  /* 5 ms: the old deadline would have fired immediately */
+        int quiet = timer_ticks() == base;
+        int fired = wait_ticks_at_least(base + 1);
+        spin_counter(f / 100);
+        if (!(due && dropped && quiet && fired && timer_ticks() == base + 1)) {
+            console_puts("[info] deadline-replace flags: due="); console_dec((uint64_t)due); console_puts(" dropped="); console_dec((uint64_t)dropped);
+            console_puts(" quiet="); console_dec((uint64_t)quiet); console_puts(" fired="); console_dec((uint64_t)fired);
+            console_puts(" ticks-base="); console_dec(timer_ticks() - base); console_puts("\n");
+        }
+        check("reprogramming: a timer replaced exactly at its deadline does not leak a stale tick; the new one-shot fires once at its own time",
+              due && dropped && quiet && fired && timer_ticks() == base + 1);
+        irq_cpu_disable();
+
+        /* invalid requests keep the previous timer exactly as it was */
+        timer_start_periodic(1000);
+        uint64_t sp_period = timer_period(), sp_deadline = timer_current_deadline();
+        int sp_per = timer_is_periodic(), sp_en = timer_enabled();
+        int inv = timer_start_periodic(0) == TIMER_ERR_ARG && timer_oneshot(0) == TIMER_ERR_ARG &&
+                  timer_oneshot(TIMER_MAX_INTERVAL + 1) == TIMER_ERR_ARG && timer_oneshot(~0ULL) == TIMER_ERR_ARG &&
+                  timer_start_periodic(0xFFFFFFFFu) == TIMER_ERR_ARG && timer_start_periodic(200000) == TIMER_ERR_ARG;   /* 5 us < 10 us minimum */
+        inv &= timer_period() == sp_period && timer_current_deadline() == sp_deadline && timer_is_periodic() == sp_per && timer_enabled() == sp_en && sp_en;
+        base = timer_ticks();
+        irq_cpu_enable();
+        inv &= wait_ticks_at_least(base + 3);
+        timer_stop(); irq_cpu_disable();
+        check("invalid and excessive intervals are refused and the running timer is left untouched (and still ticks)", inv);
+
+        /* interval bounds that are acceptable */
+        int lim = timer_oneshot(TIMER_MAX_INTERVAL) == TIMER_OK && timer_start_periodic(TIMER_MIN_PERIOD_HZ) == TIMER_OK;
+        timer_stop();
+        lim &= !timer_enabled() && !irq_cpu_enabled();
+        check("interval limits: the maximum one-shot and the fastest allowed period (100 kHz) are accepted, set up with IRQs masked, never taken", lim);
+        timer_stop();
+    }
 
     /* ---- memory protections still intact ---- */
     check("memory: MMU still on, text/rodata still read-only, serial output works",

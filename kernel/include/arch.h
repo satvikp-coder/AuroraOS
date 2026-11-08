@@ -13,7 +13,9 @@ struct exc_frame {
 
 extern char exception_vectors[];
 void exception_handler(struct exc_frame *f);
-void exceptions_init(void);          /* installs VBAR_EL1 */
+void exceptions_init(void);
+uint64_t exc_roundtrip_test(void);   /* exc_selftest.S: 0 when an exception round trip preserved everything */
+extern uint64_t boot_entry_el, boot_entry_spsel;   /* how start.S was entered (recorded for diagnostics) */          /* installs VBAR_EL1 */
 
 static inline uint64_t read_sctlr_el1(void) { uint64_t v; __asm__ volatile ("mrs %0, sctlr_el1" : "=r"(v)); return v; }
 static inline uint64_t read_current_el(void) { uint64_t v; __asm__ volatile ("mrs %0, CurrentEL" : "=r"(v)); return v >> 2; }

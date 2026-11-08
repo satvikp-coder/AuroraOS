@@ -34,6 +34,11 @@ int irq_enable_line(uint32_t intid)
     return IRQ_OK;
 }
 
+void irq_clear_pending(uint32_t intid)
+{
+    if (valid_id(intid) && ctl->clear_pending) ctl->clear_pending(intid);
+}
+
 void irq_dispatch_raw(uint32_t raw)
 {
     uint32_t id = raw & 0x3FF;

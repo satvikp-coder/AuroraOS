@@ -42,6 +42,7 @@ vectors.S  --kind 1 (IRQ from kernel code on SP_EL0)-->  exceptions.c  -->  irq.
 | Kernel stack overflow | diagnostics from the exception stack, "STACK OVERFLOW detected", FAR in the guard page | irq-tests fault 6 (real recursion) |
 | Exception while already on the exception stack (kinds 4-7), e.g. a fault in a handler | reported as **NESTED**, panic | irq-tests fault 7 (fault inside the timer handler) |
 | Misaligned/out-of-range frame | reported, panic | (guarded in code; no test can provoke it without corrupting SP_EL1) |
+| SVC #0x7e57 from kernel code | self-test hook: handler edits the saved frame and returns | irq-tests: register round trip |
 | FIQ, SError, EL0, AArch32 | panic (none expected yet) | by construction |
 
 ## Limits (honest)
@@ -52,3 +53,75 @@ vectors.S  --kind 1 (IRQ from kernel code on SP_EL0)-->  exceptions.c  -->  irq.
 * An overflow of the *exception* stack itself is detected only if the overflowing access faults in a way the (already corrupted) handler can still print; it cannot be made fully reliable without a third stack.
 * `timer_oneshot`/`timer_start_periodic` use the physical timer only; the virtual timer ID is parsed but unused.
 * Tests assert ordering properties (never early, exactly one delivery, masked means pending) and use 2 s of *counter* time only as an upper bound for "it happened at all". They do not assert wall-clock accuracy.
+
+## Hardening round (independent review of the first PR head)
+
+### Stack initialisation no longer assumes how the CPU was entered
+
+`start.S` used `mov sp, x0` to set the exception stack, which writes *whichever* stack pointer `SPSel` selects. That
+was only correct because QEMU enters with `SPSel=1`. Entered with `SPSel=0`, `SP_EL0` would have been set to the
+exception stack and `SP_EL1` left at an UNKNOWN value: the first exception would run on garbage. Now (Arm ARM D1.6,
+"Exception entry": the target EL's stack pointer is selected on entry; `SPSel` chooses `SP_EL0`/`SP_ELx` for code
+running at ELx):
+
+```
+msr spsel, #1 ; mov sp, <exception stack top>   ; "sp" is SP_EL1, explicitly
+msr sp_el0, <kernel stack top>                    ; SP_EL0 by name
+msr spsel, #0 ; isb                               ; kernel runs on SP_EL0
+```
+Both tops are 16-byte aligned by `linker.ld`; both guard pages stay unmapped (tested). The entry EL and `SPSel` are
+recorded (`[info] boot entry: ...`) so tests assert what QEMU **actually** did.
+
+What each test really exercised in QEMU:
+
+| Entry | How | Observed |
+|---|---|---|
+| default, EL1 | plain `-kernel` | `EL1, SPSel=1` |
+| default, EL2 | `virtualization=on`, `ERET` to EL1h | `EL2, SPSel=1` |
+| **controlled** `AURORA_TEST_ENTRY=spsel0` | build-time test shim: at EL1 entry select `SPSel=0` and put junk in both stack pointers | `EL1, SPSel=0`; full suite passes |
+| **controlled** `AURORA_TEST_ENTRY=el1t` | build-time test shim: `SPSR_EL2` = EL1t | `EL2, SPSel=0`; full suite passes |
+
+Negative control (not committed): with the old assume-`SPSel=1` code, the default entry still passes everything, but
+the `spsel0` variant produces no kernel output at all. So the default tests alone could never have caught this.
+Entry states the emulator did not exercise (e.g. EL3, firmware-specific stack states) are **not** claimed.
+
+Exception entry preserving interrupted state is tested by `exc_selftest.S`: it loads a distinct pattern into x1-x28
+(x19/x29/x30 are used by the test), takes a real `SVC` from kernel code, lets the handler rewrite x0 and x27 **in the
+saved frame**, and checks every register on return, that x0/x27 carry the handler's values (so registers are restored
+*from the frame*), and that `SP_EL0` and `SPSel` are unchanged.
+
+### Timer reprogramming is safe against its own interrupt
+
+`period`, `deadline`, `periodic` and `CNTP_*` are shared with the tick handler. Every `timer_start_periodic`,
+`timer_oneshot` and `timer_stop` now runs inside `irq_save()`/`irq_restore()`:
+
+1. validate the request (an invalid request returns `TIMER_ERR_ARG` and changes nothing; a running timer keeps running);
+2. `irq_save()` masks IRQs and remembers the caller's mask state;
+3. `CNTP_CTL=0` (stops the timer and deasserts the level-sensitive line), clear any pending interrupt for the OLD
+   deadline at the GIC, write the new deadline, enable last;
+4. `irq_restore()` unmasks **only if the caller had IRQs enabled**. Called with IRQs masked, or from inside the tick
+   handler itself, they stay masked.
+
+Intervals: a one-shot must be 1..2^62 ticks; a periodic rate must give a period of at least 10 microseconds
+(`TIMER_MIN_PERIOD_HZ`, to stop an interrupt storm) and at most 2^62 ticks. Deadlines are compared with signed 64-bit
+differences, which is only valid below 2^63 ticks, so 2^62 leaves a full 2^62 of margin.
+
+Tests (real interrupts): mask state preserved by every call; a probe proving the register updates run with IRQs
+masked (removing the critical sections fails 8 tests); replacing periodic by one-shot **from inside the tick handler**;
+periodic to faster periodic; periodic to one-shot (fires exactly once more); one-shot to periodic (the old long
+deadline is discarded: the first tick is at the new deadline); stop with a stale pending condition; 100 rapid
+start/one-shot/stop cycles; replacing a timer exactly after its deadline passed (no stale tick leaks); invalid and
+excessive intervals leave a running timer untouched; the limit values are accepted.
+
+Honest note from mutation testing: on QEMU's GICv2 model, writing `CNTP_CTL=0` already deasserts the level line, so
+the explicit `irq_clear_pending()` is **defence in depth** that these tests cannot distinguish from its absence. It is
+kept because real GICs may latch a pending state, but no test proves it is necessary.
+
+### Single-CPU assumptions, and what SMP will need
+
+* `irq_save()` protects only against the handler on **this** CPU. It is not a lock.
+* `CNTP_*` registers are per-CPU, so the timer state (`period`, `deadline`, `periodic`, history) must become **per-CPU**
+  (or be protected by a spinlock taken with IRQs masked) before a second CPU is started.
+* If one CPU may ever reprogram another's timer, that needs an IPI-based protocol; the current API does not allow it.
+* `timer_history()` returns a pointer into live state; callers must read it with IRQs masked or with the timer stopped.
+* The GIC distributor writes (`ISENABLER`, `ICPENDR`) would need serialisation between CPUs, and `ITARGETSR` routing.

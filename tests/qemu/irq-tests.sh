@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_IRQ_TESTS=29   # keep in sync with kernel/irqtest.c
+EXPECTED_IRQ_TESTS=43   # keep in sync with kernel/irqtest.c
 EXPECTED_MM_TESTS=93    # memory self-tests must still all run and pass
 
 OUT="$ROOT/build/irq-tests"
@@ -44,12 +44,13 @@ finished() {
     if [ -s "$2" ]; then ok "$1: serial output produced"; else bad "$1: silent boot failure"; fi
 }
 
-normal_boot() { # name machine mem
+normal_boot() { # name machine mem expected-entry-info
     name="$1"; log="$OUT/$name.log"
     echo "== interrupts + timer, normal boot: $name =="
     BUILD_DIR="$OUT/normal" ./build.sh >/dev/null 2>&1 || { bad "$name: build failed"; return; }
     run_qemu "$OUT/normal/kernel.bin" "$2" "$3" "$log"
     finished "$name" "$log"
+    expect "$log" "\[info\] boot entry: $4[[:space:]]*$" "$name: observed entry state is $4 (what QEMU really did, not assumed)"
     expect "$log" "GICv2 at 0x0000000008000000/0x0000000008010000, timer frequency [0-9]+ Hz, interrupt ID 30" "$name: GICv2 and timer taken from the device tree"
     n="$(grep -c '^\[irq-test\]' "$log")"
     if [ "$n" -eq "$EXPECTED_IRQ_TESTS" ]; then ok "$name: ran exactly $EXPECTED_IRQ_TESTS interrupt/timer checks"; else bad "$name: ran $n interrupt checks, expected $EXPECTED_IRQ_TESTS"; fi
@@ -66,9 +67,31 @@ normal_boot() { # name machine mem
     expect "$log" "Boot complete" "$name: boot completed"
     expect_not "$log" "KERNEL PANIC|FATAL|WARNING|\[FAULT\]" "$name: no panic, fatal error or fault"
 }
-normal_boot ram-256M  "virt,highmem=off"                   256M
-normal_boot ram-512M  "virt,highmem=off"                   512M
-normal_boot el2-entry "virt,highmem=off,virtualization=on" 256M
+normal_boot ram-256M  "virt,highmem=off"                   256M "EL1, SPSel=1"
+normal_boot ram-512M  "virt,highmem=off"                   512M "EL1, SPSel=1"
+normal_boot el2-entry "virt,highmem=off,virtualization=on" 256M "EL2, SPSel=1"
+
+# Controlled entry variants (tests only, see build.sh): the CPU REALLY arrives with SPSel=0, which the default QEMU
+# entry never does. start.S must still produce correct stacks, so the whole suite (which reads SP_EL1, SP_EL0 and
+# takes real exceptions and interrupts) has to pass.
+entry_variant() { # name AURORA_TEST_ENTRY machine expected-entry-info
+    name="$1"; log="$OUT/$name.log"
+    echo "== controlled boot entry: $name =="
+    AURORA_TEST_ENTRY="$2" BUILD_DIR="$OUT/$name" ./build.sh >/dev/null 2>&1 || { bad "$name: build failed"; return; }
+    run_qemu "$OUT/$name/kernel.bin" "$3" 256M "$log"
+    finished "$name" "$log"
+    expect "$log" "\[info\] boot entry: $4 \(CONTROLLED TEST ENTRY MODE" "$name: the CPU really arrived as $4"
+    expect "$log" "\[irq-test\] boot stacks: .*: PASS" "$name: SP_EL1/SP_EL0 initialised correctly despite the unusual entry state"
+    expect "$log" "\[irq-test\] boot entry: .*: PASS" "$name: entry state matched the declared variant"
+    expect "$log" "\[irq-test\] exceptions: a synchronous exception from kernel code preserves.*: PASS" "$name: exception round trip preserves registers"
+    n="$(grep -c '^\[irq-test\]' "$log")"
+    if [ "$n" -eq "$EXPECTED_IRQ_TESTS" ]; then ok "$name: ran all $EXPECTED_IRQ_TESTS interrupt checks"; else bad "$name: ran $n checks, expected $EXPECTED_IRQ_TESTS"; fi
+    expect "$log" "AURORA-IRQ-SELFTEST: $EXPECTED_IRQ_TESTS passed, 0 failed" "$name: all interrupt checks pass (real timer IRQs after the unusual entry)"
+    expect "$log" "AURORA-MM-SELFTEST: $EXPECTED_MM_TESTS passed, 0 failed" "$name: memory self-tests pass"
+    expect_not "$log" "KERNEL PANIC|FATAL|\[FAULT\]" "$name: no panic or fault"
+}
+entry_variant entry-el1-spsel0 spsel0 "virt,highmem=off"                   "EL1, SPSel=0"
+entry_variant entry-el2-el1t   el1t   "virt,highmem=off,virtualization=on" "EL2, SPSel=0"
 
 NM=aarch64-linux-gnu-nm
 sym() { $NM "$1" | awk -v s="$2" '$3 == s { print $1 }'; }

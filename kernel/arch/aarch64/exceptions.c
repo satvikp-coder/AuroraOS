@@ -85,6 +85,15 @@ void exception_handler(struct exc_frame *f)
     }
 
     uint64_t ec = (f->esr >> 26) & 0x3F, iss = f->esr & 0x1FFFFFF;
+
+    /* Self-test hook: SVC #0x7e57 from kernel code (SP_EL0) is the register-preservation test in
+     * exc_selftest.S. It rewrites two registers IN THE SAVED FRAME and returns; ELR already points past the SVC. */
+    if (frame_ok && f->kind == 0 && ec == 0x15 && (iss & 0xFFFF) == 0x7E57) {
+        f->x[0] = 0xAAAA5555ULL;
+        f->x[27] = 0xC0DE0027ULL;
+        return;
+    }
+
     console_puts("\n[FAULT] exception "); console_puts(kind_name(f->kind));
     if (f->kind >= 4 && f->kind <= 7) console_puts("\n[FAULT] NESTED exception: taken while already on the exception stack");
     if (!frame_ok) console_puts("\n[FAULT] exception frame is misaligned or outside the exception stack");

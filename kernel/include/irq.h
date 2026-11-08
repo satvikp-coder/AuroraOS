@@ -22,6 +22,7 @@ struct irq_controller_ops {
     void     (*eoi)(uint32_t raw);
     void     (*enable)(uint32_t intid);
     void     (*disable)(uint32_t intid);
+    void     (*clear_pending)(uint32_t intid);   /* drop a stale pending state (may be NULL) */
     uint32_t max_id;                        /* number of interrupt IDs the hardware implements */
 };
 
@@ -36,11 +37,26 @@ void irq_set_controller(const struct irq_controller_ops *ops);
 int  irq_register(uint32_t intid, irq_handler_t h, void *arg);
 int  irq_unregister(uint32_t intid);
 int  irq_enable_line(uint32_t intid);       /* controller-level unmask of one interrupt ID */
+void irq_clear_pending(uint32_t intid);     /* controller-level: forget a pending-but-not-yet-taken interrupt */
 void irq_dispatch(void);                    /* called from the IRQ vector */
 void irq_dispatch_raw(uint32_t raw);        /* same, for an already-acknowledged value (tests) */
 const struct irq_stats *irq_get_stats(void);
 
-/* CPU-level masking (PSTATE.I) */
+/* CPU-level masking (PSTATE.I).
+ * irq_save()/irq_restore() form a critical section on the CURRENT CPU that preserves the caller's mask state:
+ * irq_save() masks IRQs and returns the previous DAIF; irq_restore() unmasks ONLY if IRQs were enabled when
+ * irq_save() was called. Called with IRQs already masked (including from inside an interrupt handler), the
+ * pair leaves them masked. This protects against the local interrupt handler only; it is NOT a lock against
+ * another CPU (see docs/kernel/interrupts-timers.md for what SMP will need). */
+static inline uint64_t irq_save(void)
+{
+    uint64_t d; __asm__ volatile ("mrs %0, daif\n msr daifset, #2" : "=r"(d) :: "memory"); return d;
+}
+static inline void irq_restore(uint64_t saved)
+{
+    if (!(saved & 0x80)) __asm__ volatile ("msr daifclr, #2" ::: "memory");
+}
+
 static inline void irq_cpu_enable(void)  { __asm__ volatile ("msr daifclr, #2" ::: "memory"); }
 static inline void irq_cpu_disable(void) { __asm__ volatile ("msr daifset, #2" ::: "memory"); }
 static inline int  irq_cpu_enabled(void) { uint64_t d; __asm__ volatile ("mrs %0, daif" : "=r"(d)); return !(d & 0x80); }
