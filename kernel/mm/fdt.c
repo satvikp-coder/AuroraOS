@@ -256,3 +256,58 @@ int fdt_platform_parse(const void *fdt, struct fdt_platform *out)
     }
     return FDT_OK;
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * virtio-mmio transports: every depth-2 node with compatible "virtio,mmio" (reg = base,size; interrupts = <type num flags>,
+ * SPI type 0 => GIC interrupt ID 32 + num). Runs on a blob fdt_parse() accepted. Nothing is assumed about how many exist.
+ * ---------------------------------------------------------------------------------------------- */
+int fdt_virtio_mmio(const void *fdt, struct fdt_virtio *out, int max)
+{
+    struct fdt_info scratch;
+    int rc = fdt_parse(fdt, &scratch);
+    if (rc) return rc;
+    if (!out || max <= 0) return FDT_ERR_NULL;
+
+    const uint8_t *b = (const uint8_t *)fdt;
+    uint32_t off_struct = be32(b + 8), off_str = be32(b + 12), size_str = be32(b + 32), size_struct = be32(b + 36);
+    uint32_t root_ac = 2, root_sc = 1;
+    int depth = 0, n = 0, is_virtio = 0;
+    const uint8_t *reg = 0, *irq = 0; uint32_t reg_len = 0, irq_len = 0;
+    uint32_t o = off_struct, end = off_struct + size_struct;
+
+    while ((uint64_t)o + 4 <= end) {
+        uint32_t tok = be32(b + o); o += 4;
+        if (tok == FDT_BEGIN_NODE) {
+            const char *name = (const char *)(b + o); uint32_t len = 0;
+            while ((uint64_t)o + len < end && name[len]) len++;
+            depth++;
+            if (depth == 2) { is_virtio = 0; reg = irq = 0; reg_len = irq_len = 0; }
+            o += (len + 1 + 3) & ~3u;
+        } else if (tok == FDT_END_NODE) {
+            if (depth == 2 && is_virtio && reg && n < max) {
+                uint32_t tuple = 4 * (root_ac + root_sc);
+                if (root_ac < 1 || root_ac > 2 || root_sc < 1 || root_sc > 2 || reg_len < tuple) return FDT_ERR_CELLS;
+                out[n].base = cells(reg, root_ac); out[n].size = cells(reg + 4 * root_ac, root_sc);
+                out[n].intid = (irq && irq_len >= 12 && be32(irq) == 0) ? 32 + be32(irq + 4) : 0;
+                if (out[n].size == 0 || out[n].base + out[n].size < out[n].base) return FDT_ERR_RESERVATION;
+                n++;
+            }
+            depth--;
+        } else if (tok == FDT_PROP) {
+            uint32_t len = be32(b + o), noff = be32(b + o + 4); o += 8;
+            const char *pname = (const char *)(b + off_str + noff);
+            const uint8_t *val = b + o;
+            if (noff < size_str) {
+                if (depth == 1 && streq(pname, "#address-cells") && len == 4) root_ac = be32(val);
+                else if (depth == 1 && streq(pname, "#size-cells") && len == 4) root_sc = be32(val);
+                else if (depth == 2 && streq(pname, "compatible") && has_string(val, len, "virtio,mmio")) is_virtio = 1;
+                else if (depth == 2 && streq(pname, "reg")) { reg = val; reg_len = len; }
+                else if (depth == 2 && streq(pname, "interrupts")) { irq = val; irq_len = len; }
+            }
+            o += (len + 3) & ~3u;
+        } else if (tok == FDT_END) {
+            break;
+        }
+    }
+    return n;
+}

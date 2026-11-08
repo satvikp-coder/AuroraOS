@@ -109,6 +109,10 @@ jobs:
         run: |
           chmod +x tests/qemu/mm-tests.sh
           ./tests/qemu/mm-tests.sh
+      - name: Run storage tests (virtio block driver on disposable disk images, persistence across two QEMU runs)
+        run: |
+          chmod +x tests/qemu/storage-tests.sh
+          ./tests/qemu/storage-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:
