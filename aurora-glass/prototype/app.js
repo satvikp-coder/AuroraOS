@@ -74,6 +74,17 @@
     const first = el.querySelector("[tabindex], button, a, input");
     if (first) first.focus();
     window.scrollTo(0, 0);
+    syncDock();
+    screenListeners.forEach((fn) => fn(id));
+  }
+
+  const screenListeners = [];
+  function syncDock() {
+    document.querySelectorAll(".dock-btn").forEach((b) => {
+      const isCurrent = b.id !== "dock-back" && b.getAttribute("data-target") === state.activeScreen;
+      b.classList.toggle("active", isCurrent);
+      if (isCurrent) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    });
   }
 
   function applyTheme() {
@@ -91,11 +102,7 @@
       root.style.removeProperty("--motion-base");
       root.style.removeProperty("--motion-slow");
     }
-    // Dock active state
-    document.querySelectorAll(".dock-btn").forEach((b) => {
-      const target = b.getAttribute("data-target");
-      b.classList.toggle("active", target === state.activeScreen);
-    });
+    syncDock();
     showToast(`${state.theme} · ${state.tier} · contrast ${state.contrast}`);
   }
 
@@ -253,6 +260,8 @@
     } else {
       document.getElementById("plan-receipt").classList.remove("panel-hidden");
       announce("Plan complete. All 4 steps succeeded.");
+      switchSpace("study");
+      document.dispatchEvent(new CustomEvent("aurora:plan-complete"));
     }
   }
 
@@ -266,7 +275,11 @@
     go("dock-home", "screen-home");
     go("dock-back", "screen-home");
     go("dock-spaces", "screen-spaces");
-    go("dock-pages", "screen-home");
+    go("dock-pages", "screen-pages");
+    go("btn-pages-back", "screen-home");
+    go("btn-quick-back", "screen-home");
+    go("btn-quick-center", "screen-quick");
+    go("btn-index", "screen-index");
     go("dock-ask", "screen-index");
     go("btn-index-back", "screen-home");
     go("btn-spaces-back", "screen-home");
@@ -274,7 +287,7 @@
 
     // Spaces chip / button
     const spaceBtn = document.getElementById("btn-switch-space");
-    if (spaceBtn) spaceBtn.addEventListener("click", () => showScreen("spaces"));
+    if (spaceBtn) spaceBtn.addEventListener("click", () => showScreen("screen-spaces"));
 
     // Space cards keyboard
     document.querySelectorAll(".space-card-item").forEach((c) => {
@@ -451,6 +464,18 @@
       }
     });
   }
+
+  // Prototype-internal API for screen modules (screens.js).
+  window.AuroraShell = {
+    state,
+    showScreen,
+    announce,
+    showToast,
+    onScreenShow(fn) { screenListeners.push(fn); },
+    setAppearance(theme) { state.theme = theme; applyTheme(); },
+    setTier(tier) { state.tier = tier; applyTheme(); },
+    switchSpace(id) { switchSpace(id); },
+  };
 
   // ---------- Init ----------
   function init() {

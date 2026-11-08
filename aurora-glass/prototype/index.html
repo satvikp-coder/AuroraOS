@@ -68,13 +68,13 @@
           <div class="section-head">
             <h3 class="section-title">Pinned tools</h3>
           </div>
-          <div class="pin-grid" role="list">
-            <button class="pin-btn" role="listitem" aria-label="Open Notes">Notes</button>
-            <button class="pin-btn" role="listitem" aria-label="Open Files">Files</button>
-            <button class="pin-btn" role="listitem" aria-label="Open Calculator">Calculator</button>
-            <button class="pin-btn" role="listitem" aria-label="Open Clock">Clock</button>
-            <button class="pin-btn" role="listitem" aria-label="Open Settings">Settings</button>
-            <button class="pin-btn" role="listitem" aria-label="Open Calendar">Calendar</button>
+          <div class="pin-grid" role="group" aria-label="Pinned tools">
+            <button class="pin-btn" aria-label="Open Notes">Notes</button>
+            <button class="pin-btn" aria-label="Open Files">Files</button>
+            <button class="pin-btn" aria-label="Open Calculator">Calculator</button>
+            <button class="pin-btn" aria-label="Open Clock">Clock</button>
+            <button class="pin-btn" aria-label="Open Settings">Settings</button>
+            <button class="pin-btn" aria-label="Open Calendar">Calendar</button>
           </div>
         </section>
 
@@ -254,6 +254,66 @@
           <p class="receipt-foot">Undo is not available for externally transmitted effects.</p>
         </div>
       </section>
+
+      <!-- Pages (multitasking) screen -->
+      <section id="screen-pages" class="screen" aria-label="Pages">
+        <header class="home-header">
+          <button class="icon-btn back" id="btn-pages-back" aria-label="Back to Home">Back</button>
+          <h1 class="home-title">Pages</h1>
+        </header>
+        <p class="space-intro">Open apps and their state. Simulated: this browser prototype does not manage real processes or memory.</p>
+        <div class="card section" id="pages-memory">
+          <div class="section-head">
+            <h3 class="section-title">Memory (simulated)</h3>
+            <span id="pages-memory-text" class="meter-text"></span>
+          </div>
+          <div class="meter" role="meter" id="pages-meter" aria-label="Simulated memory use" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="meter-fill" id="pages-meter-fill"></div></div>
+          <p id="pages-lowmem" class="warn-text panel-hidden" role="alert">Low memory. Save paused pages to free space.</p>
+          <button class="btn outline" id="btn-pages-free">Save paused pages</button>
+        </div>
+        <div id="pages-list" class="page-list" role="list" aria-label="Open pages"></div>
+        <p id="pages-empty" class="index-hint panel-hidden">No pages are open.</p>
+      </section>
+
+      <!-- Quick Center screen -->
+      <section id="screen-quick" class="screen" aria-label="Quick Center">
+        <header class="home-header">
+          <button class="icon-btn back" id="btn-quick-back" aria-label="Back to Home">Back</button>
+          <h1 class="home-title">Quick Center</h1>
+        </header>
+        <p class="space-intro">Simulated controls. Changes affect this prototype only, never your computer or phone.</p>
+        <div class="card section">
+          <div class="slider-row">
+            <label for="qc-brightness">Brightness <output id="qc-brightness-out"></output></label>
+            <input type="range" id="qc-brightness" min="0" max="100" step="1">
+          </div>
+          <div class="slider-row">
+            <label for="qc-volume">Volume <output id="qc-volume-out"></output></label>
+            <input type="range" id="qc-volume" min="0" max="100" step="1">
+          </div>
+        </div>
+        <div class="tile-grid" id="qc-tiles" role="group" aria-label="Quick toggles"></div>
+        <div class="card section">
+          <div class="control-group">
+            <label for="qc-appearance">Appearance</label>
+            <select id="qc-appearance"><option value="light">Light</option><option value="dark">Dark</option></select>
+          </div>
+          <div class="control-group">
+            <label for="qc-aura-mode">Aura mode</label>
+            <select id="qc-aura-mode">
+              <option value="off">Off</option>
+              <option value="ask">Ask before acting</option>
+              <option value="quick">Quick Commands only</option>
+            </select>
+          </div>
+        </div>
+        <div class="card section" aria-label="Privacy indicators">
+          <h3 class="section-title">Privacy indicators</h3>
+          <ul class="privacy-list" id="qc-privacy"></ul>
+          <p class="index-hint">Indicators are driven by simulated sessions. Use the buttons to preview them.</p>
+          <div class="plan-actions" id="qc-privacy-sim"></div>
+        </div>
+      </section>
     </main>
 
     <!-- Aurora Dock (bottom) -->
@@ -278,7 +338,7 @@
           </button>
         </li>
         <li>
-          <button class="dock-btn" id="dock-pages" aria-label="Pages" data-target="screen-home">
+          <button class="dock-btn" id="dock-pages" aria-label="Pages" data-target="screen-pages">
             <span class="dock-icon">&#128449;</span>
             <span class="dock-label">Pages</span>
           </button>
@@ -351,6 +411,8 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
 
+  <script src="core.js"></script>
   <script src="app.js"></script>
+  <script src="screens.js"></script>
 </body>
 </html>

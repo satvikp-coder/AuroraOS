@@ -579,3 +579,56 @@ body {
 /* ---------- Focus visibility for keyboard users ---------- */
 :focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
 :focus:not(:focus-visible) { outline: none; }
+
+/* ---------- Pages & Quick Center (simulated) ---------- */
+body::after {
+  /* Simulated brightness: dims the prototype only, never the real display. */
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+  background: #000; opacity: var(--proto-dim, 0);
+}
+.meter { height: 10px; border-radius: 999px; background: var(--color-border); overflow: hidden; margin-bottom: var(--space-3); }
+.meter-fill { height: 100%; background: var(--color-accent); border-radius: 999px; transition: width var(--motion-base) var(--ease-standard); }
+.meter-fill.low { background: var(--color-danger); }
+.meter-text { font-size: var(--text-sm); color: var(--color-ink-muted); }
+.warn-text { color: var(--color-ink); font-weight: 600; margin: 0 0 var(--space-3); padding-left: var(--space-3); border-left: 4px solid var(--color-danger); }
+.page-list { display: grid; gap: var(--space-3); margin-bottom: var(--space-4); }
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.page-meta { margin: var(--space-1) 0 var(--space-3); font-size: var(--text-sm); color: var(--color-ink-muted); }
+.page-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.state-badge { font-size: var(--text-xs); font-weight: 700; padding: 2px var(--space-2); border-radius: 999px; border: var(--border-width) solid currentColor; color: var(--color-ink-muted); }
+.state-badge.state-running { color: var(--color-success); }
+.state-badge.state-paused { color: var(--color-warn); }
+.state-badge.state-saved { color: var(--color-ink-muted); }
+.state-badge::before { content: "● "; }
+.state-badge.state-paused::before { content: "❚❚ "; }
+.state-badge.state-saved::before { content: "▣ "; }
+.slider-row { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); }
+.slider-row label { display: flex; justify-content: space-between; font-weight: 600; color: var(--color-ink); }
+.slider-row input[type="range"] { width: 100%; min-height: var(--touch-target); accent-color: var(--color-accent); }
+.tile-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); margin-bottom: var(--space-4); }
+.tile { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); min-height: var(--touch-target); padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-border); border-radius: var(--radius-window); background: var(--glass-surface, var(--color-surface-glass));
+  backdrop-filter: var(--bd, none); -webkit-backdrop-filter: var(--bd, none); color: var(--color-ink); font-family: inherit; font-size: var(--text-base); cursor: pointer; text-align: left; }
+.tile.on { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface-opaque)); }
+.tile-state { font-size: var(--text-sm); color: var(--color-ink-muted); font-weight: 700; }
+.tile:focus-visible { outline: none; box-shadow: var(--od-focus-ring, 0 0 0 3px var(--color-focus)); }
+.privacy-list { list-style: none; margin: var(--space-2) 0; padding: 0; display: grid; gap: var(--space-2); }
+.privacy-item { padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); border: var(--border-width) solid var(--color-border); color: var(--color-ink); }
+.privacy-item.active { border-color: var(--color-warn); font-weight: 700; }
+.privacy-item.active::before { content: "● "; color: var(--color-warn); }
+.control-group { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); }
+@media (min-width: 768px) { .tile-grid { grid-template-columns: repeat(3, 1fr); } }
+
+/* ---------- Layout fixes (found via real-browser screenshots) ---------- */
+/* --space-10 was never defined, which made the whole .content padding declaration invalid. */
+.content { padding: var(--space-4) var(--space-4) var(--space-5); }
+/* Keep header actions clear of the fixed Glass Corner handle. */
+.home-header { flex-wrap: wrap; gap: var(--space-2); padding-right: calc(var(--touch-target) + var(--space-3)); }
+.home-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+/* Text-labelled icon buttons must grow to fit their label. */
+.icon-btn { width: auto; min-width: var(--touch-target); padding: 0 var(--space-3); white-space: nowrap; }
+.pin-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+.pin-btn { min-height: var(--touch-target); justify-content: center; overflow-wrap: anywhere; }
+/* Toast must not cover the dock. */
+.toast { bottom: calc(var(--touch-target) * 2 + var(--space-6)); max-width: calc(100vw - var(--space-6)); text-align: center; }
+.toast { color: var(--color-canvas); }
