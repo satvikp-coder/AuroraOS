@@ -36,16 +36,25 @@ uintptr_t pmm_ram_end(void) { return base + (npages << PAGE_SHIFT); }
 int pmm_reserve(uintptr_t start, uintptr_t end)
 {
     if (end <= start) return -1;
+    uintptr_t ram_end = pmm_ram_end();
+    if (start >= ram_end || end <= base) return 0;       /* entirely outside managed RAM: nothing to reserve */
+    if (start < base) start = base;                      /* partially outside: clamp BEFORE rounding (no overflow) */
+    if (end > ram_end) end = ram_end;
     uintptr_t s = start & ~(PAGE_SIZE - 1), e = (end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    if (s < base) s = base;
-    if (e > pmm_ram_end()) e = pmm_ram_end();
     for (uintptr_t a = s; a < e; a += PAGE_SIZE) {
         uint64_t i = (a - base) >> PAGE_SHIFT;
-        if (TST(rsv_bm, i)) continue;
-        if (TST(used_bm, i)) return -2;           /* already allocated: cannot retroactively reserve */
+        if (TST(rsv_bm, i)) continue;                    /* overlapping reservations are fine */
+        if (TST(used_bm, i)) return -2;                  /* already allocated: cannot retroactively reserve */
         SET(used_bm, i); SET(rsv_bm, i); nfree--; nrsv++;
     }
     return 0;
+}
+
+/* Overflow-checked variant for untrusted (device-tree) input. */
+int pmm_reserve_range(uint64_t addr, uint64_t size)
+{
+    if (size == 0 || addr + size < addr) return -3;
+    return pmm_reserve((uintptr_t)addr, (uintptr_t)(addr + size));
 }
 
 uintptr_t pmm_alloc_page(void)

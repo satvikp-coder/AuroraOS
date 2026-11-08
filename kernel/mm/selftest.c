@@ -13,6 +13,9 @@
 #include <mm.h>
 #include <selftest.h>
 
+const struct fdt_info *boot_fdt_info(void);
+uint64_t boot_dtb_address(void);
+
 static int npass, nfail;
 
 static void check(const char *name, int ok)
@@ -57,6 +60,13 @@ void selftest_pmm(void)
     check("pmm: stack pages reserved", pmm_is_reserved((uintptr_t)__stack_top - 1) && pmm_is_reserved((uintptr_t)__stack_guard));
     check("pmm: page after kernel image not reserved", !pmm_is_reserved((uintptr_t)__kernel_end));
 
+    check("pmm: reserve_range rejects zero size and address overflow", pmm_reserve_range(pmm_ram_base(), 0) == -3 && pmm_reserve_range(~0ULL - 10, 100) == -3);
+    uint64_t rsv0 = s0.reserved_pages;
+    check("pmm: reservation entirely outside RAM is ignored, not an error", pmm_reserve_range(0x1000, 0x1000) == 0 && pmm_reserve_range(pmm_ram_end(), PAGE_SIZE) == 0);
+    pmm_get_stats(&s1);
+    check("pmm: ignored reservations do not change accounting", s1.reserved_pages == rsv0 && s1.free_pages == s0.free_pages);
+    check("pmm: reserving the already-reserved kernel image again is idempotent", pmm_reserve_range((uint64_t)(uintptr_t)__image_start, PAGE_SIZE) == 0 && (pmm_get_stats(&s1), s1.reserved_pages == rsv0));
+
     uintptr_t q = pmm_alloc_page();
     check("pmm: cannot reserve an already allocated page", q && pmm_reserve(q, q + 1) < 0 && pmm_is_allocated(q));
     pmm_free_page(q);
@@ -79,6 +89,16 @@ void selftest_mmu(void)
     check("mmu: UART window is mapped as device", vmm_hw_translate(0x09000000ULL, 1, &pa) == 0 && pa == 0x09000000ULL);
     check("mmu: unmapped address 0xDEAD0000 would fault", vmm_hw_translate(0xDEAD0000ULL, 0, 0) == -1);
     check("mmu: address 0 would fault", vmm_hw_translate(0, 0, 0) == -1);
+    {   /* device-tree no-map regions must be unmapped; ordinary reserved regions stay mapped. Vacuously true with none. */
+        const struct fdt_info *fi = boot_fdt_info(); int ok = 1;
+        for (int i = 0; i < fi->nreserved; i++) {
+            uint64_t a = fi->reserved[i].addr & ~(PAGE_SIZE - 1);
+            if (!pmm_in_ram(a) || fi->reserved[i].addr < pmm_ram_base()) continue;
+            int mapped = vmm_hw_translate(a, 0, 0) == 0;
+            if (fi->reserved[i].nomap == mapped) ok = 0;
+        }
+        check("mmu: no-map regions are unmapped, other reserved regions stay mapped", ok);
+    }
     check("mmu: bad-VA (>= 2^39) would fault", vmm_hw_translate(1ULL << 40, 0, 0) == -1);
 
     /* Runtime mapping: alias a fresh page at an unused virtual address and verify the translation. */
@@ -96,24 +116,74 @@ void selftest_mmu(void)
     check("vmm: map beyond the 39-bit address space is refused", vmm_map(1ULL << 39, page, PAGE_SIZE, VMM_ATTR_NORMAL_RW) != 0);
     check("vmm: invalid attribute is refused", vmm_map(alias + 0x20000, page, PAGE_SIZE, 99) != 0);
 
+    /* ---- vmm_map is all-or-nothing ---- */
+    {
+        uint64_t base = 0xA0000000ULL, dummy;
+        uintptr_t pg = pmm_alloc_page();
+        check("vmm: single page mapping at a fresh address succeeds", pg && vmm_map(base + 0x1000, pg, PAGE_SIZE, VMM_ATTR_NORMAL_RW) == VMM_OK);
+        /* [base, base+3 pages) overlaps the existing page in the MIDDLE: nothing may be installed. */
+        int r2 = vmm_map(base, pg, 3 * PAGE_SIZE, VMM_ATTR_NORMAL_RW);
+        check("vmm: overlap with an existing page is refused with CONFLICT", r2 == VMM_ERR_CONFLICT);
+        check("vmm: failed map left the page BEFORE the conflict unmapped", vmm_hw_translate(base, 0, &dummy) == -1);
+        check("vmm: failed map left the page AFTER the conflict unmapped", vmm_hw_translate(base + 0x2000, 0, &dummy) == -1);
+        check("vmm: the pre-existing page is untouched", vmm_hw_translate(base + 0x1000, 1, &dummy) == 0 && dummy == pg);
+
+        /* Existing 2 MiB block: a request that starts on an empty page and runs into it must install nothing. */
+        check("vmm: 2 MiB block mapping succeeds", vmm_map(0x140000000ULL, 0x40200000ULL, 0x200000ULL, VMM_ATTR_NORMAL_RO) == VMM_OK);
+        int r3 = vmm_map(0x140000000ULL - PAGE_SIZE, pg, 2 * PAGE_SIZE, VMM_ATTR_NORMAL_RW);
+        check("vmm: running into an existing block is refused with CONFLICT", r3 == VMM_ERR_CONFLICT);
+        check("vmm: failed map left the empty page before the block unmapped", vmm_hw_translate(0x140000000ULL - PAGE_SIZE, 0, &dummy) == -1);
+        check("vmm: the block was not split or altered", vmm_hw_translate(0x140000000ULL + 0x1000, 0, &dummy) == 0 && vmm_hw_translate(0x140000000ULL + 0x1000, 1, 0) == -1);
+        check("vmm: mapping over the identity-mapped RAM blocks is refused", vmm_map(pmm_ram_end() - 0x200000ULL, pg, PAGE_SIZE, VMM_ATTR_NORMAL_RW) == VMM_ERR_CONFLICT);
+
+        check("vmm: virtual address overflow is refused", vmm_map(~0ULL - 0xFFF, pg, 2 * PAGE_SIZE, VMM_ATTR_NORMAL_RW) == VMM_ERR_RANGE);
+        check("vmm: range ending past the 39-bit space is refused", vmm_map((1ULL << 39) - PAGE_SIZE, pg, 2 * PAGE_SIZE, VMM_ATTR_NORMAL_RW) == VMM_ERR_RANGE);
+        check("vmm: physical address overflow is refused", vmm_map(0xB0000000ULL, ~0ULL - 0xFFF, 2 * PAGE_SIZE, VMM_ATTR_NORMAL_RW) == VMM_ERR_RANGE);
+        check("vmm: physical address beyond the implemented width is refused", vmm_map(0xB0000000ULL, 1ULL << 47, PAGE_SIZE, VMM_ATTR_NORMAL_RW) == VMM_ERR_RANGE);
+        check("vmm: zero size and bad attribute are refused", vmm_map(0xB0000000ULL, pg, 0, VMM_ATTR_NORMAL_RW) == VMM_ERR_ARG && vmm_map(0xB0000000ULL, pg, PAGE_SIZE, 0) == VMM_ERR_ARG);
+        check("vmm: refused requests mapped nothing", vmm_hw_translate(0xB0000000ULL, 0, &dummy) == -1 && vmm_hw_translate((1ULL << 39) - PAGE_SIZE, 0, &dummy) == -1);
+    }
+
     /* Exhaustion, with the MMU on: every free page is handed out exactly once, then 0. */
     struct pmm_stats s0, s1;
     pmm_get_stats(&s0);
-    uintptr_t head = 0; uint64_t n = 0, bad = 0;
+    const struct fdt_info *fi = boot_fdt_info();
+    uint64_t dtb_base = boot_dtb_address();
+    uintptr_t head = 0; uint64_t n = 0, bad = 0, dt_bad = 0;
     for (;;) {
         uintptr_t p = pmm_alloc_page();
         if (!p) break;
         if ((p & (PAGE_SIZE - 1)) || !pmm_in_ram(p) || pmm_is_reserved(p) || p < (uintptr_t)__kernel_end) bad++;
+        for (int i = 0; i < fi->nreserved; i++)
+            if (p + PAGE_SIZE > fi->reserved[i].addr && p < fi->reserved[i].addr + fi->reserved[i].size) dt_bad++;
+        if (fi->valid && p + PAGE_SIZE > dtb_base && p < dtb_base + fi->totalsize) dt_bad++;
         *(volatile uint64_t *)p = head; head = p; n++;
     }
     pmm_get_stats(&s1);
     check("pmm: exhaustion hands out exactly the free pages", n == s0.free_pages && s1.free_pages == 0);
     check("pmm: exhaustion never hands out reserved or out-of-range pages", bad == 0);
+    check("pmm: exhaustion never hands out the device-tree blob or its reserved regions", dt_bad == 0);
     check("pmm: exhausted allocator returns 0 and counts the failure", pmm_alloc_page() == 0 && s1.alloc_failures == s0.alloc_failures + 1);
     uint64_t freed_bad = 0;
     while (head) { uintptr_t next = *(volatile uint64_t *)head; if (pmm_free_page(head) != PMM_OK) freed_bad++; head = next; }
     pmm_get_stats(&s1);
     check("pmm: freeing everything restores the free count", freed_bad == 0 && s1.free_pages == s0.free_pages);
+
+    /* Page-table allocation failure: no memory for the tables => clean refusal, nothing mapped, recoverable. */
+    {
+        uint64_t dummy; const uint64_t far_va = 0x4000000000ULL;   /* empty 1 GiB slot: needs an L2 and an L3 table */
+        uintptr_t keep = pmm_alloc_page(); uintptr_t h = 0; uint64_t cnt = 0;
+        for (;;) { uintptr_t p = pmm_alloc_page(); if (!p) break; *(volatile uint64_t *)p = h; h = p; cnt++; }
+        uintptr_t spare = h; h = *(volatile uint64_t *)h; cnt--; pmm_free_page(spare);     /* exactly one free page left */
+        struct pmm_stats a, b; pmm_get_stats(&a);
+        int r = vmm_map(far_va, keep, PAGE_SIZE, VMM_ATTR_NORMAL_RW);
+        pmm_get_stats(&b);
+        check("vmm: page-table allocation failure is reported as NOMEM", r == VMM_ERR_NOMEM);
+        check("vmm: NOMEM leaves nothing mapped and consumes no page", vmm_hw_translate(far_va, 0, &dummy) == -1 && a.free_pages == 1 && b.free_pages == 1);
+        while (h) { uintptr_t nx = *(volatile uint64_t *)h; pmm_free_page(h); h = nx; }
+        check("vmm: the same request succeeds once memory is available again", vmm_map(far_va, keep, PAGE_SIZE, VMM_ATTR_NORMAL_RW) == VMM_OK && vmm_hw_translate(far_va, 1, &dummy) == 0 && dummy == keep);
+        (void)cnt;
+    }
 }
 
 int selftest_summary(void)

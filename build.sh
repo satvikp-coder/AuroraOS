@@ -6,6 +6,7 @@
 #
 # Usage: ./build.sh
 #   BUILD_DIR=build/x ./build.sh                    build into another directory
+#   AURORA_FIXED_RAM=1 ./build.sh                   DEV ONLY: allow a fixed-RAM fallback (see kernel/kernel.c)
 #   AURORA_FAULT_TEST=1 BUILD_DIR=... ./build.sh    build a deliberate-fault test kernel
 #                                                   (see tests/qemu/mm-tests.sh)
 
@@ -26,6 +27,11 @@ MAP_FILE="$BUILD_DIR/kernel.map"
 CFLAGS="-march=armv8-a -mgeneral-regs-only -mstrict-align -ffreestanding -nostdlib -fno-builtin \
 -fno-stack-protector -fno-pic -fno-strict-aliasing -fno-tree-loop-distribute-patterns \
 -Wall -Wextra -Werror -O2 -I kernel/include"
+# AURORA_FIXED_RAM=1: DEV-ONLY fallback that assumes 256 MiB at 0x40000000 when no device tree is found.
+# Normal builds refuse to boot without a validated device tree.
+if [ -n "$AURORA_FIXED_RAM" ]; then
+    CFLAGS="$CFLAGS -DAURORA_FIXED_RAM=1"
+fi
 if [ -n "$AURORA_FAULT_TEST" ]; then
     CFLAGS="$CFLAGS -DAURORA_FAULT_TEST=$AURORA_FAULT_TEST"
 fi

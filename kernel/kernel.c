@@ -1,20 +1,35 @@
 /*
  * kernel/kernel.c — AuroraOS kernel entry (C)
  *
- * Boot sequence: console -> exception vectors -> device-tree memory map ->
+ * Boot sequence: console -> exception vectors -> validated device-tree memory map ->
  * physical page allocator -> page tables + MMU -> self-tests.
  * Target: QEMU ARM64 "virt" (PL011 UART at 0x09000000). No Linux/Android code.
+ *
+ * The physical allocator is only initialised from a VALIDATED device tree. If none is
+ * found the kernel stops with a diagnostic instead of guessing the RAM size. A fixed
+ * 256 MiB QEMU layout exists only in builds that explicitly set AURORA_FIXED_RAM=1
+ * (see build.sh); such a kernel prints a loud DEV MODE banner and must never be
+ * used on hardware.
  */
 #include <arch.h>
 #include <console.h>
 #include <mm.h>
 #include <selftest.h>
 
-/* Fallback if QEMU does not hand us a usable device tree (should not happen on virt). */
-#define FALLBACK_RAM_BASE 0x40000000UL
-#define FALLBACK_RAM_SIZE 0x10000000UL
+#define QEMU_VIRT_RAM_BASE 0x40000000UL   /* used only by the explicit AURORA_FIXED_RAM dev mode */
 
-static void halt_forever(void) { for (;;) __asm__ volatile ("wfi"); }
+static struct fdt_info boot_info;
+static uint64_t boot_dtb;
+uint64_t boot_dtb_address(void) { return boot_dtb; }
+const struct fdt_info *boot_fdt_info(void) { return &boot_info; }
+
+static void halt_forever(void) { for (;;) __asm__ volatile ("msr daifset, #0xf\n wfi"); }
+
+static void fatal(const char *msg)
+{
+    console_puts("FATAL: "); console_puts(msg); console_puts("\nKernel halted; memory manager NOT initialised.\n");
+    halt_forever();
+}
 
 static void print_range(const char *name, uintptr_t s, uintptr_t e)
 {
@@ -31,47 +46,51 @@ void kernel_main(uint64_t dtb)
     exceptions_init();
     console_puts("Exception vectors installed at EL"); console_dec(read_current_el()); console_puts("\n");
 
-    /* 1. Memory map from the device tree. */
-    struct fdt_info fdt;
-    uint64_t ram_base = FALLBACK_RAM_BASE, ram_size = FALLBACK_RAM_SIZE;
-    /* Linux-style boot passes the DTB in x0; QEMU loads ELF kernels with the DTB at the start of RAM and x0=0. Probe both; fdt_parse validates the magic and every offset. */
-    uint64_t cand[2] = { dtb, FALLBACK_RAM_BASE };
-    int rc = -1;
-    for (int i = 0; i < 2 && rc != 0; i++) {
-        rc = cand[i] ? fdt_parse((const void *)(uintptr_t)cand[i], &fdt) : -1;
-        if (rc == 0) dtb = cand[i];
-    }
-    if (rc == 0) {
-        ram_base = fdt.ram_base; ram_size = fdt.ram_size;
-        console_puts("Device tree at "); console_hex(dtb); console_puts(": RAM base "); console_hex(ram_base);
-        console_puts(" size "); console_hex(ram_size); console_puts("\n");
+    /* 1. Memory map from a validated device tree (x0 is the Linux arm64 boot-protocol DTB pointer). */
+    int rc = dtb ? fdt_parse((const void *)(uintptr_t)dtb, &boot_info) : FDT_ERR_NULL;
+    if (rc == FDT_OK) {
+        console_puts("Device tree at "); console_hex(dtb); console_puts(": RAM base "); console_hex(boot_info.ram_base);
+        console_puts(" size "); console_hex(boot_info.ram_size); console_puts(", reserved regions: ");
+        console_dec((uint64_t)boot_info.nreserved); console_puts("\n");
     } else {
-        console_puts("WARNING: no valid device tree (code "); console_dec((uint64_t)(-rc));
-        console_puts("), using QEMU virt defaults\n");
-        fdt.valid = 0; fdt.nreserved = 0;
+#ifdef AURORA_FIXED_RAM
+        console_puts("*** DEV MODE (AURORA_FIXED_RAM): no valid device tree ("); console_puts(fdt_strerror(rc));
+        console_puts("); assuming 256 MiB at 0x40000000. NEVER use on real hardware. ***\n");
+        boot_info.valid = 0; boot_info.nreserved = 0; boot_info.ram_base = QEMU_VIRT_RAM_BASE; boot_info.ram_size = 0x10000000UL;
+        dtb = 0;
+#else
+        console_puts("FATAL: invalid or missing device tree: "); console_puts(fdt_strerror(rc)); console_puts("\n");
+        fatal("refusing to guess the memory map");
+#endif
     }
 
+    boot_dtb = dtb;
+
     /* 2. Physical page allocator and reservations. */
-    if (pmm_init(ram_base, ram_size) < 0) { console_puts("PANIC: pmm_init failed\n"); halt_forever(); }
+    if (pmm_init(boot_info.ram_base, boot_info.ram_size) < 0) fatal("pmm_init rejected the RAM description");
+    if ((uintptr_t)__kernel_end > pmm_ram_end() || (uintptr_t)__image_start < pmm_ram_base()) fatal("kernel image is outside RAM");
     int bad = 0;
-    if ((uintptr_t)__image_start > pmm_ram_base()) bad |= pmm_reserve(pmm_ram_base(), (uintptr_t)__image_start); /* boot region incl. DTB */
+    if ((uintptr_t)__image_start > pmm_ram_base()) bad |= pmm_reserve(pmm_ram_base(), (uintptr_t)__image_start); /* boot region */
     bad |= pmm_reserve((uintptr_t)__image_start, (uintptr_t)__kernel_end);                                          /* image, bss, stack */
-    if (fdt.valid) {
-        bad |= pmm_reserve((uintptr_t)dtb, (uintptr_t)dtb + fdt.totalsize);
-        for (int i = 0; i < fdt.nreserved; i++) bad |= pmm_reserve(fdt.reserved[i].addr, fdt.reserved[i].addr + fdt.reserved[i].size);
+    if (dtb) bad |= pmm_reserve_range(dtb, boot_info.totalsize);                                                    /* the blob itself */
+    for (int i = 0; i < boot_info.nreserved; i++) {
+        bad |= pmm_reserve_range(boot_info.reserved[i].addr, boot_info.reserved[i].size);
+        if (boot_info.reserved[i].nomap && vmm_add_nomap(boot_info.reserved[i].addr, boot_info.reserved[i].size)) bad = 1;
     }
-    if (bad) { console_puts("PANIC: reservation failed\n"); halt_forever(); }
+    if (bad) fatal("could not apply memory reservations");
     struct pmm_stats st; pmm_get_stats(&st);
     console_puts("Physical memory manager ready\n");
     print_range("RAM          ", pmm_ram_base(), pmm_ram_end());
     print_range("kernel image ", (uintptr_t)__image_start, (uintptr_t)__kernel_end);
     console_puts("  pages total/reserved/free: "); console_dec(st.total_pages); console_puts("/");
     console_dec(st.reserved_pages); console_puts("/"); console_dec(st.free_pages); console_puts("\n");
+    console_puts("  physical address width: "); console_dec((uint64_t)vmm_pa_bits()); console_puts(" bits\n");
 
     selftest_pmm();
 
     /* 3. Page tables and MMU. */
-    if (vmm_init() < 0) { console_puts("PANIC: vmm_init failed\n"); halt_forever(); }
+    int vr = vmm_init();
+    if (vr < 0) { console_puts("vmm_init error "); console_dec((uint64_t)(-vr)); console_puts("\n"); fatal("page-table setup failed"); }
     console_puts("Enabling MMU...\n");
     vmm_enable();
     console_puts("MMU enabled (39-bit VA, 4 KiB pages, W^X)\n");

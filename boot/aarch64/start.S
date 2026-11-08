@@ -35,7 +35,11 @@ _start:
     b.ne    el1_entry
 
     /* EL2 -> EL1 (AArch64) */
-    mov     x2, #(1 << 31)              /* HCR_EL2.RW: EL1 is AArch64 */
+    mrs     x2, midr_el1                /* EL1 reads of MIDR/MPIDR come from the virtualization registers */
+    msr     vpidr_el2, x2
+    mrs     x2, mpidr_el1
+    msr     vmpidr_el2, x2
+    mov     x2, #(1 << 31)              /* HCR_EL2.RW: EL1 is AArch64 (all other HCR_EL2 bits 0: no trapping, IRQs stay at EL1) */
     msr     hcr_el2, x2
     mov     x2, #3
     msr     cnthctl_el2, x2             /* EL1 may use physical counter/timer */
