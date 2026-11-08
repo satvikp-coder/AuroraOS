@@ -126,21 +126,16 @@ jobs:
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)" || { echo "untracked/modified files present"; exit 1; }
+      - name: Install pinned, checksum-verified Gitleaks
+        run: |
+          chmod +x tests/security/install-gitleaks.sh
+          tests/security/install-gitleaks.sh /tmp/gl > /tmp/gitleaks.path
+          cat /tmp/gitleaks.path
       - name: Run Gitleaks secret scan
         run: |
-          GITLEAKS_VERSION=8.24.3
-          curl -sL --fail "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
-          # Verify downloaded artifact is a valid gzip archive (integrity check)
-          file /tmp/gitleaks.tar.gz | grep -q "gzip compressed data" || { echo "Downloaded artifact is not a valid gzip archive"; exit 1; }
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
           # Scan full git history
-          GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} /tmp/gitleaks detect --config .gitleaks.toml --source . -v
+          GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} "$(tail -1 /tmp/gitleaks.path)" detect --config .gitleaks.toml --source . -v
       - name: Verify Gitleaks scanner behavior
         run: |
-          GITLEAKS_VERSION=8.24.3
-          curl -sL --fail "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
-          file /tmp/gitleaks.tar.gz | grep -q "gzip compressed data" || { echo "Downloaded artifact is not a valid gzip archive"; exit 1; }
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
           chmod +x tests/security/scanner-verification-test.sh
-          /tmp/gitleaks --version
-          bash tests/security/scanner-verification-test.sh /tmp/gitleaks
+          bash tests/security/scanner-verification-test.sh "$(tail -1 /tmp/gitleaks.path)"
