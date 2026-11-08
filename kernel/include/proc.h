@@ -53,6 +53,7 @@ struct proc {
     uint64_t fault_esr, fault_far, fault_elr, fault_spsr;
     uint64_t code_pa, data_pa, stack_pa;
     uint64_t syscalls, ticks_run, switches_in, el0_exceptions, el0_confirmed;   /* el0_confirmed: SPSR said EL0t */
+    uint64_t yields, preemptions;               /* voluntary switches (SYS_YIELD) vs timer-driven ones: never conflated */
     char name[16];
 };
 int  proc_create(int role, uint64_t arg1, const char *name);   /* pid > 0, or a negative error */
@@ -70,6 +71,13 @@ int      sched_handle_el0(struct exc_frame *f);  /* exceptions from EL0 (kinds 8
 int      sched_handle_kernel_svc(struct exc_frame *f, uint32_t imm);  /* SVC from kernel code; returns 0 if consumed */
 void     sched_after_irq(struct exc_frame *f);   /* called after an IRQ was dispatched */
 int      sched_active(void);
+
+/* Evidence counters (single CPU). ttbr_*: on every exception from EL0 TTBR0_EL1 is compared with the running process's
+ * expected value (table address + ASID). preempt_elr_in_user: a timer preemption interrupted an instruction inside the
+ * process's code page (so the switch really happened in the middle of user code, not at a syscall). */
+struct sched_stats { uint64_t ttbr_checks, ttbr_mismatch, preemptions, preempt_elr_in_user, switches, timeouts; };
+const struct sched_stats *sched_get_stats(void);
+void sched_stats_reset(void);
 
 /* Observation log for tests: first byte of each user write, in order. */
 #define SCHED_TRACE_MAX 128

@@ -24,12 +24,15 @@ static uint64_t ticks, limit, slice;
 static int preempt, need_resched, timed_out;
 static uint32_t quantum = 5;                   /* ticks per time slice when preemption is on */
 static void (*saved_hook)(void);
+static struct sched_stats stats;
 static char trace[SCHED_TRACE_MAX];
 static int trace_n;
 
 const char *sched_trace(int *len) { *len = trace_n; return trace; }
 void sched_trace_reset(void) { trace_n = 0; }
 int sched_active(void) { return active; }
+const struct sched_stats *sched_get_stats(void) { return &stats; }
+void sched_stats_reset(void) { stats = (struct sched_stats){ 0 }; }
 uint64_t sched_ticks(void) { return ticks; }
 void sched_set_preempt(int enabled, uint32_t q) { preempt = enabled; if (q) quantum = q; }
 
@@ -90,7 +93,7 @@ static void switch_to(struct exc_frame *f, int pid)
 {
     struct proc *p = proc_get(pid);
     set_state(p, PROC_RUNNING);
-    p->switches_in++;
+    p->switches_in++; stats.switches++;
     cur_pid = pid; slice = 0; need_resched = 0;
     set_ttbr0(aspace_ttbr(&p->as));                          /* kernel slots are identical in every table: this code keeps running */
     *f = p->ctx;
@@ -151,7 +154,7 @@ static void do_syscall(struct exc_frame *f, struct proc *p)
         return;
     }
     case SYS_YIELD:
-        f->x[0] = 0;
+        f->x[0] = 0; p->yields++;
         p->ctx = *f; set_state(p, PROC_READY);
         reschedule(f);
         return;
@@ -193,11 +196,14 @@ void sched_after_irq(struct exc_frame *f)
     if (!active) return;
     struct proc *p = current();
     if (timed_out) {                                         /* watchdog: give control back to the kernel */
+        stats.timeouts++;
         if (p && p->state == PROC_RUNNING) { p->ctx = *f; set_state(p, PROC_READY); }
         return_to_kernel(f, SCHED_TIMEOUT);
         return;
     }
     if (need_resched && p && p->state == PROC_RUNNING) {     /* timer preemption: applied through the exception return path */
+        p->preemptions++; stats.preemptions++;
+        if (f->elr >= USER_CODE_VA && f->elr < USER_CODE_VA + PAGE_SIZE) stats.preempt_elr_in_user++;
         p->ctx = *f; set_state(p, PROC_READY);
         reschedule(f);
     }
@@ -210,6 +216,7 @@ int sched_handle_el0(struct exc_frame *f)
     if (!active || !p || p->state != PROC_RUNNING) return -1;        /* an EL0 exception with no running process: a kernel bug */
     if ((f->spsr & 0xF) != 0) return -2;                              /* must really have come from EL0t */
     p->el0_exceptions++; p->el0_confirmed++;
+    { uint64_t t; __asm__ volatile ("mrs %0, ttbr0_el1" : "=r"(t)); stats.ttbr_checks++; if (t != aspace_ttbr(&p->as)) stats.ttbr_mismatch++; }
     if (f->kind == 9) { irq_dispatch(); sched_after_irq(f); return 0; }
     if (f->kind != 8) return -3;                                      /* FIQ/SError/AArch32 from EL0: not expected */
     uint64_t ec = (f->esr >> 26) & 0x3F;

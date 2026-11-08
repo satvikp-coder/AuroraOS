@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_PROC_TESTS=42   # keep in sync with kernel/proctest.c
+EXPECTED_PROC_TESTS=53   # keep in sync with kernel/proctest.c
 EXPECTED_MM_TESTS=93
 EXPECTED_IRQ_TESTS=43
 
@@ -59,9 +59,13 @@ normal_boot() { # name machine mem
     expect "$log" "\[proc-test\] context switching preserves user registers.*: PASS" "$name: user registers survive context switches"
     expect "$log" "\[proc-test\] isolation: a process reading ANOTHER process's private page.*: PASS" "$name: another process's memory is unreachable"
     expect "$log" "\[proc-test\] syscall validation: kernel pointer.*: PASS" "$name: bad syscall arguments are rejected"
+    expect "$log" "\[proc-test\] preemption: every switch between them was a TIMER switch.*: PASS" "$name: processes that never yield were switched by timer interrupts (0 yields)"
+    expect "$log" "\[proc-test\] preemption: each timer interrupt hit the middle of user code.*: PASS" "$name: preemption landed mid-user-code and registers/SP_EL0 survived"
+    expect "$log" "\[proc-test\] preemption: TTBR0_EL1 .*: PASS" "$name: TTBR0/ASID matched the running process on every EL0 exception"
+    expect "$log" "\[proc-test\] preemption stress: .*: PASS" "$name: sustained preemption stress passed without leaks"
     expect "$log" "\[proc-test\] watchdog: .*: PASS" "$name: a never-yielding loop cannot hang the kernel"
     c="$(grep -c '^\[proc [0-9]*\] FAULT at EL0' "$log")"
-    if [ "$c" -eq 11 ]; then ok "$name: the 11 intentional user faults were each reported as an EL0 fault"; else bad "$name: saw $c EL0 fault reports, expected 11"; fi
+    if [ "$c" -eq 13 ]; then ok "$name: the 13 intentional user faults were each reported as an EL0 fault"; else bad "$name: saw $c EL0 fault reports, expected 13"; fi
     expect "$log" "^\[user p1\] A" "$name: kernel-tagged output of an EL0 program (A) reached the console"
     expect "$log" "^\[user p2\] B" "$name: kernel-tagged output of an EL0 program (B) reached the console"
     expect "$log" "Userspace OK" "$name: userspace reported OK"
