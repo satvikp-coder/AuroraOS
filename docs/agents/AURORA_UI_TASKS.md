@@ -1,5 +1,7 @@
 # Aurora Glass UI plan and task backlog
 
+
+Plan author: Claude Fable 5.2 (`claude-fable-5-2`), lead architect, 2026-11-10. No other model contributed to this plan.
 Dependency-ordered. Status values: `done`, `in progress`, `not started`, `blocked`. A task is `done` only when
 every acceptance criterion has been verified by the listed tests. Update this file and
 `AURORA_UI_HANDOFF.md` after every task.
