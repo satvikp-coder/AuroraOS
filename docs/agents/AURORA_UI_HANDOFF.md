@@ -18,7 +18,8 @@ background, not current status.
 | M1 S1 wiring, S2 Shell API | done (commit `78d19e1`); 97/97 Playwright locally, 4/4 unit suites, 6/6 CI |
 | M1 S3 Home and Dock | done (this branch; 152/152 Playwright, 4/4 unit locally) |
 | M1 S4 Spaces | done (180/180 Playwright locally) |
-| M1 S5 to S10 | not done (see `AURORA_UI_TASKS.md`; each step carries its own status) |
+| M1 S5 Index | done (218/218 Playwright locally) |
+| M1 S6 to S10 | not done (see `AURORA_UI_TASKS.md`; each step carries its own status) |
 | M2 to M8 | not started |
 
 Verification honesty: only one screenshot (Aura Plan review at 390 px) has been inspected for the new design. The full
@@ -37,7 +38,7 @@ untracked PNGs this run created.
 
 ## Exact next task
 
-`AURORA_UI_TASKS.md` → **M1 / S5 "Index"**, then S6…S10 in order (S1 to S4 are done).
+`AURORA_UI_TASKS.md` → **M1 / S6 "Pages, Quick Center, Settings"**, then S7…S10 in order (S1 to S5 are done).
 
 ```bash
 cd C:/Users/satvi/Desktop/AuroraOS-Claude

@@ -111,19 +111,21 @@
         <p class="space-footnote">Spaces live in this browser prototype only and are forgotten when you reload. Nothing leaves your device.</p>
       </section>
 
-      <!-- Index search screen -->
-      <section id="screen-index" class="screen" aria-label="Index search">
-        <header class="home-header">
-          <button class="icon-btn back" id="btn-index-back" aria-label="Back to Home">Back</button>
-          <h1 class="home-title">Index</h1>
+      <!-- Index (Ask + Search) screen -->
+      <section id="screen-index" class="screen" aria-label="Index">
+        <header class="screen-header">
+          <button type="button" class="btn btn-icon ghost" id="btn-index-back" aria-label="Back" title="Back"><span data-icon="back"></span></button>
+          <div class="screen-heading"><p class="eyebrow eyebrow-aura">Ask or search</p><h1 class="screen-title">Index</h1></div>
         </header>
-        <div class="search-wrap" role="search" aria-label="Search apps, files, settings, actions">
-          <label class="visually-hidden" for="index-query">Search</label>
-          <input type="search" id="index-query" placeholder="Search apps, files, settings, actions…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="index-results">
-          <button class="icon-btn" id="btn-index-clear" aria-label="Clear search">×</button>
+        <div class="search-field index-field" role="search">
+          <span data-icon="search"></span>
+          <label class="visually-hidden" for="index-query">Search apps, settings and files, or ask Aura</label>
+          <input type="search" class="field" id="index-query" placeholder="Search, or ask Aura to do something" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="index-results" maxlength="200">
+          <button type="button" class="btn btn-icon ghost" id="btn-index-clear" aria-label="Clear search" hidden><span data-icon="close"></span></button>
         </div>
-        <div id="index-results" class="index-results" role="listbox" aria-label="Search results"></div>
-        <p class="index-hint">Results are simulated mock data. No real device data is accessed.</p>
+        <div id="index-results" class="index-results" role="listbox" aria-label="Results"></div>
+        <div id="index-empty" hidden></div>
+        <p class="index-hint">Results come from this browser prototype: simulated apps, the Settings registry and mock files. Aura commands that change anything ask you to review first.</p>
       </section>
 
       <!-- Aura Plan: rendered by review.js -->

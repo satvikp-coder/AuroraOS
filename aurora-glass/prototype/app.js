@@ -251,52 +251,208 @@
     else showToast(r.reason, { tone: "error" });
   }
 
-  // ---------- Index ----------
-  // Screens may contribute searchable items: fn(query) -> [{kind, label, meta, action?}]. Text only, never HTML.
+  // ---------- Index (Ask + Search) ----------
+  // Sources contribute items; each item is {group, kind, label, meta, tile|icon, chip?, risk?, muted?, rank, action}.
+  // Screens may add sources: fn(query) -> [{kind, label, meta, action}] (text only, never HTML).
   const indexSources = [];
-  const mockIndex = [
-    { kind: "App", label: "Notes", meta: "Open notes" },
-    { kind: "App", label: "Files", meta: "Browse files" },
-    { kind: "App", label: "Calculator", meta: "Calculate" },
-    { kind: "App", label: "Clock", meta: "Timer & alarm" },
-    { kind: "Setting", label: "Display", meta: "Brightness, dark mode" },
-    { kind: "Setting", label: "Passport", meta: "Permissions & access" },
-    { kind: "Action", label: "Quick Center", meta: "Tiles & sliders" },
-    { kind: "Action", label: "Vault export", meta: "Export user files" },
+  const INDEX_GROUPS = [["aura", "Aura"], ["suggest", "Try asking"], ["apps", "Apps"], ["settings", "Settings"], ["files", "Files"], ["actions", "Actions"]];
+  const KIND_GROUP = { App: "apps", Setting: "settings", File: "files", Action: "actions", Aura: "aura" };
+  const SUGGESTIONS = ["Prepare my phone for studying", "Start a 10 minute timer", "Turn on focus mode", "Open Notes"];
+  const SYSTEM_ACTIONS = [
+    { label: "Quick Center", meta: "Brightness, volume and quick toggles", icon: "quick", keywords: ["tiles", "sliders", "wifi", "brightness", "volume", "battery"], go: "screen-quick" },
+    { label: "Pages", meta: "Open apps and simulated memory", icon: "pages", keywords: ["multitasking", "memory", "switch"], go: "screen-pages" },
+    { label: "Spaces", meta: "Switch, create or rename a Space", icon: "spaces", keywords: ["workspace", "context"], go: "screen-spaces" },
+    { label: "Home", meta: "Go to the Desk", icon: "home", keywords: ["desk", "start"], go: "screen-home" },
   ];
+  const MAX_PER_GROUP = 6, MAX_TOTAL = 20;
+  const idx = { items: [], active: -1, navigated: false };
+  let idxAnnounce = null;
 
-  function renderIndex() {
-    const box = document.getElementById("index-results");
-    const input = document.getElementById("index-query");
-    if (!box || !input) return;
-    const q = state.indexQuery.toLowerCase();
-    box.replaceChildren();
-    let results = mockIndex.filter((i) => i.label.toLowerCase().includes(q) || i.meta.toLowerCase().includes(q));
-    indexSources.forEach((fn) => { results = results.concat(fn(state.indexQuery) || []); });
-    input.setAttribute("aria-expanded", results.length > 0 ? "true" : "false");
-    results.forEach((item) => {
-      box.appendChild(el("div", {
-        class: "index-result", role: "option", tabindex: 0, "aria-label": item.kind + ": " + item.label + ", " + item.meta,
-        onclick: () => selectIndex(item),
-        onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectIndex(item); } },
-      }, [el("strong", { text: item.label }), el("span", { class: "meta", text: item.kind + " · " + item.meta })]));
-    });
-    input.setAttribute("aria-controls", results.length ? box.id : "");
-    announce(results.length + " results");
+  /** 0 label prefix, 1 word prefix, 2 substring, 3 keyword; -1 no match. */
+  function rankOf(q, label, keywords) {
+    if (!q) return 0;
+    const l = String(label).toLowerCase();
+    if (l.startsWith(q)) return 0;
+    if (l.split(/[\s\-_.·]+/).some((w) => w.startsWith(q))) return 1;
+    if (l.includes(q)) return 2;
+    if ((keywords || []).some((k) => String(k).toLowerCase().includes(q))) return 3;
+    return -1;
   }
 
-  function selectIndex(item) {
-    if (typeof item.action === "function") { announce("Opening " + item.label); item.action(); return; }
-    announce("Selected " + item.label);
-    showToast("Opened " + item.label + " (simulated)");
-    showScreen(HOME);
+  function appItems(q) {
+    const out = [];
+    appList.forEach((a) => {
+      const r = rankOf(q, a.name, a.keywords);
+      if (r < 0) return;
+      const later = a.system && !(a.screen && screenEl(a.screen));
+      out.push({ group: "apps", kind: "App", label: a.name, meta: later ? "Arrives in a later milestone" : "Open " + a.name, tile: a, rank: r, muted: later, action: () => openApp(a.id) });
+    });
+    return out;
+  }
+
+  function fileItems(q) {
+    if (!q || !window.AuroraSystem) return [];
+    const out = [];
+    window.AuroraSystem.files.list().forEach((f) => {
+      const sp = spaceName(f.space);
+      const r = rankOf(q, f.name, [f.kind, sp]);
+      if (r < 0) return;
+      out.push({ group: "files", kind: "File", label: f.name, meta: sp + " · " + Math.max(1, Math.round(f.size / 1024)) + " KB · mock file", icon: f.kind === "image" ? "image" : "file", rank: r, action: () => openApp("vault") });
+    });
+    return out;
+  }
+
+  function actionItems(q) {
+    const out = [];
+    SYSTEM_ACTIONS.forEach((a) => {
+      const r = rankOf(q, a.label, a.keywords.concat([a.meta]));
+      if (r < 0 || !q) return;
+      out.push({ group: "actions", kind: "Action", label: a.label, meta: a.meta, icon: a.icon, rank: r, action: () => showScreen(a.go) });
+    });
+    return out;
+  }
+
+  function spaceName(id) { const s = spaceById(id); return s ? s.name : id; }
+
+  function sourceItems(q) {
+    const out = [];
+    indexSources.forEach((fn) => {
+      let list = [];
+      try { list = fn(q) || []; } catch (e) { list = []; }
+      list.forEach((it) => {
+        const r = rankOf(q.toLowerCase(), it.label, []);
+        out.push({ group: KIND_GROUP[it.kind] || "actions", kind: it.kind, label: it.label, meta: it.meta, icon: it.icon || "settings", rank: r < 0 ? 4 : r, action: it.action });
+      });
+    });
+    return out;
+  }
+
+  function auraItem(q) {
+    const R = window.AuroraReview, m = models();
+    if (!R || !q) return null;
+    const d = R.describeCommand(q);
+    if (!d) return null;
+    if (m && m.qs.get("auraMode") === "off") return { group: "aura", kind: "Aura", label: "Aura is off", meta: "Turn it on in Quick Center to run commands", icon: "aura", muted: true, rank: 0, action: () => showScreen("screen-quick") };
+    const pv = d.preview || {};
+    const steps = pv.steps || [];
+    let meta;
+    if (steps.some((s) => s.decision === "deny")) meta = "Blocked in Passport";
+    else if (steps.some((s) => s.supported === false)) meta = "Not available in this prototype";
+    else if (d.kind === "plan") meta = "Opens a plan to review. Nothing runs yet.";
+    else if (!pv.needsReview) meta = pv.expectedRollback === "full" ? "Runs now. You can undo it." : "Runs now";
+    else meta = "Asks you to review first";
+    return { group: "aura", kind: "Aura", label: d.title, meta, icon: "aura", risk: pv.risk, rank: 0, action: () => runAura(q) };
+  }
+
+  /** Quick Command from Index. A plan opens the trusted review screen; an S0 action runs and offers Undo only if the broker says it can. */
+  async function runAura(text) {
+    const R = window.AuroraReview, S = window.AuroraSystem;
+    if (!R) return;
+    const out = await R.ask(text);
+    if (!out || !out.ok || !out.steps) return;                       // plans (no steps yet), cancelled, refused or failed: already explained
+    const step = out.steps.find((x) => x.status === "done" && x.receiptId);
+    if (!step) return;
+    const rec = S.receipts().find((r) => r.id === step.receiptId);
+    const title = rec ? rec.describe.title : "Done";
+    if (rec && rec.undoState === "available") {
+      UI.toast(title + " · done", { action: { label: "Undo", run: async () => { const u = await S.undo(step.receiptId); UI.toast(u.ok ? "Undone: " + title : u.text, { tone: u.ok ? "ok" : "error" }); } } });
+    } else UI.toast(title + " · done", { tone: "ok" });
+  }
+
+  function collectIndex(q) {
+    const lq = q.trim().toLowerCase();
+    const items = [];
+    if (!lq) {
+      SUGGESTIONS.forEach((t) => items.push({ group: "suggest", kind: "Suggestion", label: t, meta: "Try this command", icon: "aura", rank: 0, action: () => openIndex(t) }));
+      return items.concat(appItems(""));
+    }
+    const a = auraItem(q.trim()); if (a) items.push(a);
+    return items.concat(appItems(lq), sourceItems(q.trim()), fileItems(lq), actionItems(lq));
+  }
+
+  function groupAndLimit(items, perGroup) {
+    const out = [];
+    INDEX_GROUPS.forEach(([g]) => {
+      const mine = items.filter((i) => i.group === g).map((i, n) => Object.assign({ n }, i)).sort((x, y) => x.rank - y.rank || x.n - y.n).slice(0, perGroup);
+      mine.forEach((i) => { if (out.length < MAX_TOTAL) out.push(i); });
+    });
+    return out;
+  }
+
+  function optionEl(it, i) {
+    const lead = it.tile ? UI.appTile(it.tile.icon, it.tile.hue, "sm") : el("span", { class: "index-icon", "aria-hidden": "true" }, [UI.icon(it.icon || "info")]);
+    const trailing = it.risk ? UI.riskBadge(it.risk, true) : (it.muted ? UI.chip("Not yet", "muted") : null);
+    return el("div", {
+      class: "index-result" + (it.muted ? " is-muted" : ""), role: "option", id: "idx-opt-" + i, "aria-selected": "false", "aria-describedby": "idx-g-" + it.group, "data-group": it.group,
+      onclick: () => activateIndex(i),
+    }, [lead, el("span", { class: "index-text" }, [el("strong", { class: "index-title", text: it.label }), el("span", { class: "meta", text: it.kind + " · " + it.meta })]), trailing]);
+  }
+
+  function renderIndex() {
+    const box = $("index-results"), input = $("index-query");
+    if (!box || !input) return;
+    const q = state.indexQuery;
+    const items = groupAndLimit(collectIndex(q), q.trim() ? MAX_PER_GROUP : 12);
+    idx.items = items; idx.navigated = false;
+    box.replaceChildren();
+    let lastGroup = null;
+    items.forEach((it, i) => {
+      if (it.group !== lastGroup) {
+        lastGroup = it.group;
+        box.appendChild(el("div", { class: "index-group", role: "presentation", id: "idx-g-" + it.group, text: INDEX_GROUPS.find((g) => g[0] === it.group)[1] }));
+      }
+      box.appendChild(optionEl(it, i));
+    });
+    const emptyBox = $("index-empty");
+    if (emptyBox) {
+      emptyBox.replaceChildren(); emptyBox.hidden = items.length > 0;
+      if (!items.length) {
+        const row = el("div", { class: "index-suggest-row" }, SUGGESTIONS.slice(0, 3).map((t) => el("button", { type: "button", class: "btn outline btn-small", text: t, onclick: () => openIndex(t) })));
+        emptyBox.appendChild(UI.emptyState("search", "No results", "Nothing matches \u201c" + q.trim() + "\u201d. Try asking:", row));
+      }
+    }
+    box.hidden = items.length === 0;
+    const clear = $("btn-index-clear"); if (clear) clear.hidden = !q;
+    input.setAttribute("aria-expanded", items.length ? "true" : "false");
+    setActive(items.length ? 0 : -1);
+    clearTimeout(idxAnnounce);
+    idxAnnounce = setTimeout(() => announce(items.length ? items.length + (items.length === 1 ? " result" : " results") : "No results"), 250);
+  }
+
+  function setActive(i, scroll) {
+    const input = $("index-query"), box = $("index-results");
+    if (!box) return;
+    idx.active = i;
+    box.querySelectorAll(".index-result").forEach((n, k) => { const on = k === i; n.classList.toggle("is-active", on); n.setAttribute("aria-selected", String(on)); if (on && scroll) n.scrollIntoView({ block: "nearest" }); });
+    if (input) { if (i >= 0) input.setAttribute("aria-activedescendant", "idx-opt-" + i); else input.removeAttribute("aria-activedescendant"); }
+  }
+
+  function activateIndex(i) {
+    const it = idx.items[i];
+    if (!it || typeof it.action !== "function") return;
+    announce("Opening " + it.label);
+    it.action();
+  }
+
+  function onIndexKey(e) {
+    const n = idx.items.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (!n) return;
+      e.preventDefault(); idx.navigated = true;
+      setActive(e.key === "ArrowDown" ? (idx.active + 1) % n : (idx.active - 1 + n) % n, true);
+    } else if ((e.key === "Home" || e.key === "End") && idx.navigated && n) {
+      e.preventDefault(); setActive(e.key === "Home" ? 0 : n - 1, true);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (n) activateIndex(idx.active >= 0 ? idx.active : 0);
+    }
   }
 
   /** Show Index, set and focus the query, and render the results. */
   function openIndex(query) {
     const q = typeof query === "string" ? query : "";
     showScreen("screen-index", { focus: false });
-    const input = document.getElementById("index-query");
+    const input = $("index-query");
     state.indexQuery = q;
     if (input) { input.value = q; input.focus(); }
     renderIndex();
@@ -487,9 +643,7 @@
     const input = document.getElementById("index-query");
     if (input) {
       input.addEventListener("input", (e) => { state.indexQuery = e.target.value; renderIndex(); });
-      input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") { e.preventDefault(); const first = document.querySelector("#index-results .index-result"); if (first) first.click(); }
-      });
+      input.addEventListener("keydown", onIndexKey);
     }
     const clear = document.getElementById("btn-index-clear");
     if (clear) clear.addEventListener("click", () => { if (input) { input.value = ""; input.focus(); } state.indexQuery = ""; renderIndex(); });

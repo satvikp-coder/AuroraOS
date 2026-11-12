@@ -177,7 +177,7 @@ the reset confirmation in Settings is still the inline panel until S6.
 - Test: `shell.test.js` Spaces block including the injection name; existing "switches between Spaces" spec.
 - Depends on: S2.
 
-### S5. Index (Ask + Search) — `not started`
+### S5. Index (Ask + Search) — `done` (tests/ui-golden/index.test.js, 37 specs; screenshots inspected: Index empty at 390 light, Aura row at 1280 dark; the no-match state and 360/200% layouts are covered by assertions only)
 
 - Files: `app.js`, `shell.css`, `index.html`.
 - Structure: `.search-field` with `#index-query` (`role="combobox"`, `aria-controls="index-results"`,
