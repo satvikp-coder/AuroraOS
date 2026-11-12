@@ -297,7 +297,7 @@
       const sp = spaceName(f.space);
       const r = rankOf(q, f.name, [f.kind, sp]);
       if (r < 0) return;
-      out.push({ group: "files", kind: "File", label: f.name, meta: sp + " · " + Math.max(1, Math.round(f.size / 1024)) + " KB · mock file", icon: f.kind === "image" ? "image" : "file", rank: r, action: () => openApp("vault") });
+      out.push({ group: "files", kind: "File", label: f.name, meta: sp + " · " + Math.max(1, Math.round(f.size / 1024)) + " KB · mock file", icon: f.kind === "image" ? "image" : "file", rank: r, action: () => { openApp("vault"); if (window.AuroraVault) window.AuroraVault.preview(f.id); } });
     });
     return out;
   }
@@ -770,7 +770,7 @@
   // Built-in apps. Hues follow docs/agents/AURORA_UI_TASKS.md S2.
   [
     { id: "notes", name: "Notes", hue: 42, memMB: 180, keywords: ["write", "text", "memo"] },
-    { id: "files", name: "Files", hue: 212, memMB: 240, keywords: ["documents", "folder", "vault"] },
+    { id: "files", name: "Files", hue: 212, memMB: 240, screen: "screen-vault", keywords: ["documents", "folder", "vault"] },
     { id: "calculator", name: "Calculator", hue: 228, memMB: 60, keywords: ["math", "numbers"] },
     { id: "clock", name: "Clock", hue: 262, memMB: 90, keywords: ["timer", "stopwatch", "alarm"] },
     { id: "settings", name: "Settings", hue: 220, memMB: 120, screen: "screen-settings", keywords: ["preferences", "options"] },

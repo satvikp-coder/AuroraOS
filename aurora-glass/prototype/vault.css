@@ -1,0 +1,61 @@
+/* aurora-glass/prototype/vault.css — layout for the Vault screen only. Filter chips, the two-column layout and the fact list reuse
+ * the Trail classes (trail.css is always loaded before this file); everything else is Vault's own. */
+
+#screen-vault { max-width: 1100px; }
+.vault-toolbar { display: grid; gap: var(--space-3); }
+.vault-row2 { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.vault-sort { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.vault-sort select { min-height: var(--touch-target); }
+.vault-sort .btn, .vault-row2 > .btn { min-height: var(--touch-target); }
+
+.vault-layout.is-wide { grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); }
+.vault-main { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+
+.vault-selbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); }   /* not sticky: a fixed bar would slide under the Glass Corner */
+.vault-selcount { font-weight: var(--weight-bold); }
+
+.vault-list, .vault-grid { list-style: none; margin: 0; padding: 0; min-width: 0; }
+.vault-list { display: flex; flex-direction: column; background: var(--color-surface-opaque); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-card); overflow: hidden; }
+.vault-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: var(--space-3); }
+
+.vault-item { position: relative; display: flex; align-items: stretch; min-width: 0; }
+.vault-list .vault-item { border-top: var(--border-width) solid var(--color-border); }
+.vault-list .vault-item:first-child { border-top: 0; }
+.vault-grid .vault-item { background: var(--color-surface-opaque); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-card); }
+.vault-item.is-selected { background: var(--color-accent-soft); box-shadow: inset 3px 0 0 var(--color-accent); }
+.vault-item.is-open { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+:root[data-contrast="high"] .vault-item.is-selected { outline: 3px solid var(--color-ink); outline-offset: -3px; }
+
+.vault-open { flex: 1 1 auto; min-width: 0; min-height: 60px; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: transparent; border: 0; color: var(--color-ink); font: inherit; text-align: left; cursor: pointer; }
+.vault-open:hover { background: var(--color-surface-hover); }
+.vault-open:focus-visible { outline-offset: -3px; }
+.vault-grid .vault-open { flex-direction: column; align-items: flex-start; padding: var(--space-4) var(--space-3); }
+.vault-kind { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 40px; height: 40px; border-radius: var(--radius-control); background: var(--color-surface-sunken); color: var(--color-ink-muted); }
+.vault-kind.big { width: 48px; height: 48px; }
+.vault-text { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1; }
+.vault-name { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.vault-meta { font-size: var(--text-sm); color: var(--color-ink-muted); overflow-wrap: anywhere; }
+.vault-check { flex: none; width: var(--touch-target); min-height: var(--touch-target); margin-left: var(--space-1); display: inline-flex; align-items: center; justify-content: center; align-self: center; background: transparent; border: 2px solid var(--color-border); border-radius: var(--radius-control); color: var(--color-ink); cursor: pointer; }
+.vault-check[aria-checked="true"] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent, #fff); }
+
+.vault-preview { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.vault-layout.is-wide .vault-preview { position: sticky; top: var(--space-4); }
+.vault-preview-head { display: flex; align-items: flex-start; gap: var(--space-3); }
+.vault-preview-title { flex: 1; min-width: 0; }
+.vault-preview-title h3 { margin: 0; overflow-wrap: anywhere; }
+.vault-text-preview { margin: 0; padding: var(--space-3); max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-sm); background: var(--color-surface-sunken); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-control); }
+.vault-placeholder { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border: 2px dashed var(--color-border); border-radius: var(--radius-control); color: var(--color-ink-muted); font-size: var(--text-sm); }
+.vault-perms { display: flex; flex-direction: column; gap: var(--space-2); }
+.vault-perm-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); }
+
+.vault-result { flex-wrap: wrap; align-items: center; }
+.vault-result-text { flex: 1 1 24ch; min-width: 0; overflow-wrap: anywhere; }
+.vault-result-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.callout-ok { background: var(--color-success-soft); }
+.callout-ok .icon { color: var(--color-success); }
+.btn-link:focus-visible { outline: 3px solid var(--color-focus, var(--color-accent)); outline-offset: 2px; }
+
+@media (max-width: 420px) { .vault-row2 { align-items: stretch; } .vault-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* The fixed Glass Corner floats over the top right of the viewport. Keep the full-width search field clear of it, so it is never under the corner once the page has scrolled. */
+@media (max-width: 1023px) { .vault-toolbar > .search-field { margin-right: calc(var(--touch-target) + var(--space-2)); } }

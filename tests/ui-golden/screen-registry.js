@@ -67,4 +67,16 @@ registerScreen({
   },
 });
 
+registerScreen({ id: "screen-vault-list", label: "Vault (list)", root: "#screen-vault", open: (page) => ev(page, () => { window.AuroraShell.openApp("vault"); }) });
+registerScreen({ id: "screen-vault-preview", label: "Vault (grid, selection, preview)", root: "#screen-vault", open: async (page) => { await ev(page, () => { window.AuroraShell.openApp("vault"); }); await page.getByRole("radio", { name: "Grid" }).click(); if ((await page.locator("#vault-preview .vault-preview-head").count()) === 0) await page.locator('#screen-vault [data-file="budget-q4"] .vault-open').click(); const sel = page.locator("#btn-vault-select"); if ((await sel.getAttribute("aria-pressed")) !== "true") await sel.click(); const cb = page.locator('#screen-vault [data-file="budget-q4"] .vault-check'); if ((await cb.getAttribute("aria-checked")) !== "true") await cb.click();
+  // Playwright scrolls a control into view before clicking it, and where that lands depends on font metrics (it differed between
+  // local runs and CI). The matrix inspects a screen as freshly opened, so start every visit from the top: deterministic everywhere.
+  await ev(page, () => { window.scrollTo(0, 0); document.querySelectorAll(".screen, .content, #app").forEach((el) => { el.scrollTop = 0; }); });
+} });
+registerScreen({
+  id: "dialog-vault-move", label: "Vault move picker", root: ".dialog",
+  open: async (page) => { await ev(page, () => { window.AuroraShell.openApp("vault"); window.AuroraVault.preview("timetable"); }); await page.locator("#btn-vault-preview-move").click(); await page.locator("#vault-move-dialog").waitFor(); },
+  close: async (page) => { await page.keyboard.press("Escape"); await page.locator(".dialog").waitFor({ state: "detached" }); },
+});
+
 module.exports = { SCREENS, registerScreen };

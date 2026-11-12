@@ -54,13 +54,17 @@ test.describe("Index: empty query", () => {
   });
 
   test("apps that are not built yet are shown honestly", async ({ page }) => {
-    await openIndex(page, "vault");
+    // A synthetic system app with no screen: independent of which real apps (Passport, Trail, Vault...) have shipped.
+    await page.goto(BASE_URL);
+    await ev(page, () => window.AuroraShell.registerApp({ id: "zz-later", name: "Zz Later App", system: true, screen: "screen-zz-later", hue: 20 }));
+    await page.keyboard.press("Control+k");
+    await page.locator("#index-query").fill("zz later");
     const row = opts(page).first();
-    await expect(row).toContainText("Vault");
+    await expect(row).toContainText("Zz Later App");
     await expect(row).toContainText("Arrives in a later milestone");
     await expect(row).toContainText("Not yet");
     await row.click();
-    await expect(page.locator("#toast")).toContainText("Vault arrives in a later milestone");
+    await expect(page.locator("#toast")).toContainText("Zz Later App arrives in a later milestone");
     await expect(page.locator("#screen-index")).toBeVisible();
   });
 });
