@@ -183,25 +183,39 @@
 
   /** Segmented control (radio group). options: [{value, label, icon?}] */
   function segmented(name, options, value, onChange) {
+    // options: [{value, label, icon?, disabled?, describedBy?}]. A disabled option cannot be chosen (and is skipped by the arrow keys);
+    // describedBy points at visible text that says why. onChange(v) may return false to refuse: the control then shows the previous value.
     const group = el("div", { class: "segmented", role: "radiogroup", "aria-label": name });
+    let current = value;
     function select(v, focus) {
+      current = v;
       group.querySelectorAll("button").forEach((b) => {
         const on = b.dataset.value === v;
         b.setAttribute("aria-checked", String(on)); b.tabIndex = on ? 0 : -1;
         if (on && focus) b.focus();
       });
     }
+    function choose(v, focus) {
+      const o = options.find((x) => x.value === v);
+      if (!o || o.disabled) return;
+      const prev = current;
+      select(v, focus);
+      if (onChange(v) === false) select(prev, focus);
+    }
     options.forEach((o) => {
-      group.appendChild(el("button", { type: "button", role: "radio", class: "segment", dataset: { value: o.value }, "aria-label": o.icon ? o.label : undefined,
-        onclick: () => { select(o.value); onChange(o.value); } }, [o.icon ? icon(o.icon) : null, o.icon ? null : el("span", { text: o.label })]));
+      group.appendChild(el("button", { type: "button", role: "radio", class: "segment", dataset: { value: o.value }, "aria-label": o.icon ? o.label : undefined, disabled: o.disabled ? true : undefined,
+        "aria-describedby": o.describedBy, onclick: () => choose(o.value, false) }, [o.icon ? icon(o.icon) : null, o.icon ? null : el("span", { text: o.label })]));
     });
     group.addEventListener("keydown", (e) => {
-      const i = options.findIndex((o) => o.value === group.querySelector('[aria-checked="true"]').dataset.value);
-      let j = -1;
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") j = (i + 1) % options.length;
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp") j = (i + options.length - 1) % options.length;
-      if (j >= 0) { e.preventDefault(); select(options[j].value, true); onChange(options[j].value); }
+      const dir = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+      if (!dir) return;
+      let k = options.findIndex((o) => o.value === current);
+      for (let step = 0; step < options.length; step++) {
+        k = (k + dir + options.length) % options.length;
+        if (!options[k].disabled) { e.preventDefault(); choose(options[k].value, true); return; }
+      }
     });
+    group.setValue = (v) => select(v);          // reflect a stored value without calling onChange
     select(value);
     return group;
   }

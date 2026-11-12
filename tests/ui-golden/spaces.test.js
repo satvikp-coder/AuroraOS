@@ -23,8 +23,8 @@ test.describe("Spaces: cards", () => {
     const study = card(page, "study");
     await expect(study.locator("h3")).toHaveText("Study");
     await expect(study.locator(".space-card-desc")).toHaveText("Notes, focus timer, reading list");
-    await expect(study.locator(".space-pins .app-tile")).toHaveCount(6);
-    await expect(study.locator(".space-pins")).toHaveAccessibleName("Pinned in Study: Notes, Clock, Calculator, Settings, Calendar, Files");
+    await expect(study.locator(".space-pins .app-tile")).toHaveCount(7);
+    await expect(study.locator(".space-pins")).toHaveAccessibleName("Pinned in Study: Notes, Clock, Calculator, Settings, Calendar, Files, Passport");
     await expect(study.locator(".space-pages")).toHaveText("2 pages open");
     await expect(study).toHaveClass(/selected/);
     await expect(study.locator(".space-switch")).toHaveAttribute("aria-current", "true");
@@ -74,7 +74,7 @@ test.describe("Spaces: cards", () => {
     await page.locator("#dock-home").click();
     await expect(page.locator("#home-space-name")).toHaveText("Personal");
     await expect(page.locator("#screen-home .space-chip")).toHaveText("Personal");
-    expect(await page.locator("#home-pins .pin-btn").evaluateAll((n) => n.map((b) => b.dataset.app))).toEqual(["notes", "calendar", "clock", "settings"]);
+    expect(await page.locator("#home-pins .pin-btn").evaluateAll((n) => n.map((b) => b.dataset.app))).toEqual(["notes", "calendar", "clock", "settings", "passport"]);
   });
 
   test("Back returns to where you came from", async ({ page }) => {

@@ -301,7 +301,7 @@ without a prompt and Index says "Runs now". Either enforce a review in Ask mode 
 
 ---
 
-## M2. Passport — `not started` — branch `feature/aurora-passport` (from M1)
+## M2. Passport — `done, awaiting review` (PR stacked on #30; passport.test.js 42 + unit 13; 375 Playwright locally) — branch `feature/aurora-passport` (from M1)
 
 - Objective: permission management that changes real broker state.
 - Files: `passport.js`, `passport.css`, `tests/ui-golden/passport.test.js`, `tests/unit/passport.test.js` (if

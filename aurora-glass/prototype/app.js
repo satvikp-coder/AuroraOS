@@ -138,10 +138,10 @@
   const BAD_NAME = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩​-‏﻿]/;
   const MAX_SPACES = 8;
   const spaceList = [
-    { id: "study", name: "Study", description: "Notes, focus timer, reading list", hue: 215, pinned: ["notes", "clock", "calculator", "settings", "calendar", "files"], builtin: true },
-    { id: "work", name: "Work", description: "Projects, files, meetings", hue: 235, pinned: ["files", "notes", "calendar", "settings"], builtin: true },
-    { id: "projects", name: "Projects", description: "Active builds, drafts, reviews", hue: 190, pinned: ["files", "notes", "calculator", "settings"], builtin: true },
-    { id: "personal", name: "Personal", description: "Journal, photos, reminders", hue: 300, pinned: ["notes", "calendar", "clock", "settings"], builtin: true },
+    { id: "study", name: "Study", description: "Notes, focus timer, reading list", hue: 215, pinned: ["notes", "clock", "calculator", "settings", "calendar", "files", "passport"], builtin: true },
+    { id: "work", name: "Work", description: "Projects, files, meetings", hue: 235, pinned: ["files", "notes", "calendar", "settings", "passport"], builtin: true },
+    { id: "projects", name: "Projects", description: "Active builds, drafts, reviews", hue: 190, pinned: ["files", "notes", "calculator", "settings", "passport"], builtin: true },
+    { id: "personal", name: "Personal", description: "Journal, photos, reminders", hue: 300, pinned: ["notes", "calendar", "clock", "settings", "passport"], builtin: true },
   ];
   const spaceListeners = [];
   const spaces = () => spaceList.map((s) => Object.assign({}, s, { pinned: s.pinned.slice() }));

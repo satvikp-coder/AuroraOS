@@ -132,7 +132,7 @@ input[type="range"] { width: 100%; min-height: var(--touch-target); accent-color
 
 /* Segmented control */
 .segmented { display: inline-flex; padding: 3px; gap: 2px; border-radius: var(--radius-control); background: var(--color-surface-sunken); border: var(--border-width) solid var(--color-border); max-width: 100%; flex-wrap: wrap; }
-.segment { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); min-height: 42px; min-width: var(--touch-target); padding: 0 var(--space-3); border: 0; border-radius: 11px; background: transparent; color: var(--color-ink-muted); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.segment { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); min-height: 44px; min-width: var(--touch-target); padding: 0 var(--space-3); border: 0; border-radius: 11px; background: transparent; color: var(--color-ink-muted); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .segment[aria-checked="true"] { background: var(--color-surface-opaque); color: var(--color-ink); box-shadow: var(--shadow-1); font-weight: var(--weight-bold); }
 :root[data-contrast="high"] .segment[aria-checked="true"] { outline: 2px solid var(--color-border); outline-offset: -2px; }
 

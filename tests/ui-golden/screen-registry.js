@@ -45,4 +45,8 @@ registerScreen({
   close: async (page) => { await page.keyboard.press("Escape"); await page.locator(".dialog").waitFor({ state: "detached" }); },
 });
 
+registerScreen({ id: "screen-passport-overview", label: "Passport (overview)", root: "#screen-passport", open: (page) => ev(page, () => { window.AuroraShell.openApp("passport"); window.AuroraPassport.setTab("overview"); }) });
+registerScreen({ id: "screen-passport-apps", label: "Passport (apps)", root: "#screen-passport", open: (page) => ev(page, () => { window.AuroraShell.openApp("passport"); window.AuroraPassport.setTab("apps"); }) });
+registerScreen({ id: "screen-passport-activity", label: "Passport (activity)", root: "#screen-passport", open: (page) => ev(page, () => { window.AuroraShell.openApp("passport"); window.AuroraPassport.setTab("activity"); }) });
+
 module.exports = { SCREENS, registerScreen };

@@ -24,7 +24,7 @@ background, not current status.
 | M1 S8 Tests | done (324/324 Playwright, 5/5 unit locally; run leaves git status clean) |
 | M1 S9 Visual quality loop | done (see the S9 record in AURORA_UI_TASKS.md for exactly what was inspected) |
 | M1 S10 deliver | done except human review/merge; independent model review done, see AURORA_UI_TASKS.md S10 |
-| M2 Passport | implemented on `feature/aurora-passport` (stacked on M1); not yet pushed or PR'd at this point | (see `AURORA_UI_TASKS.md`; each step carries its own status) |
+| M2 Passport | done on `feature/aurora-passport` (stacked on #30), PR open; 375/375 Playwright and 6/6 unit locally | (see `AURORA_UI_TASKS.md`; each step carries its own status) |
 | M2 to M8 | not started |
 
 Verification honesty: only one screenshot (Aura Plan review at 390 px) has been inspected for the new design. The full
@@ -43,7 +43,7 @@ untracked PNGs this run created.
 
 ## Exact next task
 
-`AURORA_UI_TASKS.md` → **Get PR #30 reviewed by a human and merged; then rebase-free merge of `feature/aurora-passport`** (`git merge` the M1 branch into it, re-run the suite, push, open the M2 PR against main). Then M3 Trail.
+`AURORA_UI_TASKS.md` → **Get PR #30 reviewed and merged, then the Passport PR.** Next implementation task: **M3 Trail** on `feature/aurora-trail` (branch from `feature/aurora-passport`); Trail must claim `screen-trail` via `Shell.addScreen`.
 
 ```bash
 cd C:/Users/satvi/Desktop/AuroraOS-Claude
