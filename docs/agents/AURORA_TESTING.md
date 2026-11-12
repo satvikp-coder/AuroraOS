@@ -18,6 +18,7 @@ node tests/unit/aurora-glass.test.js   # structure of index.html, tokens, access
 node tests/unit/core.test.js           # Pages + quick-settings models
 node tests/unit/broker.test.js         # Action Broker contract (security)
 node tests/unit/settings.test.js       # settings registry
+node tests/unit/system.test.js         # system.js in a vm: permission policy, describe/explain, trusted surface, mock files
 # all of them:
 for f in tests/unit/*.test.js; do node "$f" || break; done
 ```
@@ -48,8 +49,11 @@ server, stop it first (`npx kill-port 3000`, or find the node process and end it
 `tests/ui-golden/layout-matrix.test.js` opens every screen at 360, 390, 412, 768, 1024, 1280 and 1440 px, in
 light/dark and Soft/Clear, in default mode and in accessibility mode (200% text, high contrast, reduced
 motion), and fails on: horizontal page scroll, controls outside the viewport, targets under 44 px, clipped
-headings, dock overflow. A wide-font stress run catches layouts that only fit with narrow glyphs.
-**Every new screen must be added to this matrix.**
+headings, dock overflow, controls under the Glass Corner, dialogs whose actions cannot be reached, console
+errors. A wide-font stress run (in settings.test.js) catches layouts that only fit with narrow glyphs.
+The matrix also has a 150% text mode. 28 viewport/theme/tier tests x 3 modes x every registered screen
+(924 states at the time of writing). **Every new screen must be added to the matrix** by calling
+`registerScreen({ id, label, root, open })` in `tests/ui-golden/screen-registry.js`.
 
 ```bash
 npx playwright test tests/ui-golden/layout-matrix.test.js --workers=1
@@ -57,12 +61,27 @@ npx playwright test tests/ui-golden/layout-matrix.test.js --workers=1
 
 ## Screenshots
 
-Routine runs write screenshots under `test-results/` (git-ignored). To refresh the curated reference set in
-`aurora-glass/screenshots/`:
+Every spec writes screenshots through `tests/ui-golden/shots.js`: to `test-results/` (git-ignored) normally, so a
+test run leaves `git status` clean (CI checks this). To refresh the curated reference set in
+`aurora-glass/screenshots/` deliberately:
 
 ```bash
-AURORA_SHOTS=1 npx playwright test -g "screenshot" --workers=1     # PowerShell: $env:AURORA_SHOTS=1; npx ...
+AURORA_SHOTS=1 npx playwright test --workers=1 tests/ui-golden/aurora-glass-browser.test.js   # PowerShell: $env:AURORA_SHOTS=1; npx ...
 ```
+
+## Spec files (what each one guards)
+
+| Spec | Guards |
+|---|---|
+| `shell.test.js` | AuroraShell contract: history/back, app registry and openApp results, Spaces API validation, global keys |
+| `home-dock.test.js` | Home (clock, Ask, Continue, pins, Space card, Aura suggestion, Horizon) and the Dock |
+| `spaces.test.js` | Spaces cards, create/rename/switch, limits, validation, renamed Spaces everywhere |
+| `index.test.js` | Index combobox, ranking, limits, keyboard, Aura commands and the broker boundary |
+| `screens.test.js` | Pages, Quick Center, Settings restyle, the simulated-failure switch, the shared reset dialog |
+| `glass-corner.test.js` | Held-items popover, badge, dismissal, Horizon as one status source |
+| `aura-plan.test.js` | Plan review/approval/undo/stop/failure, permissions, S3 hold, unsupported actions, Aura off |
+| `layout-matrix.test.js` | Layout across 7 viewports x themes x tiers x modes x all registered screens |
+| `pages-quick.test.js`, `settings.test.js`, `aurora-glass-browser.test.js` | Earlier specs; they guard ids, roles and data-* attributes the restyled screens must keep |
 
 Looking at screenshots is part of the work: open the PNGs (the Read tool renders them) and check composition,
 spacing, hierarchy, clipping and contrast. Automated checks do not replace this, and a report must say which

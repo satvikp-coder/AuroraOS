@@ -21,7 +21,8 @@ background, not current status.
 | M1 S5 Index | done (218/218 Playwright locally) |
 | M1 S6 Pages/Quick/Settings | done (238/238 Playwright locally) |
 | M1 S7 Glass Corner + Horizon | done (268/268 Playwright locally) |
-| M1 S8 to S10 | not done (see `AURORA_UI_TASKS.md`; each step carries its own status) |
+| M1 S8 Tests | done (324/324 Playwright, 5/5 unit locally; run leaves git status clean) |
+| M1 S9 to S10 | not done (see `AURORA_UI_TASKS.md`; each step carries its own status) |
 | M2 to M8 | not started |
 
 Verification honesty: only one screenshot (Aura Plan review at 390 px) has been inspected for the new design. The full
@@ -40,7 +41,7 @@ untracked PNGs this run created.
 
 ## Exact next task
 
-`AURORA_UI_TASKS.md` → **M1 / S8 "Tests"** (screenshots to testInfo.outputPath, aura-plan, layout-matrix, system.test.js, CI list), then S9, S10 (S1 to S7 are done).
+`AURORA_UI_TASKS.md` → **M1 / S9 "Visual quality loop"** (inspect screenshots, regenerate the curated set with AURORA_SHOTS=1), then S10 (S1 to S8 are done).
 
 ```bash
 cd C:/Users/satvi/Desktop/AuroraOS-Claude

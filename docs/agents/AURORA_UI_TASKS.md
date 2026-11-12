@@ -229,7 +229,7 @@ the reset confirmation in Settings is still the inline panel until S6.
   Escape closes and restores focus, empty state on fresh load.
 - Depends on: S3, S5.
 
-### S8. Tests — `not started`
+### S8. Tests — `done` (aura-plan 28, layout-matrix 28 tests = 924 states, system.test.js 21, shots.js; full suite 324 Playwright + 5 unit locally; CI list updated)
 
 - Files: `tests/ui-golden/aurora-glass-browser.test.js`, `pages-quick.test.js`, `settings.test.js`,
   new `shell.test.js`, new `aura-plan.test.js`, new `layout-matrix.test.js`, `tests/unit/aurora-glass.test.js`,
