@@ -211,6 +211,8 @@
 @media (prefers-reduced-motion: reduce) {
   :root { --motion-fast: 0ms; --motion-base: 0ms; --motion-slow: 0ms; --ease-standard: linear; }
 }
+/* Manual override (Settings > Reduce motion): same result as the OS preference. */
+:root[data-motion="reduce"] { --motion-fast: 0ms; --motion-base: 0ms; --motion-slow: 0ms; --ease-standard: linear; }
 
 /* ---------- Breakpoints (reference values; media queries cannot read custom properties) ---------- */
 :root {

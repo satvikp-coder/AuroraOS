@@ -116,6 +116,8 @@ test.describe("Settings: real effects in the prototype", () => {
   test("a finished Aura study plan turns focus on in Settings too", async ({ page }) => {
     await page.goto(BASE_URL);
     await page.locator("#btn-aura-study").click();
+    await page.locator("#btn-plan-confirm").click();
+    await page.locator("#btn-plan-run").click();
     await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });
     await page.locator("#btn-receipt-close").click();
     await page.getByRole("button", { name: "Open Settings" }).click();

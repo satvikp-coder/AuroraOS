@@ -1,39 +1,228 @@
-/* aurora-glass/app.js — Aurora Glass prototype interaction logic
- * Simulated host-browser demo only. This prototype never controls a real OS
- * or device. State is mock; all Aura operations are simulated.
+/* aurora-glass/prototype/app.js — the Aurora Glass shell (window.AuroraShell).
+ *
+ * Owns: screens and navigation history, the app registry, Spaces, Index search, theme/tier/contrast/motion.
+ * SIMULATION ONLY: this is a browser prototype. It never controls a real OS or device.
+ * Aura plans, approvals and receipts live in review.js / system.js; this file only navigates.
+ * Contract: docs/agents/AURORA_ARCHITECTURE.md sections 3 and 4. All text goes through textContent.
  */
-
 (function () {
-  const root = document.documentElement;
-  const app = document.getElementById("app");
-  const content = document.getElementById("content");
-  const live = document.getElementById("a11y-live");
-  const toastEl = document.getElementById("toast");
+  "use strict";
+  const UI = window.AuroraUI;
+  if (!UI) return;
+  const { el } = UI;
 
-  // ---------- Mock state ----------
+  const root = document.documentElement;
+  const content = document.getElementById("content");
+
   const state = {
     theme: "light",
     tier: "soft",
     contrast: "normal",
-    width: "auto",
     motion: "normal",
     activeScreen: "screen-home",
     activeSpace: "study",
-    auraFlow: "success", // success | failure
-    planStep: 0,
-    planRunning: false,
-    planComplete: false,
-    planFailed: false,
     indexQuery: "",
   };
 
-  const spaces = [
-    { id: "study", name: "Study", accent: "var(--color-accent)" },
-    { id: "work", name: "Work", accent: "var(--color-accent)" },
-    { id: "projects", name: "Projects", accent: "var(--color-aura)" },
-    { id: "personal", name: "Personal", accent: "var(--color-aura)" },
-  ];
+  const HOME = "screen-home";
+  const MAX_HISTORY = 40;
+  const history = [HOME];
+  const screenListeners = [];
 
+  // ---------- Helpers ----------
+  const announce = (text) => UI.announce(text);
+  const showToast = (text, opts) => UI.toast(text, typeof opts === "number" ? { ms: opts } : opts);
+  const models = () => window.AuroraModels || null;
+
+  // ---------- Screens and navigation ----------
+  function screenEl(id) { return typeof id === "string" ? document.getElementById(id) : null; }
+
+  function addScreen(id, label) {
+    const existing = screenEl(id);
+    if (existing) return existing;
+    const s = el("section", { id, class: "screen", "aria-label": label || id });
+    content.appendChild(s);
+    return s;
+  }
+
+  function syncDock() {
+    document.querySelectorAll(".dock-btn").forEach((b) => {
+      const isCurrent = b.id !== "dock-back" && b.getAttribute("data-target") === state.activeScreen;
+      b.classList.toggle("active", isCurrent);
+      if (isCurrent) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    });
+  }
+
+  function focusScreen(s) {
+    const h = s.querySelector("h1");
+    if (h) { if (!h.hasAttribute("tabindex")) h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); return; }
+    const first = s.querySelector("button, [href], input, select, textarea, [tabindex='0']");
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  /** Activate a screen. push=false is used by back(). Returns the id shown, or null for an unknown screen. */
+  function showScreen(id, opts) {
+    const o = Object.assign({ push: true, focus: true }, opts || {});
+    const s = screenEl(id);
+    if (!s || !s.classList.contains("screen")) return null;
+    document.querySelectorAll("#app .screen").forEach((n) => n.classList.remove("active"));
+    s.classList.add("active");
+    state.activeScreen = id;
+    if (o.push) {
+      if (id === HOME) history.length = 0;
+      if (history[history.length - 1] !== id) history.push(id);
+      if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
+    }
+    announce("Screen changed: " + (s.getAttribute("aria-label") || id));
+    if (o.focus) focusScreen(s);
+    content.scrollTop = 0;
+    window.scrollTo(0, 0);
+    syncDock();
+    screenListeners.slice().forEach((fn) => fn(id));
+    return id;
+  }
+
+  /** Go to the previous screen (Home when there is none). Returns the screen shown. */
+  function back() {
+    if (history.length > 1) history.pop();
+    const target = history[history.length - 1] || HOME;
+    if (!history.length) history.push(HOME);
+    return showScreen(target, { push: false }) || showScreen(HOME);
+  }
+
+  // ---------- App registry and opening apps ----------
+  const appList = [];
+  function registerApp(def) {
+    if (!def || typeof def.id !== "string" || !/^[a-z][a-z0-9-]{0,31}$/.test(def.id) || typeof def.name !== "string") return false;
+    if (appList.some((a) => a.id === def.id)) return false;
+    appList.push({
+      id: def.id, name: def.name, icon: def.icon || def.id, hue: typeof def.hue === "number" ? def.hue : 215,
+      screen: def.screen || null, memMB: def.memMB || 100, keywords: (def.keywords || []).slice(), system: !!def.system,
+    });
+    return true;
+  }
+  const apps = () => appList.map((a) => Object.assign({}, a, { keywords: a.keywords.slice() }));
+  const app = (id) => { const a = appList.find((x) => x.id === id); return a ? Object.assign({}, a, { keywords: a.keywords.slice() }) : null; };
+
+  /** Open or resume an app's simulated Page and show its screen. Returns {ok, id, created} | {ok:false, reason}. */
+  function openApp(id, opts) {
+    const o = opts || {};
+    const a = appList.find((x) => x.id === id);
+    if (!a) return { ok: false, reason: "unknown-app" };
+    const m = models();
+    if (a.system) {
+      // System surfaces (Passport, Trail, Vault) are screens, not Pages. Until their screen exists they say so.
+      if (!a.screen || !screenEl(a.screen)) { showToast(a.name + " arrives in a later milestone", { tone: "warn" }); return { ok: false, reason: "not-available" }; }
+      if (!o.background) showScreen(a.screen);
+      return { ok: true, id: a.id, created: false };
+    }
+    if (!m) return { ok: false, reason: "not-ready" };
+    const had = m.pages.list().some((p) => p.appId === a.id);
+    const r = m.pages.open(a.id, a.name, state.activeSpace, a.memMB);
+    if (!r.ok) {
+      if (r.reason === "low-memory") {
+        showScreen("screen-pages");
+        showToast("Not enough simulated memory to open " + a.name, { tone: "warn" });
+        announce("Low memory. Cannot open " + a.name + ". Save paused pages first.");
+      }
+      return { ok: false, reason: r.reason || "cannot-open" };
+    }
+    if (!o.background) {
+      if (a.screen && screenEl(a.screen)) showScreen(a.screen); else showScreen("screen-pages");
+      announce(a.name + " is open (simulated page)");
+    }
+    return { ok: true, id: r.id, created: !had };
+  }
+
+  // ---------- Spaces ----------
+  const BAD_NAME = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩​-‏﻿]/;
+  const MAX_SPACES = 8;
+  const spaceList = [
+    { id: "study", name: "Study", description: "Notes, focus timer, reading list", hue: 215, pinned: ["notes", "clock", "calculator", "settings", "calendar", "files"], builtin: true },
+    { id: "work", name: "Work", description: "Projects, files, meetings", hue: 235, pinned: ["files", "notes", "calendar", "settings"], builtin: true },
+    { id: "projects", name: "Projects", description: "Active builds, drafts, reviews", hue: 190, pinned: ["files", "notes", "calculator", "settings"], builtin: true },
+    { id: "personal", name: "Personal", description: "Journal, photos, reminders", hue: 300, pinned: ["notes", "calendar", "clock", "settings"], builtin: true },
+  ];
+  const spaceListeners = [];
+  const spaces = () => spaceList.map((s) => Object.assign({}, s, { pinned: s.pinned.slice() }));
+  const spaceById = (id) => spaceList.find((s) => s.id === id) || null;
+
+  /** Returns an error sentence, or null when the name is acceptable. */
+  function validateSpaceName(name, selfId) {
+    if (typeof name !== "string") return "Enter a name.";
+    const n = name.trim();
+    if (!n) return "Enter a name.";
+    if (n.length > 24) return "Use 24 characters or fewer.";
+    if (BAD_NAME.test(n)) return "That name has characters that are not allowed.";
+    if (spaceList.some((s) => s.id !== (selfId || null) && s.name.toLowerCase() === n.toLowerCase())) return "A Space with that name already exists.";
+    return null;
+  }
+
+  function notifySpaces() { renderSpaces(); spaceListeners.slice().forEach((fn) => fn(state.activeSpace)); }
+
+  function addSpace(name) {
+    if (spaceList.length >= MAX_SPACES) return { ok: false, reason: "Up to " + MAX_SPACES + " Spaces are supported." };
+    const problem = validateSpaceName(name, null);
+    if (problem) return { ok: false, reason: problem };
+    const n = name.trim();
+    const base = "space-" + (n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 20) || "x");
+    let id = base, k = 2;
+    while (spaceById(id)) id = base + "-" + (k++);
+    spaceList.push({ id, name: n, description: "Your own Space", hue: 150 + (spaceList.length * 37) % 200, pinned: ["notes", "files", "settings"], builtin: false });
+    notifySpaces();
+    return { ok: true, id };
+  }
+
+  function renameSpace(id, name) {
+    const s = spaceById(id);
+    if (!s) return { ok: false, reason: "That Space does not exist." };
+    const problem = validateSpaceName(name, id);
+    if (problem) return { ok: false, reason: problem };
+    s.name = name.trim();
+    notifySpaces();
+    return { ok: true, id };
+  }
+
+  function switchSpace(id, opts) {
+    const s = spaceById(id);
+    if (!s) return { ok: false, reason: "unknown-space" };
+    state.activeSpace = id;
+    notifySpaces();
+    if (!(opts && opts.quiet)) { announce("Switched to " + s.name + " Space"); showToast("Now in " + s.name); }
+    return { ok: true, id };
+  }
+
+  function renderSpaces() {
+    const grid = document.querySelector(".space-grid");
+    if (grid) {
+      grid.replaceChildren();
+      spaceList.forEach((sp) => {
+        const active = sp.id === state.activeSpace;
+        grid.appendChild(el("article", {
+          class: "space-card-item" + (active ? " selected" : ""), role: "listitem", tabindex: 0, "data-space": sp.id,
+          "aria-label": sp.name + " Space — " + (active ? "active" : "inactive"),
+          onclick: () => switchSpace(sp.id),
+          onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchSpace(sp.id); } },
+        }, [
+          el("div", { class: "space-badge", text: sp.name.charAt(0).toUpperCase() }),
+          el("h3", { text: sp.name }),
+          el("p", { text: sp.description }),
+          el("span", { class: "space-state", text: active ? "Active" : "Inactive" }),
+        ]));
+      });
+    }
+    const chip = document.querySelector(".space-chip");
+    if (chip) {
+      chip.dataset.space = state.activeSpace;
+      chip.classList.add("selected");
+      const label = chip.querySelector("span:last-child");
+      if (label) label.textContent = spaceById(state.activeSpace).name;
+    }
+  }
+
+  // ---------- Index ----------
+  // Screens may contribute searchable items: fn(query) -> [{kind, label, meta, action?}]. Text only, never HTML.
+  const indexSources = [];
   const mockIndex = [
     { kind: "App", label: "Notes", meta: "Open notes" },
     { kind: "App", label: "Files", meta: "Browse files" },
@@ -45,141 +234,21 @@
     { kind: "Action", label: "Vault export", meta: "Export user files" },
   ];
 
-  // ---------- Helpers ----------
-  function announce(text) {
-    live.textContent = "";
-    live.textContent = text;
-  }
-
-  function showToast(text, ms = 2500) {
-    toastEl.textContent = text;
-    toastEl.classList.add("show");
-    setTimeout(() => toastEl.classList.remove("show"), ms);
-  }
-
-  function hideAllScreens() {
-    document.querySelectorAll("#app .screen").forEach((s) => {
-      s.classList.remove("active");
-    });
-  }
-
-  function showScreen(id) {
-    hideAllScreens();
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.classList.add("active");
-    state.activeScreen = id;
-    announce(`Screen changed: ${el.getAttribute("aria-label") || id}`);
-    // Move focus to first focusable element
-    const first = el.querySelector("[tabindex], button, a, input");
-    if (first) first.focus();
-    window.scrollTo(0, 0);
-    syncDock();
-    screenListeners.forEach((fn) => fn(id));
-  }
-
-  const screenListeners = [];
-  function syncDock() {
-    document.querySelectorAll(".dock-btn").forEach((b) => {
-      const isCurrent = b.id !== "dock-back" && b.getAttribute("data-target") === state.activeScreen;
-      b.classList.toggle("active", isCurrent);
-      if (isCurrent) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
-    });
-  }
-
-  function applyTheme() {
-    root.setAttribute("data-theme", state.theme);
-    root.setAttribute("data-glass-tier", state.tier);
-    root.setAttribute("data-contrast", state.contrast);
-    // Reduced motion via class on root (CSS media handles prefers-reduced-motion;
-    // we also force it via inline style when "reduce" selected)
-    if (state.motion === "reduce") {
-      root.style.setProperty("--motion-fast", "0ms");
-      root.style.setProperty("--motion-base", "0ms");
-      root.style.setProperty("--motion-slow", "0ms");
-    } else {
-      root.style.removeProperty("--motion-fast");
-      root.style.removeProperty("--motion-base");
-      root.style.removeProperty("--motion-slow");
-    }
-    syncDock();
-  }
-
-  function setPreviewWidth() {
-    const shell = document.getElementById("app");
-    shell.style.maxWidth = state.width === "auto" ? "" : state.width + "px";
-    shell.style.margin = state.width === "auto" ? "0" : "0 auto";
-    announce(`Preview width set to ${state.width === "auto" ? "auto" : state.width + "px"}`);
-  }
-
-  // ---------- Spaces ----------
-  function renderSpaces() {
-    const grid = document.querySelector(".space-grid");
-    if (!grid) return;
-    grid.innerHTML = "";
-    spaces.forEach((sp) => {
-      const art = document.createElement("article");
-      art.className = "space-card-item" + (sp.id === state.activeSpace ? " selected" : "");
-      art.setAttribute("role", "listitem");
-      art.setAttribute("tabindex", "0");
-      art.setAttribute("data-space", sp.id);
-      art.setAttribute(
-        "aria-label",
-        sp.name + " Space — " + (sp.id === state.activeSpace ? "active" : "inactive")
-      );
-      art.innerHTML = `
-        <div class="space-badge">${sp.name.charAt(0)}</div>
-        <h3>${sp.name}</h3>
-        <p>${sp.id === "study" ? "Notes, focus timer, reading list" : sp.id === "work" ? "Projects, files, meetings" : sp.id === "projects" ? "Active builds, drafts, reviews" : "Journal, photos, reminders"}</p>
-        <span class="space-state">${sp.id === state.activeSpace ? "Active" : "Inactive"}</span>
-      `;
-      art.addEventListener("click", () => switchSpace(sp.id));
-      art.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchSpace(sp.id); }
-      });
-      grid.appendChild(art);
-    });
-    // Update space chip on home
-    const chip = document.querySelector(".space-chip");
-    if (chip) {
-      chip.dataset.space = state.activeSpace;
-      chip.classList.toggle("selected", true);
-      const label = chip.querySelector("span:last-child");
-      if (label) label.textContent = spaces.find((s) => s.id === state.activeSpace).name;
-    }
-  }
-
-  function switchSpace(id) {
-    state.activeSpace = id;
-    renderSpaces();
-    announce("Switched to " + spaces.find((s) => s.id === id).name + " Space");
-    showToast("Space switched: " + id);
-  }
-
-  // ---------- Index ----------
-  // Screens may contribute searchable items: fn(query) -> [{kind, label, meta, action?}]. Text only, never HTML.
-  const indexSources = [];
   function renderIndex() {
     const box = document.getElementById("index-results");
     const input = document.getElementById("index-query");
-    if (!box) return;
+    if (!box || !input) return;
     const q = state.indexQuery.toLowerCase();
     box.replaceChildren();
     let results = mockIndex.filter((i) => i.label.toLowerCase().includes(q) || i.meta.toLowerCase().includes(q));
     indexSources.forEach((fn) => { results = results.concat(fn(state.indexQuery) || []); });
-    box.setAttribute("aria-expanded", results.length > 0 ? "true" : "false");
+    input.setAttribute("aria-expanded", results.length > 0 ? "true" : "false");
     results.forEach((item) => {
-      const div = document.createElement("div");
-      div.className = "index-result";
-      div.setAttribute("role", "option");
-      div.setAttribute("tabindex", "0");
-      div.setAttribute("aria-label", item.kind + ": " + item.label + ", " + item.meta);
-      const strong = document.createElement("strong"); strong.textContent = item.label;
-      const meta = document.createElement("span"); meta.className = "meta"; meta.textContent = item.kind + " \u00b7 " + item.meta;
-      div.appendChild(strong); div.appendChild(meta);
-      div.addEventListener("click", () => selectIndex(item));
-      div.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectIndex(item); } });
-      box.appendChild(div);
+      box.appendChild(el("div", {
+        class: "index-result", role: "option", tabindex: 0, "aria-label": item.kind + ": " + item.label + ", " + item.meta,
+        onclick: () => selectIndex(item),
+        onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectIndex(item); } },
+      }, [el("strong", { text: item.label }), el("span", { class: "meta", text: item.kind + " · " + item.meta })]));
     });
     input.setAttribute("aria-controls", results.length ? box.id : "");
     announce(results.length + " results");
@@ -189,320 +258,120 @@
     if (typeof item.action === "function") { announce("Opening " + item.label); item.action(); return; }
     announce("Selected " + item.label);
     showToast("Opened " + item.label + " (simulated)");
-    showScreen("screen-home");
+    showScreen(HOME);
   }
 
-  // ---------- Aura plan ----------
-  function renderPlan() {
-    const requestText = document.getElementById("plan-request-text");
-    if (requestText) requestText.textContent = state.auraFlow === "failure"
-      ? "\"Prepare my phone for studying.\" (step 3 simulated failure)"
-      : "\"Prepare my phone for studying.\"";
+  /** Show Index, set and focus the query, and render the results. */
+  function openIndex(query) {
+    const q = typeof query === "string" ? query : "";
+    showScreen("screen-index", { focus: false });
+    const input = document.getElementById("index-query");
+    state.indexQuery = q;
+    if (input) { input.value = q; input.focus(); }
+    renderIndex();
   }
 
-  let planTimer = null;
-
-  function startPlan() {
-    if (planTimer) clearInterval(planTimer);
-    state.planRunning = true;
-    state.planComplete = false;
-    state.planFailed = false;
-    state.planStep = 1;
-    hideAllScreens();
-    const sheet = document.getElementById("screen-aura");
-    sheet.classList.add("active");
-    // Hide all panels
-    ["plan-confirmation", "plan-running", "plan-receipt", "plan-failure"].forEach((id) => {
-      document.getElementById(id).classList.add("panel-hidden");
-    });
-    document.getElementById("plan-running").classList.remove("panel-hidden");
-    updateRunningUI();
-    announce("Plan running. Step 1 of 4: switching to Study Space.");
-
-    // Auto-advance through plan steps (~600ms each)
-    planTimer = setInterval(() => {
-      advancePlan();
-    }, 600);
+  // ---------- Appearance ----------
+  function applyTheme() {
+    root.setAttribute("data-theme", state.theme);
+    root.setAttribute("data-glass-tier", state.tier);
+    root.setAttribute("data-contrast", state.contrast);
+    if (state.motion === "reduce") root.setAttribute("data-motion", "reduce"); else root.removeAttribute("data-motion");
+    syncDock();
   }
 
-  function updateRunningUI() {
-    const cur = document.getElementById("running-current");
-    const tot = document.getElementById("running-total");
-    const lbl = document.getElementById("running-label");
-    if (cur) cur.textContent = state.planStep;
-    if (tot) tot.textContent = "4";
-    const labels = [
-      "Switching to Study Space…",
-      "Enabling focus mode…",
-      "Opening Notes…",
-      "Starting 25-minute timer…",
-    ];
-    if (lbl) lbl.textContent = labels[state.planStep - 1] || "";
-    announce("Step " + state.planStep + " of 4: " + (labels[state.planStep - 1] || ""));
-  }
-
-  function advancePlan() {
-    if (!state.planRunning) return;
-    state.planStep++;
-    if (state.planStep > 4) {
-      finishPlan();
-      return;
-    }
-    updateRunningUI();
-  }
-
-  function finishPlan() {
-    if (planTimer) clearInterval(planTimer);
-    planTimer = null;
-    state.planRunning = false;
-    state.planComplete = true;
-    document.getElementById("plan-running").classList.add("panel-hidden");
-    if (state.auraFlow === "failure") {
-      state.planFailed = true;
-      document.getElementById("plan-failure").classList.remove("panel-hidden");
-      document.getElementById("failure-text").textContent = "Step 3 (Open Notes) could not complete — simulated failure.";
-      announce("Plan failed at step 3. Repair, skip, or stop.");
-    } else {
-      document.getElementById("plan-receipt").classList.remove("panel-hidden");
-      announce("Plan complete. All 4 steps succeeded.");
-      switchSpace("study");
-      document.dispatchEvent(new CustomEvent("aurora:plan-complete"));
-    }
-  }
-
-  // ---------- Navigation wiring ----------
+  // ---------- Wiring ----------
   function wireNav() {
-    const go = (btnId, target) => {
-      const b = document.getElementById(btnId);
-      if (!b) return;
-      b.addEventListener("click", () => showScreen(target));
-    };
-    go("dock-home", "screen-home");
-    go("dock-back", "screen-home");
+    const go = (btnId, target) => { const b = document.getElementById(btnId); if (b) b.addEventListener("click", () => showScreen(target)); };
+    const goBack = (btnId) => { const b = document.getElementById(btnId); if (b) b.addEventListener("click", () => back()); };
+    go("dock-home", HOME);
     go("dock-spaces", "screen-spaces");
     go("dock-pages", "screen-pages");
-    go("btn-pages-back", "screen-home");
-    go("btn-quick-back", "screen-home");
     go("btn-quick-center", "screen-quick");
-    go("btn-index", "screen-index");
-    go("dock-ask", "screen-index");
-    go("btn-index-back", "screen-home");
-    go("btn-spaces-back", "screen-home");
-    go("btn-aura-back", "screen-home");
+    go("btn-switch-space", "screen-spaces");
+    goBack("dock-back");
+    ["btn-pages-back", "btn-quick-back", "btn-index-back", "btn-spaces-back", "btn-settings-back"].forEach(goBack);
+    const ask = (id) => { const b = document.getElementById(id); if (b) b.addEventListener("click", () => openIndex("")); };
+    ask("btn-index"); ask("dock-ask");
 
-    // Spaces chip / button
-    const spaceBtn = document.getElementById("btn-switch-space");
-    if (spaceBtn) spaceBtn.addEventListener("click", () => showScreen("screen-spaces"));
+    // Pinned tools: one handler, driven by data-app.
+    document.querySelectorAll(".pin-btn[data-app]").forEach((b) => b.addEventListener("click", () => openApp(b.dataset.app)));
 
-    // Space cards keyboard
-    document.querySelectorAll(".space-card-item").forEach((c) => {
-      c.addEventListener("click", () => switchSpace(c.dataset.space));
-      c.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchSpace(c.dataset.space); }
-      });
-    });
-
-    // Index search
     const input = document.getElementById("index-query");
     if (input) {
-      input.addEventListener("input", (e) => {
-        state.indexQuery = e.target.value;
-        renderIndex();
-      });
+      input.addEventListener("input", (e) => { state.indexQuery = e.target.value; renderIndex(); });
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") { e.preventDefault(); const first = document.querySelector("#index-results .index-result"); if (first) first.click(); }
-        if (e.key === "Escape") showScreen("screen-home");
       });
     }
     const clear = document.getElementById("btn-index-clear");
-    if (clear) clear.addEventListener("click", () => { input.value = ""; state.indexQuery = ""; renderIndex(); });
+    if (clear) clear.addEventListener("click", () => { if (input) { input.value = ""; input.focus(); } state.indexQuery = ""; renderIndex(); });
 
-    // Aura study button on home
+    // Aura suggestion on Home: opens a plan to REVIEW. Nothing runs from this button.
     const btnAura = document.getElementById("btn-aura-study");
-    if (btnAura) btnAura.addEventListener("click", startPlan);
+    if (btnAura) btnAura.addEventListener("click", () => { if (window.AuroraReview) window.AuroraReview.ask("Prepare my phone for studying"); });
 
-    // Plan: confirm -> confirmation panel
-    const btnConfirm = document.getElementById("btn-plan-confirm");
-    if (btnConfirm) btnConfirm.addEventListener("click", () => {
-      document.getElementById("plan-confirmation").classList.remove("panel-hidden");
-      announce("Confirm plan execution? 4 steps will run.");
-    });
-    const btnPlanCancel = document.getElementById("btn-plan-cancel");
-    if (btnPlanCancel) btnPlanCancel.addEventListener("click", () => {
-      document.getElementById("plan-confirmation").classList.add("panel-hidden");
-      announce("Plan confirmation cancelled.");
-    });
-    const btnPlanRun = document.getElementById("btn-plan-run");
-    if (btnPlanRun) btnPlanRun.addEventListener("click", startPlan);
-    const btnPlanEdit = document.getElementById("btn-plan-edit");
-    if (btnPlanEdit) btnPlanEdit.addEventListener("click", () => {
-      document.querySelectorAll(".step-text").forEach((t) => { t.removeAttribute("readonly"); t.focus(); });
-      announce("Plan steps are now editable. Select a field and type to change it.");
-    });
-
-    // Running panel
-    const btnStop = document.getElementById("btn-plan-stop");
-    if (btnStop) btnStop.addEventListener("click", () => {
-      if (planTimer) clearInterval(planTimer);
-      planTimer = null;
-      state.planRunning = false;
-      document.getElementById("plan-running").classList.add("panel-hidden");
-      document.getElementById("plan-receipt").classList.remove("panel-hidden");
-      document.getElementById("plan-receipt").querySelector("h3").textContent = "Plan stopped";
-      document.getElementById("plan-receipt").querySelector("p.receipt-summary").textContent = "Plan was stopped by the user.";
-      announce("Plan stopped by user.");
-    });
-
-    // Failure panel actions
-    const btnRepair = document.getElementById("btn-failure-repair");
-    if (btnRepair) btnRepair.addEventListener("click", () => { advancePlan(); document.getElementById("plan-failure").classList.add("panel-hidden"); document.getElementById("plan-running").classList.remove("panel-hidden"); announce("Repairing. Retrying step 3."); });
-    const btnSkip = document.getElementById("btn-failure-skip");
-    if (btnSkip) btnSkip.addEventListener("click", () => { advancePlan(); document.getElementById("plan-failure").classList.add("panel-hidden"); document.getElementById("plan-running").classList.remove("panel-hidden"); announce("Skipped failed step. Continuing."); });
-    const btnStopFail = document.getElementById("btn-failure-stop");
-    if (btnStopFail) btnStopFail.addEventListener("click", () => {
-      if (planTimer) clearInterval(planTimer);
-      planTimer = null;
-      state.planRunning = false;
-      document.getElementById("plan-failure").classList.add("panel-hidden");
-      document.getElementById("plan-receipt").classList.remove("panel-hidden");
-      document.getElementById("plan-receipt").querySelector("h3").textContent = "Plan stopped";
-      document.getElementById("plan-receipt").querySelector("p.receipt-summary").textContent = "Plan stopped after a failure.";
-      announce("Plan stopped after failure.");
-    });
-    const btnReceiptClose = document.getElementById("btn-receipt-close");
-    if (btnReceiptClose) btnReceiptClose.addEventListener("click", () => {
-      if (planTimer) clearInterval(planTimer);
-      planTimer = null;
-      state.planComplete = false;
-      state.planFailed = false;
-      state.planRunning = false;
-      showScreen("screen-home");
-      announce("Receipt closed. Back to Home.");
-    });
-
-    // Glass Corner
+    // Glass Corner (the held-inbox popover arrives in a later step).
     const gc = document.querySelector(".glass-corner");
     if (gc) {
       gc.addEventListener("click", () => {
         const expanded = gc.getAttribute("aria-expanded") === "true";
-        gc.setAttribute("aria-expanded", !expanded);
+        gc.setAttribute("aria-expanded", String(!expanded));
         announce(expanded ? "Glass Corner closed" : "Glass Corner opened — notifications");
       });
       gc.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); gc.click(); } });
     }
   }
 
-  // ---------- Controls panel ----------
-  function wireControls() {
-    const panel = document.getElementById("controls-panel");
-    // Open from dock? We'll add a settings entry. For now wire selects.
-    const selTheme = document.getElementById("ctrl-theme");
-    const selTier = document.getElementById("ctrl-tier");
-    const selContrast = document.getElementById("ctrl-contrast");
-    const selWidth = document.getElementById("ctrl-width");
-    const selMotion = document.getElementById("ctrl-motion");
-    const selFlow = document.getElementById("ctrl-aura-flow");
-    const btnApply = document.getElementById("ctrl-apply");
-    const btnReset = document.getElementById("ctrl-reset");
-    const btnClose = document.getElementById("btn-controls-close");
-
-    if (selTheme) selTheme.value = state.theme;
-    if (selTier) selTier.value = state.tier;
-    if (selContrast) selContrast.value = state.contrast;
-    if (selWidth) selWidth.value = state.width;
-    if (selMotion) selMotion.value = state.motion;
-    if (selFlow) selFlow.value = state.auraFlow;
-
-    if (btnApply) {
-      btnApply.addEventListener("click", () => {
-        state.theme = selTheme.value;
-        state.tier = selTier.value;
-        state.contrast = selContrast.value;
-        state.width = selWidth.value;
-        state.motion = selMotion.value;
-        state.auraFlow = selFlow.value;
-        applyTheme();
-        showToast(`${state.theme} · ${state.tier} · contrast ${state.contrast}`);
-        setPreviewWidth();
-        renderSpaces();
-        renderPlan();
-        panel.classList.add("panel-hidden");
-        showScreen(state.activeScreen);
-        announce("Controls applied.");
-      });
-    }
-    if (btnReset) {
-      btnReset.addEventListener("click", () => {
-        state.theme = "light"; state.tier = "soft"; state.contrast = "normal";
-        state.width = "auto"; state.motion = "normal"; state.auraFlow = "success";
-        selTheme.value = "light"; selTier.value = "soft"; selContrast.value = "normal";
-        selWidth.value = "auto"; selMotion.value = "normal"; selFlow.value = "success";
-        applyTheme(); setPreviewWidth(); renderSpaces(); renderPlan();
-        panel.classList.add("panel-hidden");
-        showScreen(state.activeScreen);
-        announce("Controls reset to defaults.");
-      });
-    }
-    if (btnClose) btnClose.addEventListener("click", () => { panel.classList.add("panel-hidden"); });
-  }
-
-  // ---------- Keyboard global ----------
   function wireKeyboard() {
     document.addEventListener("keydown", (e) => {
-      // Escape: close panels / modals / return home
-      if (e.key === "Escape") {
-        const confirmPanel = document.getElementById("plan-confirmation");
-        if (confirmPanel && !confirmPanel.classList.contains("panel-hidden")) {
-          confirmPanel.classList.add("panel-hidden");
-          announce("Confirmation closed.");
-          return;
-        }
-        if (planTimer) clearInterval(planTimer);
-        planTimer = null;
-        if (state.activeScreen !== "screen-home") { showScreen("screen-home"); return; }
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        // Dialogs handle their own Escape (capture phase, preventDefault). Next layer: the Glass Corner, then Back.
+        const gc = document.querySelector(".glass-corner");
+        if (gc && gc.getAttribute("aria-expanded") === "true") { gc.setAttribute("aria-expanded", "false"); gc.focus(); announce("Glass Corner closed"); return; }
+        if (state.activeScreen !== HOME) back();
       }
-      // Ctrl+K / Cmd+K: open Index
-      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
-        e.preventDefault();
-        showScreen("screen-index");
-        const input = document.getElementById("index-query");
-        if (input) input.focus();
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openIndex(state.indexQuery); }
     });
   }
 
-  // Prototype-internal API for screen modules (screens.js).
   window.AuroraShell = {
     state,
-    showScreen,
-    announce,
-    showToast,
+    showScreen, back, addScreen,
+    registerApp, apps, app, openApp,
+    spaces, addSpace, renameSpace, switchSpace, validateSpaceName,
+    openIndex, registerIndexSource(fn) { indexSources.push(fn); }, refreshIndex() { renderIndex(); },
     onScreenShow(fn) { screenListeners.push(fn); },
-    setAppearance(theme) { state.theme = theme; applyTheme(); },
-    setTier(tier) { state.tier = tier; applyTheme(); },
-    setMotion(m) { state.motion = m === "reduce" ? "reduce" : "normal"; applyTheme(); },
+    onSpaceChange(fn) { spaceListeners.push(fn); },
+    setAppearance(theme) { state.theme = theme === "dark" ? "dark" : "light"; applyTheme(); },
+    setTier(tier) { state.tier = tier === "clear" ? "clear" : "soft"; applyTheme(); },
     setContrast(c) { state.contrast = c === "high" ? "high" : "normal"; applyTheme(); },
-    registerIndexSource(fn) { indexSources.push(fn); },
-    refreshIndex() { renderIndex(); },
-    switchSpace(id) { switchSpace(id); },
+    setMotion(m) { state.motion = m === "reduce" ? "reduce" : "normal"; applyTheme(); },
+    announce, showToast,
   };
 
-  // ---------- Init ----------
+  // Built-in apps. Hues follow docs/agents/AURORA_UI_TASKS.md S2.
+  [
+    { id: "notes", name: "Notes", hue: 42, memMB: 180, keywords: ["write", "text", "memo"] },
+    { id: "files", name: "Files", hue: 212, memMB: 240, keywords: ["documents", "folder", "vault"] },
+    { id: "calculator", name: "Calculator", hue: 228, memMB: 60, keywords: ["math", "numbers"] },
+    { id: "clock", name: "Clock", hue: 262, memMB: 90, keywords: ["timer", "stopwatch", "alarm"] },
+    { id: "settings", name: "Settings", hue: 220, memMB: 120, screen: "screen-settings", keywords: ["preferences", "options"] },
+    { id: "calendar", name: "Calendar", hue: 6, memMB: 150, keywords: ["events", "schedule"] },
+    { id: "passport", name: "Passport", hue: 152, system: true, keywords: ["permissions", "privacy", "access"] },
+    { id: "trail", name: "Trail", hue: 280, system: true, keywords: ["history", "undo", "receipts"] },
+    { id: "vault", name: "Vault", hue: 188, system: true, keywords: ["files", "storage"] },
+  ].forEach(registerApp);
+
   function init() {
     wireNav();
-    wireControls();
     wireKeyboard();
     renderSpaces();
-    renderPlan();
     applyTheme();
-    setPreviewWidth();
-    showScreen("screen-home");
+    showScreen(HOME);
     announce("Aurora Glass prototype ready. Home screen.");
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
 })();

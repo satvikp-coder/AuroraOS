@@ -5,7 +5,8 @@
 (function () {
   "use strict";
   const Shell = window.AuroraShell, Models = window.AuroraModels, SettingsLib = window.AuroraSettings;
-  if (!Shell || !Models || !SettingsLib) return;
+  if (!Shell || !Models || !SettingsLib || !window.AuroraUI) return;
+  const el = window.AuroraUI.el;
 
   const settings = SettingsLib.createSettings();
   window.AuroraSettingsModel = settings;       // exposed for tests only
@@ -21,18 +22,6 @@
 
   let filter = "";
   let lastFocusKey = null;
-
-  function el(tag, props, children) {
-    const n = document.createElement(tag);
-    Object.keys(props || {}).forEach((k) => {
-      if (k === "text") n.textContent = props[k];
-      else if (k === "class") n.className = props[k];
-      else if (k.startsWith("on")) n.addEventListener(k.slice(2), props[k]);
-      else n.setAttribute(k, props[k]);
-    });
-    (children || []).forEach((c) => n.appendChild(c));
-    return n;
-  }
 
   function showAdvanced() { return settings.get("developer.showAdvanced") === true; }
   function sectionLabel(id) { return settings.sections.find((s) => s.id === id).label; }
@@ -155,11 +144,7 @@
 
   // ---------------- wiring ----------------
   function init() {
-    document.getElementById("btn-settings-back").addEventListener("click", () => Shell.showScreen("screen-home"));
     document.getElementById("btn-quick-settings").addEventListener("click", () => Shell.showScreen("screen-settings"));
-    document.querySelectorAll(".pin-btn").forEach((b) => {
-      if (b.textContent.trim() === "Settings") b.addEventListener("click", (ev) => { ev.stopImmediatePropagation(); Shell.showScreen("screen-settings"); }, true);
-    });
     document.getElementById("settings-filter").addEventListener("input", (e) => { filter = e.target.value; render(); Shell.announce(document.querySelectorAll("#settings-sections .setting-row").length + " settings shown"); });
 
     const jsonBtn = document.getElementById("btn-settings-json"), jsonEl = document.getElementById("settings-json");

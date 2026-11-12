@@ -59,6 +59,8 @@ test.describe("Pages", () => {
 
   test("completing the Aura study plan enables focus and opens Notes", async ({ page }) => {
     await page.locator("#btn-aura-study").click();
+    await page.locator("#btn-plan-confirm").click();
+    await page.locator("#btn-plan-run").click();
     await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });
     await page.locator("#btn-receipt-close").click();
     await page.locator("#btn-quick-center").click();

@@ -6,36 +6,10 @@
   "use strict";
   const Core = window.AuroraCore;
   const Shell = window.AuroraShell;
-  if (!Core || !Shell) return;
-
-  function el(tag, props, children) {
-    const n = document.createElement(tag);
-    Object.keys(props || {}).forEach((k) => {
-      if (k === "text") n.textContent = props[k];
-      else if (k === "class") n.className = props[k];
-      else if (k.startsWith("on")) n.addEventListener(k.slice(2), props[k]);
-      else n.setAttribute(k, props[k]);
-    });
-    (children || []).forEach((c) => n.appendChild(c));
-    return n;
-  }
-
-  // Re-rendering replaces buttons; keep keyboard focus on the equivalent control.
-  function keepFocus(container, render, fallbackSel) {
-    const a = document.activeElement;
-    const key = a && container.contains(a) ? a.getAttribute("data-fk") : null;
-    render();
-    if (key) {
-      const next = container.querySelector('[data-fk="' + CSS.escape(key) + '"]');
-      if (next && !next.disabled) next.focus();
-      else {
-        // The control vanished (e.g. Save/Close): move focus somewhere sensible, never to <body>.
-        const sibling = container.querySelector('[data-fk="' + CSS.escape(key.split(":")[0]) + ':primary"]');
-        const fb = sibling || (fallbackSel && container.querySelector(fallbackSel));
-        if (fb) fb.focus();
-      }
-    }
-  }
+  const UI = window.AuroraUI;
+  if (!Core || !Shell || !UI) return;
+  const el = UI.el;
+  const keepFocus = UI.keepFocus;
 
   // ---------------- Shared simulated models ----------------
   const pages = Core.createPages({
@@ -53,7 +27,6 @@
 
   const STATE_LABEL = { running: "Running", paused: "Paused", saved: "Saved (frozen)" };
   const SPACE_NAME = { study: "Study", work: "Work", projects: "Projects", personal: "Personal" };
-  const APP_MEM = { notes: 180, files: 240, calculator: 60, clock: 90, settings: 120, calendar: 150 };
 
   // ---------------- Pages ----------------
   function renderPages() { keepFocus(document.getElementById("screen-pages"), renderPagesInner, "#btn-pages-back"); }
@@ -104,19 +77,6 @@
     fill.classList.toggle("low", u.low);
     document.getElementById("pages-lowmem").classList.toggle("panel-hidden", !u.low);
     document.getElementById("btn-pages-free").disabled = !items.some((p) => p.state === "paused");
-  }
-
-  function openApp(appId, label) {
-    const r = pages.open(appId, label, Shell.state.activeSpace, APP_MEM[appId] || 100);
-    if (!r.ok) {
-      Shell.showToast("Not enough simulated memory to open " + label);
-      Shell.announce("Low memory. Cannot open " + label + ". Save paused pages first.");
-      Shell.showScreen("screen-pages");
-      return r;
-    }
-    Shell.showScreen("screen-pages");
-    Shell.announce(label + " is open (simulated page)");
-    return r;
   }
 
   // ---------------- Quick Center ----------------
@@ -192,14 +152,6 @@
     document.getElementById("btn-pages-free").addEventListener("click", () => {
       const r = pages.freeMemory();
       Shell.announce("Saved paused pages. " + r.freedMB + " megabytes freed (simulated).");
-    });
-    document.querySelectorAll(".pin-btn").forEach((b) => {
-      const label = b.textContent.trim();
-      b.addEventListener("click", () => openApp(label.toLowerCase(), label));
-    });
-    document.addEventListener("aurora:plan-complete", () => {
-      qs.set("focus", true);
-      pages.open("notes", "Notes", "study", APP_MEM.notes);
     });
     Shell.onScreenShow((id) => {
       if (id === "screen-pages") renderPages();

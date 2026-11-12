@@ -120,13 +120,14 @@ test.describe("Aurora Glass browser prototype", () => {
         await page.locator("#btn-aura-study").click();
         await page.locator("#btn-plan-confirm").click();
         await page.locator("#btn-plan-run").click();
-        await page.waitForTimeout(2600); // Allow plan to complete
-
-        await expect(page.locator("#plan-receipt")).toBeVisible();
+        await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });
         await page.screenshot({
           path: `aurora-glass/screenshots/aura-receipt-390-${theme}-${tier}.png`,
           fullPage: true,
         });
+        // Leave the receipt the way a person would, so Back from Spaces next time returns to Home.
+        await page.locator("#btn-receipt-close").click();
+        await page.evaluate(() => { window.AuroraModels.qs.set("focus", false); });
       }
     }
   });
@@ -216,6 +217,11 @@ test.describe("Aurora Glass browser prototype", () => {
     await page.locator("#btn-aura-study").click();
     await expect(page.locator("#screen-aura")).toBeVisible();
 
+    // Review first: opening the plan must not run anything (Action Broker contract).
+    expect(await page.evaluate(() => window.AuroraModels.qs.get("focus"))).toBe(false);
+    expect(await page.evaluate(() => window.AuroraShell.state.activeSpace)).toBe("study");
+    await expect(page.locator("#plan-receipt")).toHaveCount(0);
+
     // Click confirm
     await page.locator("#btn-plan-confirm").click();
     await expect(page.locator("#plan-confirmation")).toBeVisible();
@@ -227,12 +233,10 @@ test.describe("Aurora Glass browser prototype", () => {
     // Running panel visible
     await expect(page.locator("#plan-running")).toBeVisible();
 
-    // Wait for plan to complete
-    await page.waitForTimeout(2500);
-
-    // Receipt panel visible
-    await expect(page.locator("#plan-receipt")).toBeVisible();
-    await expect(page.locator("#plan-receipt h3")).toContainText("Plan complete");
+    // Receipt panel visible once the broker has run every step
+    await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });
+    await expect(page.locator("#plan-receipt h2")).toContainText("Plan complete");
+    expect(await page.evaluate(() => window.AuroraModels.qs.get("focus"))).toBe(true);
 
     await page.screenshot({
       path: "aurora-glass/screenshots/aura-receipt-390-light-soft.png",
@@ -247,10 +251,9 @@ test.describe("Aurora Glass browser prototype", () => {
     await page.locator("#btn-aura-study").click();
     await page.locator("#btn-plan-confirm").click();
     await page.locator("#btn-plan-run").click();
-    await page.waitForTimeout(2500);
 
     // Default is success - receipt shown
-    await expect(page.locator("#plan-receipt")).toBeVisible();
+    await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });
 
     // Verify failure panel exists (hidden)
     await expect(page.locator("#plan-failure")).toBeHidden();
