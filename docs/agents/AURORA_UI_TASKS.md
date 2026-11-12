@@ -64,10 +64,12 @@ Known things to check the first time it runs (found by reading, not by running):
 
 ## M1. Shell polish — `in progress` — branch `feature/aurora-shell-polish` — PR: none yet
 
-An Opus engineer was started on this and stopped by a usage limit before writing any file. Nothing of M1 is on
-disk. Do the sub-tasks in order; commit after each one that leaves the suite green.
+S1 and S2 are done (Claude Sonnet 5.5, 2026-11-12). Do the remaining sub-tasks in order; commit after each one that leaves the suite green.
+Known deviations from the S1 text, to be closed by later steps: `.icon-btn` is kept (legacy, in shell.css) until S3/S6 rebuild the
+screen headers; the Glass Corner is still the old click-toggle until S7; Index is still the old list until S5; the
+Dock still uses emoji glyphs until S3; the reset confirmation in Settings is still the inline panel until S6.
 
-### S1. Wire the foundation into the page — `not started`
+### S1. Wire the foundation into the page — `done` (commit 78d19e1; verified: 97 Playwright specs, 4 unit suites, zero console errors)
 
 - Objective: `index.html` loads the full module chain and still boots.
 - Files: `index.html`, `shell.css`, `app.js`, `screens.js`, `settings-screen.js`.
@@ -91,7 +93,7 @@ disk. Do the sub-tasks in order; commit after each one that leaves the suite gre
   (Aura specs are expected to fail until S8).
 - Depends on: F0.
 
-### S2. Shell API — `not started`
+### S2. Shell API — `done` (commit 78d19e1; tests/ui-golden/shell.test.js, 25 specs)
 
 - Objective: implement the `AuroraShell` contract of `AURORA_ARCHITECTURE.md` sections 3 and 4.
 - Files: `app.js`.
