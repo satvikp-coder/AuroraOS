@@ -133,44 +133,49 @@
 
       <!-- Pages (multitasking) screen -->
       <section id="screen-pages" class="screen" aria-label="Pages">
-        <header class="home-header">
-          <button class="icon-btn back" id="btn-pages-back" aria-label="Back to Home">Back</button>
-          <h1 class="home-title">Pages</h1>
+        <header class="screen-header">
+          <button type="button" class="btn btn-icon ghost" id="btn-pages-back" aria-label="Back" title="Back"><span data-icon="back"></span></button>
+          <div class="screen-heading"><h1 class="screen-title">Pages</h1></div>
         </header>
-        <p class="space-intro">Open apps and their state. Simulated: this browser prototype does not manage real processes or memory.</p>
-        <div class="card section" id="pages-memory">
+        <p class="screen-intro">Open apps and their state. Simulated: this browser prototype does not manage real processes or memory.</p>
+        <div class="card opaque" id="pages-memory">
           <div class="section-head">
-            <h3 class="section-title">Memory (simulated)</h3>
+            <h2 class="section-title">Memory <span class="chip chip-muted">Simulated</span></h2>
             <span id="pages-memory-text" class="meter-text"></span>
           </div>
           <div class="meter" role="meter" id="pages-meter" aria-label="Simulated memory use" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="meter-fill" id="pages-meter-fill"></div></div>
-          <p id="pages-lowmem" class="warn-text panel-hidden" role="alert">Low memory. Save paused pages to free space.</p>
-          <button class="btn outline" id="btn-pages-free">Save paused pages</button>
+          <p id="pages-lowmem" class="callout callout-warn panel-hidden" role="alert"><span data-icon="alert"></span><span>Low memory. Save paused pages to free space.</span></p>
+          <button type="button" class="btn outline" id="btn-pages-free"><span data-icon="vault"></span><span>Save paused pages</span></button>
         </div>
         <div id="pages-list" class="page-list" role="list" aria-label="Open pages"></div>
-        <p id="pages-empty" class="index-hint panel-hidden">No pages are open.</p>
+        <div id="pages-empty" class="empty-state panel-hidden" role="status">
+          <p class="empty-title">No pages are open</p>
+          <p class="empty-body">Open an app from Home or Index and it will appear here.</p>
+        </div>
       </section>
 
       <!-- Quick Center screen -->
       <section id="screen-quick" class="screen" aria-label="Quick Center">
-        <header class="home-header">
-          <button class="icon-btn back" id="btn-quick-back" aria-label="Back to Home">Back</button>
-          <h1 class="home-title">Quick Center</h1>
-          <button class="icon-btn" id="btn-quick-settings" aria-label="Open all settings">All settings</button>
+        <header class="screen-header">
+          <button type="button" class="btn btn-icon ghost" id="btn-quick-back" aria-label="Back" title="Back"><span data-icon="back"></span></button>
+          <div class="screen-heading"><h1 class="screen-title">Quick Center</h1></div>
+          <div class="screen-actions"><button type="button" class="btn outline" id="btn-quick-settings" aria-label="Open all settings"><span data-icon="settings"></span><span>All settings</span></button></div>
         </header>
-        <p class="space-intro">Simulated controls. Changes affect this prototype only, never your computer or phone.</p>
-        <div class="card section">
+        <p class="screen-intro">Quick controls for this prototype. Wi-Fi, Bluetooth and rotation lock are simulated and never touch your computer or phone.</p>
+        <div class="card opaque">
           <div class="slider-row">
-            <label for="qc-brightness">Brightness <output id="qc-brightness-out"></output></label>
-            <input type="range" id="qc-brightness" min="0" max="100" step="1">
+            <label for="qc-brightness"><span class="slider-label"><span data-icon="sun"></span><span>Brightness</span></span> <output id="qc-brightness-out"></output></label>
+            <input type="range" id="qc-brightness" min="0" max="100" step="1" aria-describedby="qc-brightness-note">
+            <p class="slider-note" id="qc-brightness-note">Dims this prototype only.</p>
           </div>
           <div class="slider-row">
-            <label for="qc-volume">Volume <output id="qc-volume-out"></output></label>
-            <input type="range" id="qc-volume" min="0" max="100" step="1">
+            <label for="qc-volume"><span class="slider-label"><span data-icon="volume"></span><span>Volume</span></span> <output id="qc-volume-out"></output></label>
+            <input type="range" id="qc-volume" min="0" max="100" step="1" aria-describedby="qc-volume-note">
+            <p class="slider-note" id="qc-volume-note">Simulated. The prototype makes no sound.</p>
           </div>
         </div>
         <div class="tile-grid" id="qc-tiles" role="group" aria-label="Quick toggles"></div>
-        <div class="card section">
+        <div class="card opaque">
           <div class="control-group">
             <label for="qc-appearance">Appearance</label>
             <select id="qc-appearance"><option value="light">Light</option><option value="dark">Dark</option></select>
@@ -184,8 +189,8 @@
             </select>
           </div>
         </div>
-        <div class="card section" id="qc-privacy-card" aria-label="Privacy indicators">
-          <h3 class="section-title">Privacy indicators</h3>
+        <div class="card opaque" id="qc-privacy-card" aria-label="Privacy indicators">
+          <h2 class="section-title">Privacy indicators</h2>
           <ul class="privacy-list" id="qc-privacy"></ul>
           <p class="index-hint">Indicators are driven by simulated sessions. Use the buttons to preview them.</p>
           <div class="plan-actions" id="qc-privacy-sim"></div>
@@ -194,12 +199,12 @@
 
       <!-- Settings screen -->
       <section id="screen-settings" class="screen" aria-label="Settings">
-        <header class="home-header">
-          <button class="icon-btn back" id="btn-settings-back" aria-label="Back to Home">Back</button>
-          <h1 class="home-title">Settings</h1>
+        <header class="screen-header">
+          <button type="button" class="btn btn-icon ghost" id="btn-settings-back" aria-label="Back" title="Back"><span data-icon="back"></span></button>
+          <div class="screen-heading"><h1 class="screen-title">Settings</h1></div>
         </header>
-        <p class="space-intro">Simulated. Changes affect this prototype only and live in memory only (nothing is saved, nothing touches a real device). "Stored only" items are remembered but have no effect yet.</p>
-        <div class="card section">
+        <p class="screen-intro">Simulated. Changes affect this prototype only and live in memory only (nothing is saved, nothing touches a real device). "Stored only" items are remembered but have no effect yet.</p>
+        <div class="card opaque">
           <div class="control-group">
             <label for="settings-filter">Find a setting</label>
             <input type="search" id="settings-filter" placeholder="Search settings…" autocomplete="off">
@@ -207,21 +212,13 @@
         </div>
         <div id="settings-sections"></div>
         <p id="settings-empty" class="index-hint panel-hidden" role="status">No settings match your search.</p>
-        <div class="card section" aria-label="Developer actions">
+        <div class="card opaque" aria-label="Developer actions">
           <h2 class="section-title">Developer actions</h2>
           <div class="plan-actions">
-            <button class="btn outline" id="btn-settings-json" aria-expanded="false" aria-controls="settings-json">Show settings as JSON</button>
-            <button class="btn outline" id="btn-settings-reset">Reset all settings</button>
+            <button type="button" class="btn outline" id="btn-settings-json" aria-expanded="false" aria-controls="settings-json">Show settings as JSON</button>
+            <button type="button" class="btn outline" id="btn-settings-reset">Reset all settings</button>
           </div>
           <pre id="settings-json" class="settings-json panel-hidden" tabindex="0" aria-label="Current settings as JSON"></pre>
-        </div>
-        <div id="settings-reset-confirm" class="confirm-panel panel-hidden" role="dialog" aria-modal="true" aria-labelledby="settings-reset-title">
-          <h3 id="settings-reset-title">Reset all settings?</h3>
-          <p>Every setting returns to its default. This only affects the prototype.</p>
-          <div class="confirm-actions">
-            <button class="btn outline" id="btn-settings-reset-cancel">Cancel</button>
-            <button class="btn accent" id="btn-settings-reset-ok">Reset</button>
-          </div>
         </div>
       </section>
     </main>

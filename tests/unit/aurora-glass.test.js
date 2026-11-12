@@ -128,7 +128,8 @@ async function main() {
   // Focus-visible styles present in CSS
   const css = fs.readFileSync(COMPONENTS_PATH, "utf8");
   assert(css.includes(":focus-visible"), "components.css defines :focus-visible styles");
-  assert(!fs.readFileSync(CSS_PATH, "utf8").includes(".btn {"), "shell.css does not redefine component classes");
+  // Scoped overrides such as "#pages-memory .btn { ... }" are fine; a rule that STARTS with a component class is a redefinition.
+  assert(!/^.(btn|card|chip|dialog|toast|meter|switch|list|empty-state)[s,.:{[]/m.test(fs.readFileSync(CSS_PATH, "utf8")), "shell.css does not redefine component classes");
 
   // ---------- 4. Themes & tiers ----------
   console.log("\n-- Themes & glass tiers --");

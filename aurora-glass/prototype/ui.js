@@ -310,7 +310,7 @@
   function confirm(o) {
     return dialog({
       title: o.title, body: o.body, tone: o.danger ? "danger" : undefined, icon: o.danger ? "alert" : o.icon, id: o.id, dismissValue: false,
-      actions: [{ label: o.cancelLabel || "Cancel", kind: "outline", value: false }, { label: o.confirmLabel || "Confirm", kind: o.danger ? "danger" : "accent", value: true, hold: !!o.hold, id: o.confirmId }],
+      actions: [{ label: o.cancelLabel || "Cancel", kind: "outline", value: false, id: o.cancelId }, { label: o.confirmLabel || "Confirm", kind: o.danger ? "danger" : "accent", value: true, hold: !!o.hold, id: o.confirmId }],
     });
   }
 

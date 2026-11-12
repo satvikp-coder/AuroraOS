@@ -60,7 +60,7 @@ test.describe("Settings: real effects in the prototype", () => {
   });
   test("text size scales the real text tokens", async ({ page }) => {
     await openSettings(page);
-    const size = () => page.locator("#screen-settings .home-title").evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+    const size = () => page.locator("#screen-settings .screen-title").evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
     const base = await size();
     await ctl(page, "accessibility.textSize").selectOption("200");
     await expect(page.locator("html")).toHaveAttribute("data-text-scale", "200");

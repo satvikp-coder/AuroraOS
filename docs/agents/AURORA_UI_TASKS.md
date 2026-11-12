@@ -200,7 +200,7 @@ the reset confirmation in Settings is still the inline panel until S6.
   no-match, injection).
 - Depends on: S2.
 
-### S6. Pages, Quick Center, Settings restyle — `not started`
+### S6. Pages, Quick Center, Settings restyle — `done` (tests/ui-golden/screens.test.js, 20 specs; existing pages-quick/settings specs unchanged except one selector; screenshots inspected: Pages 390 light, Quick Center 390 dark, Settings 390 light)
 
 - Files: `screens.js`, `settings-screen.js`, `settings.js`, `shell.css`, `index.html`.
 - Pages: card per page with app tile, name, state chip (icon + text), meta, actions. Keep every id, role,
