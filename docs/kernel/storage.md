@@ -105,7 +105,7 @@ the corruption test.
 cannot be appended to: `FS_ENOSPC`, documented and tested), 32 MiB maximum filesystem (RAM allocation map), single mount, no
 timestamps, no concurrency control (single CPU, callers are not preempted inside the filesystem), QEMU only.
 
-**Tests:** `tests/qemu/fs-tests.sh` (92 checks, in CI): three boots on one image (format + 57 in-kernel checks; then 21 each on mount without
+**Tests:** `tests/qemu/fs-tests.sh` (107 checks, in CI, including the EL0 file-access scenarios of docs/kernel/userspace.md): three boots on one image (format + 57 in-kernel checks; then 21 each on mount without
 formatting incl. injected corruption), host-side proof that the bytes are in the image file, host-damaged images (flipped inode bit, wrong
 version, foreign content, flipped superblock bit) reported precisely with the image checksum unchanged, read-only disk, no disk.
 

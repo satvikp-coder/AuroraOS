@@ -479,27 +479,32 @@ static void phase_persistent(void)
 
     {
         /* the same name behind valid checksums is only corruption within ONE owner's namespace: with different owners it mounts */
+        /* The earlier damage tests leave the filesystem unmounted (fs_file_count() is 0 then), so mount the intact disk first and take the
+         * baseline from it: the disk may also hold files created by the EL0 tests. */
+        int clean = fs_mount() == FS_OK; uint32_t files0 = fs_file_count();
         copy(in, in0, BLK_SECTOR); copy(in + 28, in + 256 + 28, 32); put32(in + 8, 9); put32(in + 252, fs_crc32(in, 252)); sector_rw(1, in, 1);
         e = fs_mount(); fs_id_t d1, d2;
         int both = e == FS_OK && fs_lookup(9, "shared.txt", &d1) == FS_OK && fs_lookup(7, "shared.txt", &d2) == FS_OK && d1 != d2;
         sector_rw(1, in0, 1);
         check("two files with the same name but DIFFERENT owners behind valid checksums mount (names are per owner); each owner finds its own", both);
-        check("... and restoring the original inode mounts the original filesystem again", fs_mount() == FS_OK && fs_file_count() == 3);
+        check("... and restoring the original inode mounts the original filesystem again", clean && files0 >= 3 && fs_mount() == FS_OK && fs_file_count() == files0);
     }
 
     {
-        /* A slot whose generation is used up must be skipped, not block creation: craft slot 3 (the first free one) as FREED at the last generation. */
+        /* A slot whose generation is used up must be skipped, not block creation: craft the first free slot as FREED at the last generation.
+         * Files are never deleted in these tests, so the used slots are 0..n-1 and the first free slot is n (inode slot i lives in sector 1 + i/2). */
         static uint8_t g2[BLK_SECTOR], g20[BLK_SECTOR], g30[BLK_SECTOR];
-        sector_rw(2, g20, 0); sector_rw(3, g30, 0); copy(g2, g20, BLK_SECTOR);
-        for (int k = 0; k < 256; k++) g2[256 + k] = 0;
-        put32(g2 + 256, 0xF4EEF4EEu); put32(g2 + 256 + 4, 0x00FFFFFFu); put32(g2 + 256 + 252, fs_crc32(g2 + 256, 252));
-        sector_rw(2, g2, 1);
+        uint32_t files1 = fs_file_count(), slot = files1, sec = 1 + slot / 2, off = (slot & 1u) * 256u;
+        sector_rw(sec, g20, 0); sector_rw(sec + 1, g30, 0); copy(g2, g20, BLK_SECTOR);
+        for (uint32_t k = 0; k < 256; k++) g2[off + k] = 0;
+        put32(g2 + off, 0xF4EEF4EEu); put32(g2 + off + 4, 0x00FFFFFFu); put32(g2 + off + 252, fs_crc32(g2 + off, 252));
+        sector_rw(sec, g2, 1);
         e = fs_mount(); fs_id_t nid = 0; int rc = e == FS_OK ? fs_create(7, "after.txt", 3, &nid) : e;
-        int skipped = e == FS_OK && rc == FS_OK && (nid & 0xFF) != 3;
+        int skipped = e == FS_OK && rc == FS_OK && (nid & 0xFF) != slot;
         if (rc == FS_OK) fs_delete(7, nid);
-        sector_rw(2, g20, 1); sector_rw(3, g30, 1);                                          /* restore both inode sectors exactly */
+        sector_rw(sec, g20, 1); sector_rw(sec + 1, g30, 1);                                  /* restore both inode sectors exactly */
         check("a slot whose generation is used up (FREED at 0xFFFFFF) is skipped: create still succeeds in another slot while other slots are free", skipped);
-        check("... and after restoring the sectors the original filesystem mounts with the same three files", fs_mount() == FS_OK && fs_file_count() == 3);
+        check("... and after restoring the sectors the original filesystem mounts with the same files", fs_mount() == FS_OK && fs_file_count() == files1);
     }
 
     {

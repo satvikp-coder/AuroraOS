@@ -123,10 +123,13 @@ void fsproc_run(void)
     {
         /* PID reuse: the process that held file identity 21 exits; a later process in the SAME pid slot must not inherit it */
         int pid1 = proc_create(72, 0, "first"); proc_set_principal(pid1, APP_A); proc_destroy(pid1);
-        struct proc *x = run_as(72, 0, APP_B, 0, "reuseB");
+        /* Role 71 is handed the REAL id of 'note' (like the guessed-id check above): the read must be refused for a PERMISSION reason.
+         * (An earlier version ran the lookup-then-read program here, so the read used the failed lookup's error code as an id and was
+         * rejected as a bad id, which proved nothing about permissions.) */
+        struct proc *x = run_as(71, note, APP_B, 0, "reuseB");
         int same_slot = x && x->pid == pid1;
-        check("PID reuse: a new process created in the pid slot of an identity-21 process, given identity 22, cannot find or read 'note' (not found / denied)",
-              same_slot && sd(x, 0x20) == EFS(FS_ENOENT) && sd(x, 0x28) == EFS(FS_EBADID));
+        check("PID reuse: a new process created in the pid slot of an identity-21 process, given identity 22, cannot find 'note' by name and is PERMISSION-DENIED (not 'bad id') when it reads, writes, deletes or changes it by its real id",
+              same_slot && sd(x, 0x20) == EFS(FS_ENOENT) && sd(x, 0x28) == EFS(FS_EACCES) && sd(x, 0x30) == EFS(FS_EACCES) && sd(x, 0x38) == EFS(FS_EACCES) && sd(x, 0x50) == EFS(FS_EACCES));
         destroy_all();
         struct proc *y = run_as(72, 0, 0, 0, "reuseNone");
         check("PID reuse: a new process in the same slot with no identity is refused (AE_EPERM)", y && y->pid == pid1 && sd(y, 0x20) == AE_EPERM);
