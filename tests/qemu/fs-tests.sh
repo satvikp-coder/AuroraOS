@@ -19,6 +19,8 @@ cd "$ROOT" || exit 1
 EXPECTED_FS_BOOT1=57
 EXPECTED_FS_BOOTN=21
 EXPECTED_FS_RO=2
+EXPECTED_FSPROC_BOOT1=16
+EXPECTED_FSPROC_BOOTN=14
 EXPECTED_PROC_TESTS=79
 
 OUT="$ROOT/build/fs-tests"
@@ -78,6 +80,18 @@ for n in 2 3; do
     expect "$OUT/boot$n.log" "silent data corruption.*: PASS" "boot$n: flipped data bit is detected, never returned"
     expect "$OUT/boot$n.log" "version mismatch.*FS_EVERSION.*: PASS" "boot$n: version mismatch refused"
 done
+# EL0 file access (real user programs through SYS_FS)
+expect "$OUT/boot1.log" "AURORA-FSPROC-SELFTEST: $EXPECTED_FSPROC_BOOT1 passed, 0 failed" "boot1: all $EXPECTED_FSPROC_BOOT1 EL0 file-access checks pass"
+expect "$OUT/boot1.log" "program A \(EL0, identity 21\): creates file.*: PASS" "boot1: EL0 program A created, wrote and read back a file"
+for n in 1 2 3; do
+    expect "$OUT/boot$n.log" "program B \(EL0, identity 22\) with a GUESSED exact id.*: PASS" "boot$n: EL0 program B refused on the private file even with the exact id"
+    expect "$OUT/boot$n.log" "hostile arguments from EL0.*: PASS" "boot$n: hostile EL0 arguments (kernel pointers, overflow) rejected safely"
+    expect "$OUT/boot$n.log" "PID reuse: a new process created in the pid slot.*: PASS" "boot$n: a reused pid inherits no file identity"
+done
+for n in 2 3; do
+    expect "$OUT/boot$n.log" "AURORA-FSPROC-SELFTEST: $EXPECTED_FSPROC_BOOTN passed, 0 failed" "boot$n: all $EXPECTED_FSPROC_BOOTN EL0 file-access checks pass"
+    expect "$OUT/boot$n.log" "after the RESTART: a new process with identity 21 finds 'note' written by an earlier boot.*: PASS" "boot$n: a new EL0 process with the same application identity reads the file persisted by an earlier QEMU run"
+done
 # host-side proof
 if [ "$(dd if="$img" bs=512 count=1 2>/dev/null | head -c 8)" = "AURORAFS" ]; then ok "host: sector 0 of the image carries the AuroraFS magic"; else bad "host: no AuroraFS magic in the image"; fi
 if grep -c "AURORA-FILE-CONTENT-v1" "$img" >/dev/null 2>&1; then ok "host: the file content 'AURORA-FILE-CONTENT-v1' is physically inside the image file"; else bad "host: file content not found in the image"; fi
@@ -103,7 +117,7 @@ for c in "inode:CORRUPT" "version:unsupported filesystem version" "foreign:no fi
 done
 # a healthy filesystem mounts in a normal kernel, read-only in effect
 before="$(sum "$img")"; log="$OUT/normal-good.log"; run_qemu "$NORMAL" "$log" $(disk_args "$img"); finished normal-good "$log"
-expect "$log" "\[fs\] mount: AuroraFS v1 mounted.*3 files" "normal kernel: mounts the healthy filesystem (3 files)"
+expect "$log" "\[fs\] mount: AuroraFS v1 mounted.*5 files" "normal kernel: mounts the healthy filesystem (5 files: 3 from the kernel tests, 2 created by EL0)"
 if [ "$(sum "$img")" = "$before" ]; then ok "normal kernel: mounting wrote nothing"; else bad "normal kernel: image changed by a normal boot"; fi
 
 echo "== 3. read-only disk with a filesystem =="

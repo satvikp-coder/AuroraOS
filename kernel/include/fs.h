@@ -55,6 +55,8 @@ const char *fs_strerror(int rc);
 int  fs_validate_name(const char *name);
 uint32_t fs_crc32(const void *p, uint32_t n);                       /* CRC-32 (IEEE) used for every checksum; exposed so tests can forge valid-looking bad metadata */
 
+void fsproc_run(void);        /* EL0 file-access tests (AURORA_FS_TEST kernels only; no-op otherwise) */
+int  fsproc_summary(void);
 void fstest_run(void);
 int  fstest_summary(void);
 #endif

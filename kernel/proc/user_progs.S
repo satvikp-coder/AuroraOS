@@ -18,6 +18,7 @@
     .equ SYS_TICKS, 5
     .equ SYS_SEND,  6
     .equ SYS_RECV,  7
+    .equ SYS_FS,    8
 
     .macro sys nr
     mov     x8, #\nr
@@ -93,6 +94,14 @@ user_blob_start:
     b.eq    role_tryall
     cmp     x0, #68
     b.eq    role_send_two
+    cmp     x0, #70
+    b.eq    role_fs_create
+    cmp     x0, #71
+    b.eq    role_fs_intruder
+    cmp     x0, #72
+    b.eq    role_fs_reader
+    cmp     x0, #73
+    b.eq    role_fs_hostile
     mov     x0, #99
     sys     SYS_EXIT
     b       .
@@ -592,7 +601,7 @@ role_recv_flags:
 role_tryall:
     ldr     x20, =DATA_VA
     mov     x19, x1
-    mov     x21, #8
+    mov     x21, #9
     mov     x22, #0
 ta_loop:
     mov     x0, #2
@@ -616,6 +625,208 @@ ta_loop:
     sys     SYS_EXIT
     b       .
 
+/* ---- file-access programs (SYS_FS; operations: 1 create 2 lookup 3 read 4 write 5 stat 6 list 7 delete 8 set_perm) ---- */
+    .macro fsop op, nr_slot
+    mov     x0, #\op
+    sys     SYS_FS
+    str     x0, [x20, #\nr_slot]
+    .endm
+
+/* role 70: program A. Creates the private file "note" (perm 3) and the other-readable file "pub" (perm 7), writes 16 bytes into each, reads "note"
+ * back. Results: [0x20] id of note  [0x28] write rc  [0x30] read rc (bytes read lands at +0x400)  [0x38] id of pub  [0x50] write rc for pub */
+role_fs_create:
+    ldr     x20, =DATA_VA
+    adr     x1, fs_note
+    mov     x2, #4
+    mov     x3, #3
+    fsop    1, 0x20
+    mov     x19, x0
+    mov     x0, #4
+    mov     x1, x19
+    mov     x2, #0
+    adr     x3, fs_data
+    mov     x4, #16
+    sys     SYS_FS
+    str     x0, [x20, #0x28]
+    mov     x0, #3
+    mov     x1, x19
+    mov     x2, #0
+    add     x3, x20, #0x400
+    mov     x4, #64
+    sys     SYS_FS
+    str     x0, [x20, #0x30]
+    adr     x1, fs_pub
+    mov     x2, #3
+    mov     x3, #7
+    fsop    1, 0x38
+    mov     x19, x0
+    mov     x0, #4
+    mov     x1, x19
+    mov     x2, #0
+    adr     x3, fs_data
+    mov     x4, #16
+    sys     SYS_FS
+    str     x0, [x20, #0x50]
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
+/* role 71: program B (intruder). x1 = a file id it GUESSED for "note". Tries lookup, read, write, delete, chmod on it, then reads/writes the
+ * other-readable "pub". Results: [0x20] lookup note  [0x28] read  [0x30] write  [0x38] delete  [0x50] chmod  [0x58] lookup pub  [0x60] read pub
+ * [0x68] write pub */
+role_fs_intruder:
+    ldr     x20, =DATA_VA
+    mov     x19, x1
+    adr     x1, fs_note
+    mov     x2, #4
+    fsop    2, 0x20
+    mov     x0, #3
+    mov     x1, x19
+    mov     x2, #0
+    add     x3, x20, #0x400
+    mov     x4, #16
+    sys     SYS_FS
+    str     x0, [x20, #0x28]
+    mov     x0, #4
+    mov     x1, x19
+    mov     x2, #0
+    adr     x3, fs_data
+    mov     x4, #16
+    sys     SYS_FS
+    str     x0, [x20, #0x30]
+    mov     x0, #7
+    mov     x1, x19
+    sys     SYS_FS
+    str     x0, [x20, #0x38]
+    mov     x0, #8
+    mov     x1, x19
+    mov     x2, #15
+    sys     SYS_FS
+    str     x0, [x20, #0x50]
+    adr     x1, fs_pub
+    mov     x2, #3
+    fsop    2, 0x58
+    mov     x19, x0
+    mov     x0, #3
+    mov     x1, x19
+    mov     x2, #0
+    add     x3, x20, #0x500
+    mov     x4, #16
+    sys     SYS_FS
+    str     x0, [x20, #0x60]
+    mov     x0, #4
+    mov     x1, x19
+    mov     x2, #0
+    adr     x3, fs_data
+    mov     x4, #16
+    sys     SYS_FS
+    str     x0, [x20, #0x68]
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
+/* role 72: reader. Looks up "note", reads 64 bytes, stats it, lists the directory. Results: [0x20] id  [0x28] read rc (data at +0x400)
+ * [0x30] stat rc (struct at +0x500)  [0x38] list rc (entries at +0x600) */
+role_fs_reader:
+    ldr     x20, =DATA_VA
+    adr     x1, fs_note
+    mov     x2, #4
+    fsop    2, 0x20
+    mov     x19, x0
+    mov     x0, #3
+    mov     x1, x19
+    mov     x2, #0
+    add     x3, x20, #0x400
+    mov     x4, #64
+    sys     SYS_FS
+    str     x0, [x20, #0x28]
+    mov     x0, #5
+    mov     x1, x19
+    add     x2, x20, #0x500
+    sys     SYS_FS
+    str     x0, [x20, #0x30]
+    mov     x0, #6
+    add     x1, x20, #0x600
+    mov     x2, #8
+    sys     SYS_FS
+    str     x0, [x20, #0x38]
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
+/* role 73: hostile arguments. x1 = a KERNEL address, x2 = a VALID file id this process may use. Every call must fail safely.
+ * [0x20] read into kernel ptr  [0x28] create with name at kernel ptr  [0x30] write from kernel ptr  [0x38] read len=-1  [0x50] read offset=-1
+ * [0x58] unknown op 99  [0x60] op "FORM"  [0x68] create name len 40  [0x70] create name len 0  [0x78] list into kernel ptr  [0x80] stat into kernel ptr */
+role_fs_hostile:
+    ldr     x20, =DATA_VA
+    mov     x19, x1
+    mov     x18, x2
+    mov     x0, #3
+    mov     x1, x18
+    mov     x2, #0
+    mov     x3, x19
+    mov     x4, #16
+    sys     SYS_FS
+    str     x0, [x20, #0x20]
+    mov     x0, #1
+    mov     x1, x19
+    mov     x2, #4
+    mov     x3, #3
+    sys     SYS_FS
+    str     x0, [x20, #0x28]
+    mov     x0, #4
+    mov     x1, x18
+    mov     x2, #0
+    mov     x3, x19
+    mov     x4, #16
+    sys     SYS_FS
+    str     x0, [x20, #0x30]
+    mov     x0, #3
+    mov     x1, x18
+    mov     x2, #0
+    add     x3, x20, #0x400
+    mov     x4, #-1
+    sys     SYS_FS
+    str     x0, [x20, #0x38]
+    mov     x0, #3
+    mov     x1, x18
+    mov     x2, #-1
+    add     x3, x20, #0x400
+    mov     x4, #16
+    sys     SYS_FS
+    str     x0, [x20, #0x50]
+    mov     x0, #99
+    sys     SYS_FS
+    str     x0, [x20, #0x58]
+    ldr     x0, =0x464F524D
+    sys     SYS_FS
+    str     x0, [x20, #0x60]
+    mov     x0, #1
+    adr     x1, fs_note
+    mov     x2, #40
+    mov     x3, #3
+    sys     SYS_FS
+    str     x0, [x20, #0x68]
+    mov     x0, #1
+    adr     x1, fs_note
+    mov     x2, #0
+    mov     x3, #3
+    sys     SYS_FS
+    str     x0, [x20, #0x70]
+    mov     x0, #6
+    mov     x1, x19
+    mov     x2, #4
+    sys     SYS_FS
+    str     x0, [x20, #0x78]
+    mov     x0, #5
+    mov     x1, x18
+    mov     x2, x19
+    sys     SYS_FS
+    str     x0, [x20, #0x80]
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
+
 role_spin:                              /* never yields: only preemption or the watchdog can stop it */
     ldr     x20, =DATA_VA
 1:  ldr     x2, [x20]
@@ -627,6 +838,10 @@ role_exit7:
     sys     SYS_EXIT
     b       .
 
+fs_note: .ascii "note"
+fs_pub:  .ascii "pub"
+fs_data: .ascii "AURORA-EL0-FILE!"
+    .balign 4
 msg_a:  .ascii "A"
 msg_b:  .ascii "B"
 msg_ok: .ascii "ok"
