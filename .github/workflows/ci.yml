@@ -25,6 +25,7 @@ jobs:
       - run: node tests/unit/core.test.js
       - run: node tests/unit/broker.test.js
       - run: node tests/unit/settings.test.js
+      - run: node tests/unit/system.test.js
 
   ui-browser-tests:
     name: Browser interaction tests (Playwright)
@@ -38,13 +39,17 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --workers=1
+      - name: A test run must not modify tracked files or leave untracked ones
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
 
   prototype-build:
     name: Prototype build / lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node -e "const fs=require('fs');['index.html','shell.css','tokens.css','app.js','core.js','screens.js','broker.js','settings.js','settings-screen.js'].forEach(f=>{if(!fs.existsSync('aurora-glass/prototype/'+f)){console.error('missing',f);process.exit(1)}});console.log('prototype files OK');"
+      - run: node -e "const fs=require('fs');['index.html','shell.css','components.css','tokens.css','app.js','ui.js','system.js','review.js','core.js','screens.js','broker.js','settings.js','settings-screen.js'].forEach(f=>{if(!fs.existsSync('aurora-glass/prototype/'+f)){console.error('missing',f);process.exit(1)}});console.log('prototype files OK');"
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}

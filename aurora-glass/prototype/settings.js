@@ -42,6 +42,7 @@
     { id: "storage.trailDays", section: "storage", label: "Keep Trail history for (days)", type: "range", min: 7, max: 90, def: 30, effect: "stored", advanced: true, keywords: ["history", "recovery", "undo", "retention"] },
     { id: "aura.mode", section: "aura", label: "Aura mode", type: "choice", options: ["off", "ask", "quick"], def: "ask", effect: "live", keywords: ["assistant", "ai", "quick commands"] },
     { id: "aura.approval", section: "aura", label: "Approval for file changes and deletions", type: "info", def: "Always required (cannot be turned off)", effect: "locked", keywords: ["s2", "s3", "confirm", "safety", "permissions", "passport"] },
+    { id: "developer.failAuraStep", section: "developer", label: "Make the next Aura plan fail at its third step (simulated)", type: "toggle", def: false, effect: "live", advanced: true, keywords: ["failure", "error", "test", "simulate", "undo"] },
     { id: "developer.showAdvanced", section: "developer", label: "Show advanced settings", type: "toggle", def: false, effect: "live", keywords: ["expert", "more options", "developer"] },
   ];
 

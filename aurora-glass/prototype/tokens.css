@@ -1,10 +1,14 @@
-/* aurora-glass/tokens.css — AuroraOS design tokens (from DESIGN.md v1.2)
- * Canonical semantic token contract. Clear (Tier 0) and Soft Glass (Tier 1).
+/* aurora-glass/prototype/tokens.css — Aurora Glass design tokens (DESIGN.md v1.2 contract, extended).
+ *
+ * The nine colour tokens of DESIGN.md §3 keep their exact names and values. Everything else here is an
+ * ADDITION that components.css / shell.css build on. Documented in docs/agents/AURORA_DESIGN_SYSTEM.md.
+ * Rule: components never use raw colours; they use these tokens.
  */
 
-/* Light mode */
+/* ---------- Colour: light ---------- */
 :root,
 :root[data-theme="light"] {
+  color-scheme: light;
   --color-canvas: #EEF3F8;
   --color-surface-opaque: #FFFFFF;
   --color-surface-glass: rgba(255, 255, 255, 0.74);
@@ -14,14 +18,47 @@
   --color-accent: #3478F6;
   --color-aura: #00AEB8;
   --color-focus: #175CD3;
-  --color-success: #22C55E;
-  --color-warn: #F59E0B;
-  --color-danger: #EF4444;
+
+  /* Additions */
+  --color-surface-sunken: #E4EBF3;            /* wells: inputs at rest, meters, code */
+  --color-surface-hover: #F3F7FC;             /* hover on opaque rows/buttons */
+  --color-accent-fill: #1F5FD6;               /* filled primary buttons: white text is 6:1 here */
+  --color-on-accent: #FFFFFF;
+  --color-accent-soft: rgba(52, 120, 246, 0.12);
+  --color-accent-ink: #1B50B8;                /* accent-coloured TEXT on light surfaces (5.9:1 on white) */
+  --color-aura-soft: rgba(0, 174, 184, 0.14);
+  --color-aura-ink: #006D75;
+  --color-success: #15803D;
+  --color-success-soft: rgba(21, 128, 61, 0.12);
+  --color-warn: #A15C07;
+  --color-warn-soft: rgba(217, 119, 6, 0.14);
+  --color-danger: #C62828;
+  --color-danger-soft: rgba(198, 40, 40, 0.10);
+  --color-danger-fill: #C62828;
   --color-border: rgba(20, 33, 54, 0.12);
+  --color-border-strong: rgba(20, 33, 54, 0.28);
+  --color-scrim: rgba(12, 20, 36, 0.42);
+
+  --shadow-1: 0 1px 2px rgba(20, 33, 54, 0.06), 0 1px 1px rgba(20, 33, 54, 0.04);
+  --shadow-2: 0 6px 18px -6px rgba(20, 33, 54, 0.16), 0 2px 4px rgba(20, 33, 54, 0.05);
+  --shadow-3: 0 24px 48px -16px rgba(20, 33, 54, 0.30), 0 4px 10px rgba(20, 33, 54, 0.08);
+
+  /* Wallpaper: a static, pre-composed aurora (no live blur, no animation). */
+  --wallpaper:
+    radial-gradient(120% 70% at 12% -10%, rgba(52, 120, 246, 0.26) 0%, transparent 60%),
+    radial-gradient(90% 60% at 100% 8%, rgba(0, 174, 184, 0.22) 0%, transparent 62%),
+    radial-gradient(110% 70% at 60% 110%, rgba(126, 104, 232, 0.16) 0%, transparent 60%),
+    linear-gradient(180deg, #F4F8FC 0%, #E9EFF6 100%);
+
+  /* App icon tiles: hue comes from --h on the element. */
+  --tile-bg: hsl(var(--h, 215) 78% 93%);
+  --tile-bg-2: hsl(var(--h, 215) 72% 86%);
+  --tile-ink: hsl(var(--h, 215) 62% 30%);
 }
 
-/* Dark mode */
+/* ---------- Colour: dark ---------- */
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --color-canvas: #0B1020;
   --color-surface-opaque: #192338;
   --color-surface-glass: rgba(24, 32, 49, 0.76);
@@ -31,40 +68,84 @@
   --color-accent: #6AA3FF;
   --color-aura: #46D6DF;
   --color-focus: #A8D7FF;
-  --color-success: #34D399;
+
+  --color-surface-sunken: #111A2C;
+  --color-surface-hover: #223049;
+  --color-accent-fill: #6AA3FF;
+  --color-on-accent: #0B1020;
+  --color-accent-soft: rgba(106, 163, 255, 0.16);
+  --color-accent-ink: #9CC2FF;
+  --color-aura-soft: rgba(70, 214, 223, 0.14);
+  --color-aura-ink: #7FE4EA;
+  --color-success: #5EDC9A;
+  --color-success-soft: rgba(94, 220, 154, 0.14);
   --color-warn: #FBBF24;
-  --color-danger: #F87171;
-  --color-border: rgba(243, 247, 255, 0.08);
+  --color-warn-soft: rgba(251, 191, 36, 0.14);
+  --color-danger: #FF8A8A;
+  --color-danger-soft: rgba(255, 138, 138, 0.14);
+  --color-danger-fill: #E5484D;
+  --color-border: rgba(243, 247, 255, 0.10);
+  --color-border-strong: rgba(243, 247, 255, 0.30);
+  --color-scrim: rgba(3, 6, 14, 0.62);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-2: 0 8px 20px -8px rgba(0, 0, 0, 0.55), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-3: 0 28px 56px -18px rgba(0, 0, 0, 0.70), 0 4px 12px rgba(0, 0, 0, 0.35);
+
+  --wallpaper:
+    radial-gradient(120% 70% at 10% -10%, rgba(64, 118, 230, 0.34) 0%, transparent 60%),
+    radial-gradient(90% 60% at 100% 6%, rgba(30, 170, 180, 0.24) 0%, transparent 62%),
+    radial-gradient(110% 70% at 62% 112%, rgba(112, 86, 214, 0.22) 0%, transparent 60%),
+    linear-gradient(180deg, #0D1326 0%, #0A0E1C 100%);
+
+  --tile-bg: hsl(var(--h, 215) 38% 24%);
+  --tile-bg-2: hsl(var(--h, 215) 42% 18%);
+  --tile-ink: hsl(var(--h, 215) 88% 82%);
 }
 
-/* Clear (Tier 0) — fully opaque, no blur */
+/* ---------- Glass tiers ---------- */
+/* Clear (Tier 0): opaque, no blur. The native compositor starts here. Everything must work in Clear. */
 :root[data-glass-tier="clear"] {
   --color-surface-glass: var(--color-surface-opaque);
   --color-dock-glass: var(--color-surface-opaque);
   --backdrop-blur: none;
 }
-
-/* Soft Glass (Tier 1) — translucent over static pre-blurred wallpaper */
+/* Soft Glass (Tier 1): translucency over the static wallpaper. One modest blur on chrome only. */
 :root[data-glass-tier="soft"] {
-  --backdrop-blur: blur(12px) saturate(1.05);
+  --backdrop-blur: blur(14px) saturate(1.15);
 }
 
-/* High contrast */
+/* ---------- High contrast: opaque, hard borders, no wallpaper tint ---------- */
 :root[data-contrast="high"] {
   --color-surface-glass: var(--color-surface-opaque);
   --color-dock-glass: var(--color-surface-opaque);
   --backdrop-blur: none;
   --color-border: #000000;
+  --color-border-strong: #000000;
+  --color-ink-muted: #26344A;
+  --color-accent-ink: #0B3D91;
+  --color-surface-sunken: #FFFFFF;
+  --wallpaper: linear-gradient(#FFFFFF, #FFFFFF);
+  --shadow-1: none; --shadow-2: none; --shadow-3: 0 0 0 2px #000000;
 }
 :root[data-theme="dark"][data-contrast="high"] {
   --color-border: #FFFFFF;
+  --color-border-strong: #FFFFFF;
+  --color-ink-muted: #E6EDFA;
+  --color-accent-ink: #CFE2FF;
+  --color-canvas: #000000;
+  --color-surface-opaque: #0A0F1C;
+  --color-surface-sunken: #000000;
+  --wallpaper: linear-gradient(#000000, #000000);
+  --shadow-3: 0 0 0 2px #FFFFFF;
 }
 
-/* Typography */
+/* ---------- Typography ---------- */
 :root {
   --font-family:
-    "Inter", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
-    sans-serif, "Noto Sans CJK SC", "Noto Sans CJK TC";
+    "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Noto Sans", "Noto Sans Devanagari",
+    "Noto Sans Gujarati", Helvetica, Arial, sans-serif, "Noto Sans CJK SC", "Noto Sans CJK TC";
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
   --text-xs: 12px;
   --text-sm: 14px;
   --text-base: 16px;
@@ -72,11 +153,17 @@
   --text-xl: 24px;
   --text-2xl: 30px;
   --text-3xl: 34px;
-  --line-body: 1.55;
-  --line-tight: 1.2;
+  --text-display: 56px;       /* Home clock, Calculator result, Clock face */
+  --line-body: 1.5;
+  --line-tight: 1.15;
+  --tracking-tight: -0.02em;
+  --tracking-caps: 0.06em;
+  --weight-regular: 400;
+  --weight-medium: 550;
+  --weight-bold: 680;
 }
 
-/* Spacing scale */
+/* ---------- Spacing (DESIGN.md: 4, 8, 12, 16, 24, 32; 48/64 added for page rhythm) ---------- */
 :root {
   --space-1: 4px;
   --space-2: 8px;
@@ -84,17 +171,37 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
 }
 
-/* Geometry */
+/* ---------- Geometry ---------- */
 :root {
+  --radius-sm: 8px;
   --radius-control: 14px;
-  --radius-window: 20px;
+  --radius-card: 20px;
+  --radius-window: 20px;      /* alias kept for existing rules */
+  --radius-sheet: 24px;
+  --radius-pill: 9999px;
   --border-width: 1px;
   --touch-target: 48px;
+  --icon-size: 22px;
+  --tile-size: 52px;
+  --content-max: 1120px;
+  --dock-height: 76px;
 }
 
-/* Motion */
+/* ---------- Layers ---------- */
+:root {
+  --z-content: 1;
+  --z-dock: 50;
+  --z-corner: 60;
+  --z-sheet: 200;
+  --z-dialog: 300;            /* secure, opaque */
+  --z-toast: 400;
+}
+
+/* ---------- Motion: one-shot 120–220 ms. No continuous animation anywhere. ---------- */
 :root {
   --motion-fast: 120ms;
   --motion-base: 180ms;
@@ -102,15 +209,12 @@
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
 }
 @media (prefers-reduced-motion: reduce) {
-  :root {
-    --motion-fast: 0ms;
-    --motion-base: 0ms;
-    --motion-slow: 0ms;
-    --ease-standard: linear;
-  }
+  :root { --motion-fast: 0ms; --motion-base: 0ms; --motion-slow: 0ms; --ease-standard: linear; }
 }
+/* Manual override (Settings > Reduce motion): same result as the OS preference. */
+:root[data-motion="reduce"] { --motion-fast: 0ms; --motion-base: 0ms; --motion-slow: 0ms; --ease-standard: linear; }
 
-/* Breakpoints */
+/* ---------- Breakpoints (reference values; media queries cannot read custom properties) ---------- */
 :root {
   --break-phone: 360px;
   --break-phone-wide: 390px;
@@ -119,11 +223,11 @@
   --break-desktop: 1024px;
 }
 
-/* Token CSS classes applied by JS for dynamic state */
+/* Legacy helper classes (kept for compatibility) */
 .tier-clear { --glass-surface: var(--color-surface-opaque); --glass-dock: var(--color-surface-opaque); --bd: none; }
 .tier-soft { --glass-surface: var(--color-surface-glass); --glass-dock: var(--color-dock-glass); --bd: var(--backdrop-blur); }
 
-/* Text size (Settings > Accessibility): scale every text token. 125% / 150% / 200% of the base scale. */
-:root[data-text-scale="125"] { --text-xs: 15px; --text-sm: 17.5px; --text-base: 20px; --text-lg: 22.5px; --text-xl: 30px; --text-2xl: 37.5px; --text-3xl: 42.5px; }
-:root[data-text-scale="150"] { --text-xs: 18px; --text-sm: 21px; --text-base: 24px; --text-lg: 27px; --text-xl: 36px; --text-2xl: 45px; --text-3xl: 51px; }
-:root[data-text-scale="200"] { --text-xs: 24px; --text-sm: 28px; --text-base: 32px; --text-lg: 36px; --text-xl: 48px; --text-2xl: 60px; --text-3xl: 68px; }
+/* ---------- Text size (Settings > Accessibility): every text token scales; layouts must reflow ---------- */
+:root[data-text-scale="125"] { --text-xs: 15px; --text-sm: 17.5px; --text-base: 20px; --text-lg: 22.5px; --text-xl: 30px; --text-2xl: 37.5px; --text-3xl: 42.5px; --text-display: 64px; }
+:root[data-text-scale="150"] { --text-xs: 18px; --text-sm: 21px; --text-base: 24px; --text-lg: 27px; --text-xl: 36px; --text-2xl: 45px; --text-3xl: 51px; --text-display: 68px; }
+:root[data-text-scale="200"] { --text-xs: 24px; --text-sm: 28px; --text-base: 32px; --text-lg: 36px; --text-xl: 48px; --text-2xl: 60px; --text-3xl: 68px; --text-display: 72px; }

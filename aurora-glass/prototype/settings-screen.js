@@ -5,7 +5,8 @@
 (function () {
   "use strict";
   const Shell = window.AuroraShell, Models = window.AuroraModels, SettingsLib = window.AuroraSettings;
-  if (!Shell || !Models || !SettingsLib) return;
+  if (!Shell || !Models || !SettingsLib || !window.AuroraUI) return;
+  const el = window.AuroraUI.el;
 
   const settings = SettingsLib.createSettings();
   window.AuroraSettingsModel = settings;       // exposed for tests only
@@ -21,18 +22,6 @@
 
   let filter = "";
   let lastFocusKey = null;
-
-  function el(tag, props, children) {
-    const n = document.createElement(tag);
-    Object.keys(props || {}).forEach((k) => {
-      if (k === "text") n.textContent = props[k];
-      else if (k === "class") n.className = props[k];
-      else if (k.startsWith("on")) n.addEventListener(k.slice(2), props[k]);
-      else n.setAttribute(k, props[k]);
-    });
-    (children || []).forEach((c) => n.appendChild(c));
-    return n;
-  }
 
   function showAdvanced() { return settings.get("developer.showAdvanced") === true; }
   function sectionLabel(id) { return settings.sections.find((s) => s.id === id).label; }
@@ -95,7 +84,7 @@
       const entries = visibleEntries(sec.id);
       if (!entries.length) return;
       count += entries.length;
-      const card = el("section", { class: "card section settings-group", "aria-labelledby": "st-sec-" + sec.id }, [el("h2", { class: "section-title", id: "st-sec-" + sec.id, text: sec.label })]);
+      const card = el("section", { class: "card opaque settings-group", "aria-labelledby": "st-sec-" + sec.id }, [el("h2", { class: "section-title", id: "st-sec-" + sec.id, text: sec.label })]);
       entries.forEach((e) => card.appendChild(renderRow(e)));
       root.appendChild(card);
     });
@@ -116,14 +105,18 @@
       case "accessibility.highContrast": Shell.setContrast(v ? "high" : "normal"); break;
       case "accessibility.reduceMotion": Shell.setMotion(v ? "reduce" : "normal"); break;
       case "notifications.focus": qs.set("focus", v); break;
-      case "notifications.glassCorner": { const gc = document.querySelector(".glass-corner"); if (gc) gc.hidden = !v; break; }
+      case "notifications.glassCorner": { const gc = document.querySelector(".glass-corner"); if (gc) { gc.hidden = !v; if (!v && Shell.closeGlassCorner) Shell.closeGlassCorner(); } break; }
       case "privacy.indicators": { const c = document.getElementById("qc-privacy-card"); if (c) c.classList.toggle("panel-hidden", !v); break; }
       case "battery.saver": qs.set("batterySaver", v); break;
       case "aura.mode": qs.set("auraMode", v); break;
+      case "developer.failAuraStep": if (window.AuroraSystem) window.AuroraSystem.dev.failNextType = v ? "app.open" : null; break;
       default: break;                                   // "stored" entries and the advanced-view switch have no side effect
     }
   }
   settings.onChange((id, v) => { apply(id, v); render(); Shell.refreshIndex && document.getElementById("screen-index").classList.contains("active") && Shell.refreshIndex(); });
+
+  // The simulated failure fires once: when the broker has consumed it, switch the setting back off.
+  if (window.AuroraSystem) window.AuroraSystem.on("receipts", () => { if (settings.get("developer.failAuraStep") && window.AuroraSystem.dev.failNextType === null) settings.set("developer.failAuraStep", false); });
 
   // Quick Center and the Settings registry describe the same state: keep them in step both ways.
   const QS_TO_SETTING = { appearance: "appearance.theme", focus: "notifications.focus", batterySaver: "battery.saver", auraMode: "aura.mode" };
@@ -155,11 +148,7 @@
 
   // ---------------- wiring ----------------
   function init() {
-    document.getElementById("btn-settings-back").addEventListener("click", () => Shell.showScreen("screen-home"));
     document.getElementById("btn-quick-settings").addEventListener("click", () => Shell.showScreen("screen-settings"));
-    document.querySelectorAll(".pin-btn").forEach((b) => {
-      if (b.textContent.trim() === "Settings") b.addEventListener("click", (ev) => { ev.stopImmediatePropagation(); Shell.showScreen("screen-settings"); }, true);
-    });
     document.getElementById("settings-filter").addEventListener("input", (e) => { filter = e.target.value; render(); Shell.announce(document.querySelectorAll("#settings-sections .setting-row").length + " settings shown"); });
 
     const jsonBtn = document.getElementById("btn-settings-json"), jsonEl = document.getElementById("settings-json");
@@ -170,19 +159,12 @@
       if (open) jsonEl.textContent = JSON.stringify(settings.snapshot(), null, 2);
     });
 
-    // Reset confirmation dialog: focus moves in, Tab stays inside, Escape closes and returns focus.
-    const dlg = document.getElementById("settings-reset-confirm"), resetBtn = document.getElementById("btn-settings-reset");
-    const cancel = document.getElementById("btn-settings-reset-cancel"), ok = document.getElementById("btn-settings-reset-ok");
-    const closeDlg = () => { dlg.classList.add("panel-hidden"); resetBtn.focus(); };
-    resetBtn.addEventListener("click", () => { dlg.classList.remove("panel-hidden"); cancel.focus(); Shell.announce("Reset all settings? Confirm or cancel."); });
-    cancel.addEventListener("click", () => { closeDlg(); Shell.announce("Reset cancelled"); });
-    ok.addEventListener("click", () => { settings.reset(); closeDlg(); Shell.announce("All settings reset to defaults"); });
-    dlg.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); closeDlg(); Shell.announce("Reset cancelled"); }
-      else if (e.key === "Tab") {
-        const items = [cancel, ok]; const i = items.indexOf(document.activeElement);
-        e.preventDefault(); items[(i + (e.shiftKey ? items.length - 1 : 1)) % items.length].focus();
-      }
+    // Reset confirmation: the shared modal dialog (focus trap, Escape, focus returns to this button).
+    const resetBtn = document.getElementById("btn-settings-reset");
+    resetBtn.addEventListener("click", async () => {
+      const ok = await window.AuroraUI.confirm({ id: "settings-reset-confirm", icon: "undo", title: "Reset all settings?", body: "Every setting returns to its default. This only affects the prototype.",
+        confirmLabel: "Reset", confirmId: "btn-settings-reset-ok", cancelLabel: "Cancel", cancelId: "btn-settings-reset-cancel" });
+      if (ok) { settings.reset(); Shell.announce("All settings reset to defaults"); } else Shell.announce("Reset cancelled");
     });
 
     Shell.onScreenShow((id) => {

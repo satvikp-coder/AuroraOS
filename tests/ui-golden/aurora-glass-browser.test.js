@@ -9,6 +9,7 @@
  */
 
 const { test, expect } = require("@playwright/test");
+const { shotPath } = require("./shots");
 
 const BASE_URL = "http://localhost:3000";
 
@@ -19,13 +20,13 @@ const VIEWPORTS = [
 ];
 
 test.describe("Aurora Glass browser prototype", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(500);
   });
 
-  test("loads all required screens and controls", async ({ page }) => {
+  test("loads all required screens and controls", async ({ page }, testInfo) => {
     await expect(page.locator("#screen-home")).toBeVisible();
     await expect(page.locator("#screen-spaces")).toBeHidden();
     await expect(page.locator("#screen-index")).toBeHidden();
@@ -43,7 +44,7 @@ test.describe("Aurora Glass browser prototype", () => {
     await expect(page.locator("#horizon")).toBeVisible();
   });
 
-  test("renders correctly at all mobile viewports", async ({ page }) => {
+  test("renders correctly at all mobile viewports", async ({ page }, testInfo) => {
     for (const vp of VIEWPORTS) {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await page.waitForTimeout(200);
@@ -52,13 +53,13 @@ test.describe("Aurora Glass browser prototype", () => {
       await expect(home).toBeVisible();
 
       await page.screenshot({
-        path: `aurora-glass/screenshots/home-${vp.name}-light-soft.png`,
+        path: shotPath(testInfo, `home-${vp.name}-light-soft.png`),
         fullPage: true,
       });
     }
   });
 
-  test("captures screenshots across all theme/tier/viewport combinations", async ({ page }) => {
+  test("captures screenshots across all theme/tier/viewport combinations", async ({ page }, testInfo) => {
     const themes = ["light", "dark"];
     const tiers = ["soft", "clear"];
 
@@ -81,7 +82,7 @@ test.describe("Aurora Glass browser prototype", () => {
           await expect(page.locator("html")).toHaveAttribute("data-glass-tier", tier);
 
           await page.screenshot({
-            path: `aurora-glass/screenshots/home-${vp.name}-${theme}-${tier}.png`,
+            path: shotPath(testInfo, `home-${vp.name}-${theme}-${tier}.png`),
             fullPage: true,
           });
         }
@@ -89,7 +90,7 @@ test.describe("Aurora Glass browser prototype", () => {
     }
   });
 
-  test("captures Spaces and Aura receipt screenshots across theme/tier combinations", async ({ page }) => {
+  test("captures Spaces and Aura receipt screenshots across theme/tier combinations", async ({ page }, testInfo) => {
     const themes = ["light", "dark"];
     const tiers = ["soft", "clear"];
 
@@ -109,7 +110,7 @@ test.describe("Aurora Glass browser prototype", () => {
         await page.locator("#dock-spaces").click();
         await expect(page.locator("#screen-spaces")).toBeVisible();
         await page.screenshot({
-          path: `aurora-glass/screenshots/spaces-390-${theme}-${tier}.png`,
+          path: shotPath(testInfo, `spaces-390-${theme}-${tier}.png`),
           fullPage: true,
         });
 
@@ -120,18 +121,19 @@ test.describe("Aurora Glass browser prototype", () => {
         await page.locator("#btn-aura-study").click();
         await page.locator("#btn-plan-confirm").click();
         await page.locator("#btn-plan-run").click();
-        await page.waitForTimeout(2600); // Allow plan to complete
-
-        await expect(page.locator("#plan-receipt")).toBeVisible();
+        await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });
         await page.screenshot({
-          path: `aurora-glass/screenshots/aura-receipt-390-${theme}-${tier}.png`,
+          path: shotPath(testInfo, `aura-receipt-390-${theme}-${tier}.png`),
           fullPage: true,
         });
+        // Leave the receipt the way a person would, so Back from Spaces next time returns to Home.
+        await page.locator("#btn-receipt-close").click();
+        await page.evaluate(() => { window.AuroraModels.qs.set("focus", false); });
       }
     }
   });
 
-  test("switches between light and dark themes", async ({ page }) => {
+  test("switches between light and dark themes", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     // Default is light
@@ -139,7 +141,7 @@ test.describe("Aurora Glass browser prototype", () => {
     await expect(page.locator("html")).toHaveAttribute("data-glass-tier", "soft");
   });
 
-  test("toggles Clear and Soft Glass tiers", async ({ page }) => {
+  test("toggles Clear and Soft Glass tiers", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     // Default Soft Glass
@@ -147,12 +149,12 @@ test.describe("Aurora Glass browser prototype", () => {
 
     // Take Soft Glass screenshot
     await page.screenshot({
-      path: "aurora-glass/screenshots/home-390-light-soft.png",
+      path: shotPath(testInfo, "home-390-light-soft.png"),
       fullPage: true,
     });
   });
 
-  test("navigates from Home to Spaces via dock", async ({ page }) => {
+  test("navigates from Home to Spaces via dock", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     await page.locator("#dock-spaces").click();
@@ -166,12 +168,12 @@ test.describe("Aurora Glass browser prototype", () => {
     await expect(page.locator('.space-card-item[data-space="personal"]')).toBeVisible();
 
     await page.screenshot({
-      path: "aurora-glass/screenshots/spaces-390-light-soft.png",
+      path: shotPath(testInfo, "spaces-390-light-soft.png"),
       fullPage: true,
     });
   });
 
-  test("switches between Spaces", async ({ page }) => {
+  test("switches between Spaces", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
     await page.locator("#dock-spaces").click();
     await expect(page.locator("#screen-spaces")).toBeVisible();
@@ -185,12 +187,12 @@ test.describe("Aurora Glass browser prototype", () => {
     await expect(workCard).toHaveClass(/selected/);
 
     await page.screenshot({
-      path: "aurora-glass/screenshots/spaces-work-390-light-soft.png",
+      path: shotPath(testInfo, "spaces-work-390-light-soft.png"),
       fullPage: true,
     });
   });
 
-  test("navigates to Index and searches", async ({ page }) => {
+  test("navigates to Index and searches", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     await page.locator("#dock-ask").click();
@@ -205,16 +207,21 @@ test.describe("Aurora Glass browser prototype", () => {
     await expect(results.first()).toContainText("Notes");
 
     await page.screenshot({
-      path: "aurora-glass/screenshots/index-search-390-light-soft.png",
+      path: shotPath(testInfo, "index-search-390-light-soft.png"),
       fullPage: true,
     });
   });
 
-  test("Aura plan: confirm, run, success receipt", async ({ page }) => {
+  test("Aura plan: confirm, run, success receipt", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     await page.locator("#btn-aura-study").click();
     await expect(page.locator("#screen-aura")).toBeVisible();
+
+    // Review first: opening the plan must not run anything (Action Broker contract).
+    expect(await page.evaluate(() => window.AuroraModels.qs.get("focus"))).toBe(false);
+    expect(await page.evaluate(() => window.AuroraShell.state.activeSpace)).toBe("study");
+    await expect(page.locator("#plan-receipt")).toHaveCount(0);
 
     // Click confirm
     await page.locator("#btn-plan-confirm").click();
@@ -227,41 +234,38 @@ test.describe("Aurora Glass browser prototype", () => {
     // Running panel visible
     await expect(page.locator("#plan-running")).toBeVisible();
 
-    // Wait for plan to complete
-    await page.waitForTimeout(2500);
-
-    // Receipt panel visible
-    await expect(page.locator("#plan-receipt")).toBeVisible();
-    await expect(page.locator("#plan-receipt h3")).toContainText("Plan complete");
+    // Receipt panel visible once the broker has run every step
+    await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });
+    await expect(page.locator("#plan-receipt h2")).toContainText("Plan complete");
+    expect(await page.evaluate(() => window.AuroraModels.qs.get("focus"))).toBe(true);
 
     await page.screenshot({
-      path: "aurora-glass/screenshots/aura-receipt-390-light-soft.png",
+      path: shotPath(testInfo, "aura-receipt-390-light-soft.png"),
       fullPage: true,
     });
   });
 
-  test("Aura plan: failure flow", async ({ page }) => {
+  test("Aura plan: failure flow", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     // Default is success flow
     await page.locator("#btn-aura-study").click();
     await page.locator("#btn-plan-confirm").click();
     await page.locator("#btn-plan-run").click();
-    await page.waitForTimeout(2500);
 
     // Default is success - receipt shown
-    await expect(page.locator("#plan-receipt")).toBeVisible();
+    await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });
 
     // Verify failure panel exists (hidden)
     await expect(page.locator("#plan-failure")).toBeHidden();
 
     await page.screenshot({
-      path: "aurora-glass/screenshots/aura-success-390-light-soft.png",
+      path: shotPath(testInfo, "aura-success-390-light-soft.png"),
       fullPage: true,
     });
   });
 
-  test("keyboard navigation: Escape returns to home", async ({ page }) => {
+  test("keyboard navigation: Escape returns to home", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     // Go to spaces
@@ -274,7 +278,7 @@ test.describe("Aurora Glass browser prototype", () => {
     await expect(page.locator("#screen-spaces")).toBeHidden();
   });
 
-  test("keyboard navigation: Ctrl+K opens Index", async ({ page }) => {
+  test("keyboard navigation: Ctrl+K opens Index", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     await page.keyboard.down("Control");
@@ -285,7 +289,7 @@ test.describe("Aurora Glass browser prototype", () => {
     await expect(page.locator("#index-query")).toBeFocused();
   });
 
-  test("Glass Corner toggles aria-expanded", async ({ page }) => {
+  test("Glass Corner toggles aria-expanded", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     const gc = page.locator(".glass-corner");
@@ -298,7 +302,7 @@ test.describe("Aurora Glass browser prototype", () => {
     await expect(gc).toHaveAttribute("aria-expanded", "false");
   });
 
-  test("Aura plan steps are editable", async ({ page }) => {
+  test("Aura plan steps are editable", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     await page.locator("#btn-aura-study").click();
@@ -309,19 +313,19 @@ test.describe("Aurora Glass browser prototype", () => {
     await expect(firstStepInput).toBeEditable();
 
     await page.screenshot({
-      path: "aurora-glass/screenshots/aura-edit-390-light-soft.png",
+      path: shotPath(testInfo, "aura-edit-390-light-soft.png"),
       fullPage: true,
     });
   });
 
-  test("Clear tier renders without blur", async ({ page }) => {
+  test("Clear tier renders without blur", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 800 });
 
     await expect(page.locator("html")).toHaveAttribute("data-glass-tier", "soft");
     await expect(page.locator(".dock")).toBeVisible();
   });
 
-  test("no console errors on load", async ({ page }) => {
+  test("no console errors on load", async ({ page }, testInfo) => {
     const errors = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") errors.push(msg.text());

@@ -15,6 +15,8 @@ const { JSDOM } = require("jsdom");
 const PROTO_DIR = path.resolve(__dirname, "..", "..", "aurora-glass", "prototype");
 const HTML_PATH = path.join(PROTO_DIR, "index.html");
 const CSS_PATH = path.join(PROTO_DIR, "shell.css");
+const COMPONENTS_PATH = path.join(PROTO_DIR, "components.css");
+const REVIEW_PATH = path.join(PROTO_DIR, "review.js");
 const TOKENS_PATH = path.join(PROTO_DIR, "tokens.css");
 const APP_PATH = path.join(PROTO_DIR, "app.js");
 
@@ -87,9 +89,11 @@ async function main() {
   // Aurora Horizon present
   assert(!!document.querySelector(".horizon"), "Aurora Horizon present");
 
-  // Aura Plan elements
+  // Aura Plan: the screen is an empty placeholder; review.js (the one trusted review surface) renders it.
+  assert(document.getElementById("screen-aura").children.length === 0, "Aura plan screen is an empty placeholder in index.html");
+  const reviewSrc = fs.readFileSync(REVIEW_PATH, "utf8");
   ["plan-request-text", "btn-plan-edit", "btn-plan-confirm", "plan-confirmation", "plan-running", "plan-receipt", "plan-failure"].forEach((id) => {
-    assert(!!document.getElementById(id), `Aura plan element: ${id}`);
+    assert(reviewSrc.includes('"' + id + '"'), `review.js renders Aura plan element: ${id}`);
   });
 
   // Index search
@@ -104,7 +108,8 @@ async function main() {
 
   const gc = document.querySelector(".glass-corner");
   assert(gc.getAttribute("aria-label"), "Glass Corner has aria-label");
-  assert(gc.getAttribute("tabindex") === "0", "Glass Corner is keyboard-focusable");
+  // A native <button> is focusable and keyboard-operable without tabindex (it was a div with role=button before S7).
+  assert(gc.tagName === "BUTTON" && gc.getAttribute("aria-controls") === "gc-panel" && gc.getAttribute("aria-expanded") === "false", "Glass Corner is a native button controlling the held-items panel");
 
   const searchInput = document.getElementById("index-query");
   assert(searchInput.getAttribute("role") === "combobox" || !!searchInput.getAttribute("aria-label") || !!searchInput.getAttribute("placeholder"), "Index input has accessible name");
@@ -122,8 +127,10 @@ async function main() {
   assert(buttonsWithoutLabel === 0, `All ${buttons.length} buttons have accessible names`);
 
   // Focus-visible styles present in CSS
-  const css = fs.readFileSync(CSS_PATH, "utf8");
-  assert(css.includes(":focus-visible"), "CSS defines :focus-visible styles");
+  const css = fs.readFileSync(COMPONENTS_PATH, "utf8");
+  assert(css.includes(":focus-visible"), "components.css defines :focus-visible styles");
+  // Scoped overrides such as "#pages-memory .btn { ... }" are fine; a rule that STARTS with a component class is a redefinition.
+  assert(!/^.(btn|card|chip|dialog|toast|meter|switch|list|empty-state)[s,.:{[]/m.test(fs.readFileSync(CSS_PATH, "utf8")), "shell.css does not redefine component classes");
 
   // ---------- 4. Themes & tiers ----------
   console.log("\n-- Themes & glass tiers --");
@@ -187,29 +194,11 @@ async function main() {
   assert(appJs.includes("showScreen"), "app.js has showScreen navigation");
 
   // ---------- 10. Aura plan state transitions ----------
-  console.log("\n-- Aura plan state transitions --");
-
-  // Confirmation panel starts hidden
-  const confirmPanel = document.getElementById("plan-confirmation");
-  assert(confirmPanel.classList.contains("panel-hidden"), "Confirmation panel starts hidden");
-
-  // Running panel starts hidden
-  const runningPanel = document.getElementById("plan-running");
-  assert(runningPanel.classList.contains("panel-hidden"), "Running panel starts hidden");
-
-  // Receipt panel starts hidden
-  const receiptPanel = document.getElementById("plan-receipt");
-  assert(receiptPanel.classList.contains("panel-hidden"), "Receipt panel starts hidden");
-
-  // Failure panel starts hidden
-  const failurePanel = document.getElementById("plan-failure");
-  assert(failurePanel.classList.contains("panel-hidden"), "Failure panel starts hidden");
-
-  // Plan steps present with risk labels
-  const stepEls = document.querySelectorAll(".plan-step");
-  assert(stepEls.length === 4, "4 plan steps present");
-  const riskLabels = document.querySelectorAll(".step-risk");
-  assert(riskLabels.length >= 4, "Risk labels on plan steps (S0-S3)");
+  console.log("\n-- Aura plan (rendered by review.js; behaviour is covered by tests/ui-golden) --");
+  assert(!document.getElementById("controls-panel"), "Prototype controls panel was removed (its switches live in Settings)");
+  assert(!/planTimer|startPlan|advancePlan/.test(fs.readFileSync(APP_PATH, "utf8")), "app.js no longer fakes a plan run");
+  assert(reviewSrc.includes("T.approve("), "review.js approves through the broker's trusted facet");
+  assert(!/innerHTML/.test(reviewSrc + fs.readFileSync(APP_PATH, "utf8")), "no innerHTML in the shell or the review surface");
 
   // ---------- 11. No dead-end buttons ----------
   console.log("\n-- No dead-end controls --");
@@ -222,9 +211,11 @@ async function main() {
     if (!hasHandler) deadEnds++;
   });
   // Allow some decorative buttons without IDs but check the main interactive ones
-  const keyIds = ["btn-plan-confirm", "btn-plan-cancel", "btn-plan-run", "btn-plan-stop", "btn-plan-edit", "btn-receipt-close", "btn-failure-repair", "btn-failure-skip", "btn-failure-stop"];
+  // The plan controls are created by review.js. (The old Repair/Skip/Stop failure buttons were part of the fake
+  // plan flow; a failed real plan now offers per-step Undo, Undo completed steps and Open Trail.)
+  const keyIds = ["btn-plan-confirm", "btn-plan-cancel", "btn-plan-run", "btn-plan-stop", "btn-plan-edit", "btn-receipt-close", "btn-plan-undo-all", "btn-plan-trail"];
   keyIds.forEach((id) => {
-    assert(!!document.getElementById(id), `Key control present: ${id}`);
+    assert(reviewSrc.includes('"' + id + '"'), `Key control created by review.js: ${id}`);
   });
 
   // ---------- 12. Prototype disclaimers ----------

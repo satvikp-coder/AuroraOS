@@ -1,0 +1,85 @@
+# Aurora Glass UI handoff
+
+Last updated: 2026-11-12 (Sonnet 5.5). Update this file at every milestone commit. Anything under "Historical notes" is
+background, not current status.
+
+## Current status (verified)
+
+| | |
+|---|---|
+| `main` | `81254bb9c1ccf21aeff57d25285579262e06e504` |
+| UI PR | #30 `feature/aurora-shell-polish` (open, no review decision yet). Head `58e7007`: all 6 CI jobs passed (run 43206776136) |
+| Kernel PRs | #28 AuroraFS recovery and #29 EL0 file access (#29 depends on #28): open, awaiting independent review. **UI work must not modify or merge them.** |
+| Working checkout | `C:\Users\satvi\Desktop\AuroraOS-Claude`. The sibling `Desktop\AuroraOS` is stale and holds the user's uncommitted kernel work: never touch it |
+
+| Task | Status |
+|---|---|
+| F0 foundation | done (commit `fee394a`) |
+| M1 S1 wiring, S2 Shell API | done (commit `78d19e1`); 97/97 Playwright locally, 4/4 unit suites, 6/6 CI |
+| M1 S3 Home and Dock | done (this branch; 152/152 Playwright, 4/4 unit locally) |
+| M1 S4 Spaces | done (180/180 Playwright locally) |
+| M1 S5 Index | done (218/218 Playwright locally) |
+| M1 S6 Pages/Quick/Settings | done (238/238 Playwright locally) |
+| M1 S7 Glass Corner + Horizon | done (268/268 Playwright locally) |
+| M1 S8 Tests | done (324/324 Playwright, 5/5 unit locally; run leaves git status clean) |
+| M1 S9 Visual quality loop | done (see the S9 record in AURORA_UI_TASKS.md for exactly what was inspected) |
+| M1 S10 deliver | done except human review/merge; independent model review done, see AURORA_UI_TASKS.md S10 |
+| M2 Passport | implemented on `feature/aurora-passport` (stacked on M1); not yet pushed or PR'd at this point | (see `AURORA_UI_TASKS.md`; each step carries its own status) |
+| M2 to M8 | not started |
+
+Verification honesty: only one screenshot (Aura Plan review at 390 px) has been inspected for the new design. The full
+viewport/theme matrix has NOT been run. `plan/01..08-*.md` were announced by Fable but never written;
+`AURORA_UI_TASKS.md` is the plan of record.
+
+Test side effect until S8: the existing browser specs overwrite tracked PNGs in `aurora-glass/screenshots/`. Before
+committing, `git status` them; restore only files this run modified (`git checkout -- aurora-glass/screenshots`) and remove
+untracked PNGs this run created.
+
+## Historical notes (superseded)
+
+- Fable's F0 handoff said the foundation had never run in a browser and that `index.html` still loaded the old scripts. That
+  was true before S1 and is no longer true: the full chain loads with zero console errors.
+- An Opus engineer started M1 and was cut off by a usage limit before writing any file; nothing from it exists.
+
+## Exact next task
+
+`AURORA_UI_TASKS.md` → **Get PR #30 reviewed by a human and merged; then rebase-free merge of `feature/aurora-passport`** (`git merge` the M1 branch into it, re-run the suite, push, open the M2 PR against main). Then M3 Trail.
+
+```bash
+cd C:/Users/satvi/Desktop/AuroraOS-Claude
+git fetch && git checkout feature/aurora-shell-polish && git status
+npm ci
+for f in tests/unit/*.test.js; do node "$f" || break; done      # baseline before changing anything
+npx playwright test --workers=1                                  # baseline (expect green; if not, tokens.css is the cause)
+```
+
+## Decisions already made (do not reopen without a reason)
+
+- Vanilla JS, no framework; incremental rework of the existing prototype.
+- One broker instance (`system.js`), one trusted review surface (`review.js`); screens only propose.
+- S3 permissions (`files.delete`, `external.send`) can never be set to Allow. `share.send` has no adapter.
+- The old "plan runs when you tap the suggestion" behaviour is a contract violation and is removed; the two
+  tests that relied on it must be rewritten to go through approval (not deleted).
+- The unreachable "Prototype controls" panel is removed; its switches live in Settings.
+- Apps self-register and create their own screen (`addScreen`); `index.html` only gains script/link tags.
+- No persistence by default; Notes may use labelled, browser-only `localStorage`.
+- Wallpaper is a static CSS gradient; no image assets, so there are no asset credits to track.
+- UI milestones are stacked branches with one focused PR each.
+
+## Deliberately deferred
+
+Free-floating desktop windows, drag and drop, real localisation, sound design, Calendar/Camera/Phone apps,
+any native compositor work, and anything that depends on kernel PRs #28/#29.
+
+## Screenshots
+
+`aurora-glass/screenshots/` still holds the **old** design's images. They are regenerated in S9.
+
+## Known bugs / risks
+
+See "F0 … Known things to check the first time it runs" and "Risks" in `AURORA_UI_TASKS.md`.
+
+## CI links
+
+- `main` at `81254bb`: https://github.com/satvikp-coder/AuroraOS/actions/runs/42500835937 (green)
+- `feature/aurora-shell-polish`: no CI yet (CI runs only for pull requests targeting `main`).
