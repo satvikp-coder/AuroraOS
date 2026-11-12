@@ -29,82 +29,72 @@
 
     <!-- Main content area -->
     <main class="content" id="content">
-      <!-- Home / Desk screen (default) -->
+      <!-- Home / Desk screen (default). Skeleton only: app.js renders every dynamic part from real models. -->
       <section id="screen-home" class="screen active" aria-label="Home / Desk">
-        <header class="home-header">
-          <h1 class="home-title">Home</h1>
-          <div class="home-actions">
-            <button class="icon-btn" id="btn-index" aria-label="Open Index search">Search</button>
-            <button class="icon-btn" id="btn-quick-center" aria-label="Open Quick Center">Quick Center</button>
-          </div>
-        </header>
+        <div class="home-grid">
+          <header class="home-greeting">
+            <div class="greeting-main">
+              <h1 class="visually-hidden">Home</h1>
+              <p class="home-date" id="home-date"></p>
+              <p class="home-clock" id="home-clock"></p>
+              <div class="home-chips">
+                <span class="space-chip selected" data-space="study"><span class="chip-dot"></span><span>Study</span></span>
+                <span class="chip chip-aura" id="home-focus-chip" hidden><span data-icon="focus"></span><span>Focus on</span></span>
+              </div>
+            </div>
+            <div class="home-actions">
+              <button type="button" class="btn btn-icon ghost" id="btn-index" aria-label="Open Index search" title="Index search"><span data-icon="search"></span></button>
+              <button type="button" class="btn btn-icon ghost" id="btn-quick-center" aria-label="Open Quick Center" title="Quick Center"><span data-icon="quick"></span></button>
+            </div>
+          </header>
 
-        <section class="welcome">
-          <h2 class="welcome-heading">Welcome back.</h2>
-          <p class="welcome-sub">Your spaces are ready. Pick up where you left off.</p>
-        </section>
+          <button type="button" class="ask-pill" id="btn-ask" aria-label="Ask Aura or search" aria-keyshortcuts="Control+K Meta+K">
+            <span data-icon="aura"></span>
+            <span class="ask-label">Ask Aura or search</span>
+            <span class="kbd ask-hint" aria-hidden="true">Ctrl K</span>
+          </button>
 
-        <!-- Continue section -->
-        <section class="card section">
-          <div class="section-head">
-            <h3 class="section-title">Continue</h3>
-            <a class="section-more" href="#">View all &rarr;</a>
-          </div>
-          <div class="continue-list" role="list">
-            <article class="continue-item" role="listitem" tabindex="0" aria-label="Resume Study Notes — Notes app, last edited 10 minutes ago">
-              <span class="continue-kind">Note</span>
-              <span class="continue-title">Study Notes</span>
-              <span class="continue-meta">Notes &middot; 10 min ago</span>
-            </article>
-            <article class="continue-item" role="listitem" tabindex="0" aria-label="Resume Project Alpha — Files, Space: Work">
-              <span class="continue-kind">File</span>
-              <span class="continue-title">Project Alpha</span>
-              <span class="continue-meta">Files &middot; Work Space</span>
-            </article>
-          </div>
-        </section>
+          <section class="card home-continue" aria-labelledby="home-continue-title">
+            <div class="section-head">
+              <h2 class="section-title" id="home-continue-title">Continue</h2>
+              <button type="button" class="btn-link" id="btn-continue-all">View all</button>
+            </div>
+            <div id="home-continue-list"></div>
+          </section>
 
-        <!-- Pinned tools -->
-        <section class="card section">
-          <div class="section-head">
-            <h3 class="section-title">Pinned tools</h3>
-          </div>
-          <div class="pin-grid" role="group" aria-label="Pinned tools">
-            <button class="pin-btn" data-app="notes" aria-label="Open Notes">Notes</button>
-            <button class="pin-btn" data-app="files" aria-label="Open Files">Files</button>
-            <button class="pin-btn" data-app="calculator" aria-label="Open Calculator">Calculator</button>
-            <button class="pin-btn" data-app="clock" aria-label="Open Clock">Clock</button>
-            <button class="pin-btn" data-app="settings" aria-label="Open Settings">Settings</button>
-            <button class="pin-btn" data-app="calendar" aria-label="Open Calendar">Calendar</button>
-          </div>
-        </section>
+          <section class="card home-pins" aria-labelledby="home-pins-title">
+            <div class="section-head">
+              <h2 class="section-title" id="home-pins-title">Pinned</h2>
+            </div>
+            <div class="pin-grid" id="home-pins" role="group" aria-label="Pinned tools"></div>
+          </section>
 
-        <!-- Current Space -->
-        <section class="card section space-card" aria-label="Current Space: Study">
-          <div class="section-head">
-            <h3 class="section-title">Current Space</h3>
-            <button class="icon-btn small" id="btn-switch-space" aria-label="Switch Space">Spaces</button>
-          </div>
-          <div class="space-chip selected" data-space="study" role="button" tabindex="0" aria-pressed="true">
-            <span class="chip-dot"></span>
-            <span>Study</span>
-          </div>
-        </section>
+          <div class="home-side">
+            <section class="card opaque home-space" aria-labelledby="home-space-title">
+              <div class="section-head">
+                <h2 class="section-title" id="home-space-title">Current Space</h2>
+                <button type="button" class="btn outline btn-small" id="btn-switch-space" aria-label="Switch Space"><span data-icon="spaces"></span><span>Spaces</span></button>
+              </div>
+              <div id="home-space-body"></div>
+            </section>
 
-        <!-- Aura suggestion -->
-        <section class="card section aura-suggestion" aria-label="Aura suggestion">
-          <div class="suggestion-body">
-            <span class="aura-badge">Aura</span>
-            <p class="suggestion-text">Would you like to <strong>prepare your phone for studying</strong>? Aura can switch to Study Space, enable focus, open Notes, and start a 25-minute timer.</p>
-            <button class="btn accent" id="btn-aura-study">Prepare for studying</button>
+            <section class="card opaque home-aura aura-suggestion" id="home-aura" aria-labelledby="home-aura-title">
+              <div class="suggestion-body">
+                <span class="aura-badge">Aura</span>
+                <div class="suggestion-copy">
+                  <h2 class="section-title" id="home-aura-title">Prepare for studying</h2>
+                  <p class="suggestion-text">Aura can put together a short plan for studying. You review every step before anything runs.</p>
+                </div>
+              </div>
+              <button type="button" class="btn accent" id="btn-aura-study">Review the plan</button>
+            </section>
           </div>
-        </section>
 
-        <!-- Aurora Horizon progress rail -->
-        <div class="horizon" id="horizon" role="region" aria-label="Aurora Horizon progress rail" aria-live="polite">
-          <div class="horizon-inner">
-            <span class="horizon-dot" title="Idle"></span>
-            <span class="horizon-label">Ready</span>
+          <!-- Aurora Horizon: status of the last or running action, driven by AuroraSystem status events -->
+          <div class="horizon" id="horizon" role="region" aria-label="Aurora Horizon status">
+            <span class="horizon-dot" id="horizon-dot" aria-hidden="true"></span>
+            <span class="horizon-label" id="horizon-text" role="status" aria-live="polite">Ready</span>
+            <div class="meter horizon-meter" id="horizon-meter" role="progressbar" aria-label="Action progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><div class="meter-fill meter-aura" id="horizon-fill"></div></div>
           </div>
         </div>
       </section>
@@ -258,40 +248,21 @@
       </section>
     </main>
 
-    <!-- Aurora Dock (bottom) -->
+    <!-- Aurora Dock (bottom): navigation, running apps (>= 768 px), tray (>= 1024 px) -->
     <nav class="dock" id="dock" role="navigation" aria-label="Aurora Dock">
+      <span class="dock-horizon" id="dock-horizon" aria-hidden="true" hidden><span class="dock-horizon-fill" id="dock-horizon-fill"></span></span>
       <ul class="dock-list">
-        <li>
-          <button class="dock-btn" id="dock-back" aria-label="Back" data-target="screen-home">
-            <span class="dock-icon">&#8592;</span>
-            <span class="dock-label">Back</span>
-          </button>
-        </li>
-        <li>
-          <button class="dock-btn active" id="dock-home" aria-label="Home, current" data-target="screen-home">
-            <span class="dock-icon">&#9733;</span>
-            <span class="dock-label">Home</span>
-          </button>
-        </li>
-        <li>
-          <button class="dock-btn" id="dock-spaces" aria-label="Spaces" data-target="screen-spaces">
-            <span class="dock-icon">&#128197;</span>
-            <span class="dock-label">Spaces</span>
-          </button>
-        </li>
-        <li>
-          <button class="dock-btn" id="dock-pages" aria-label="Pages" data-target="screen-pages">
-            <span class="dock-icon">&#128449;</span>
-            <span class="dock-label">Pages</span>
-          </button>
-        </li>
-        <li>
-          <button class="dock-btn" id="dock-ask" aria-label="Ask Aura / Search" data-target="screen-index">
-            <span class="dock-icon">&#128270;</span>
-            <span class="dock-label">Ask / Search</span>
-          </button>
-        </li>
+        <li><button type="button" class="dock-btn" id="dock-back" aria-label="Back" data-target="screen-home"><span class="dock-icon" data-icon="back"></span><span class="dock-label">Back</span></button></li>
+        <li><button type="button" class="dock-btn active" id="dock-home" aria-label="Home" data-target="screen-home"><span class="dock-icon" data-icon="home"></span><span class="dock-label">Home</span></button></li>
+        <li><button type="button" class="dock-btn" id="dock-spaces" aria-label="Spaces" data-target="screen-spaces"><span class="dock-icon" data-icon="spaces"></span><span class="dock-label">Spaces</span></button></li>
+        <li><button type="button" class="dock-btn" id="dock-pages" aria-label="Pages" data-target="screen-pages"><span class="dock-icon" data-icon="pages"></span><span class="dock-label">Pages</span></button></li>
+        <li><button type="button" class="dock-btn" id="dock-ask" aria-label="Ask Aura / Search" data-target="screen-index"><span class="dock-icon" data-icon="search"></span><span class="dock-label">Ask</span></button></li>
       </ul>
+      <ul class="dock-apps" id="dock-apps" aria-label="Open apps"></ul>
+      <div class="dock-tray" id="dock-tray">
+        <time class="dock-time" id="dock-time"></time>
+        <button type="button" class="dock-tray-btn" id="dock-quick" aria-label="Quick Center" title="Quick Center"><span data-icon="quick"></span></button>
+      </div>
     </nav>
 
     <!-- Toast / status -->

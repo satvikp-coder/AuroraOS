@@ -67,7 +67,7 @@ Known things to check the first time it runs (found by reading, not by running):
 S1 and S2 are done (Claude Sonnet 5.5, 2026-11-12). Do the remaining sub-tasks in order; commit after each one that leaves the suite green.
 Known deviations from the S1 text, to be closed by later steps: `.icon-btn` is kept (legacy, in shell.css) until S3/S6 rebuild the
 screen headers; the Glass Corner is still the old click-toggle until S7; Index is still the old list until S5; the
-Dock still uses emoji glyphs until S3; the reset confirmation in Settings is still the inline panel until S6.
+the reset confirmation in Settings is still the inline panel until S6.
 
 ### S1. Wire the foundation into the page — `done` (commit 78d19e1; verified: 97 Playwright specs, 4 unit suites, zero console errors)
 
@@ -130,7 +130,7 @@ Dock still uses emoji glyphs until S3; the reset confirmation in Settings is sti
   low-memory path, addSpace/renameSpace validation table, Escape layering, Ctrl+K focus.
 - Depends on: S1.
 
-### S3. Home and Dock — `not started`
+### S3. Home and Dock — `done` (tests/ui-golden/home-dock.test.js, 55 specs; screenshots inspected: Home at 390 light/dark, 360 at 200% text, 768, 1280 light, 1440 dark Clear, 390 high contrast)
 
 - Objective: a Home that shows real state and a Dock that reads as the OS's signature bar.
 - Files: `index.html` (Home skeleton only), `app.js` (render functions), `shell.css`.

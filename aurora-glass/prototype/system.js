@@ -164,7 +164,7 @@
     switch (action && action.type) {
       case "app.open": return { kind: "App", icon: a.app, title: "Open " + cap(String(a.app)), detail: "Brings the app to the front." };
       case "space.switch": return { kind: "Space", icon: "spaces", title: "Switch to " + (SPACE_NAME[a.space] || a.space) + " Space", detail: "Pinned tools and context follow the Space." };
-      case "timer.start": return { kind: "Timer", icon: "timer", title: "Start a " + duration(a.seconds) + " timer", detail: "Runs in Clock. Can be cancelled." };
+      case "timer.start": return { kind: "Timer", icon: "timer", title: "Start a timer for " + duration(a.seconds), detail: "Runs in Clock. Can be cancelled." };
       case "search.query": return { kind: "Search", icon: "search", title: "Search for “" + a.query + "”", detail: "Looks on this device only." };
       case "focus.set": return { kind: "Setting", icon: "focus", title: "Turn Focus mode " + (a.enabled ? "on" : "off"), detail: "A reversible setting." };
       case "file.move": return { kind: "File", icon: "move", title: "Move “" + fileName(a.id) + "” to " + (SPACE_NAME[a.destination] || a.destination), detail: "The file changes Space. Can be undone." };

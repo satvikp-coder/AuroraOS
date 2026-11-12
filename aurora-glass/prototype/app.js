@@ -280,6 +280,160 @@
     syncDock();
   }
 
+  // ---------- Home and Dock (rendered from real models; nothing here is sample data) ----------
+  const $ = (id) => document.getElementById(id);
+  const appFor = (appId) => appList.find((a) => a.id === appId) || null;
+  const STATE_TEXT = { running: "Running", paused: "Paused", saved: "Saved" };
+
+  /** Running pages first, then paused; saved (frozen) pages are not "in progress". */
+  function livePages() {
+    const m = models();
+    if (!m) return [];
+    const all = m.pages.list().filter((p) => p.state === "running" || p.state === "paused");
+    return all.filter((p) => p.state === "running").concat(all.filter((p) => p.state === "paused"));
+  }
+
+  function hydrateIcons(rootNode) {
+    (rootNode || document).querySelectorAll("[data-icon]:empty").forEach((n) => n.appendChild(UI.icon(n.dataset.icon)));
+  }
+
+  // -- clock: re-rendered on the minute boundary, never on a 1 s interval
+  let clockTimer = null;
+  function renderClock() {
+    const now = new Date();
+    const time = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const clock = $("home-clock"), date = $("home-date"), dockTime = $("dock-time");
+    if (clock) clock.textContent = time;
+    if (date) date.textContent = now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+    if (dockTime) { dockTime.textContent = time; dockTime.setAttribute("datetime", now.toISOString()); }
+    clearTimeout(clockTimer);
+    clockTimer = setTimeout(renderClock, 60000 - (now.getTime() % 60000) + 50);
+  }
+
+  function appTileFor(a, size) { return UI.appTile(a ? a.icon : "info", a ? a.hue : 215, size); }
+
+  function renderHomeContinue() {
+    const box = $("home-continue-list");
+    if (!box) return;
+    box.replaceChildren();
+    const rows = livePages().slice(0, 4);
+    if (!rows.length) {
+      box.appendChild(UI.emptyState("pages", "Nothing in progress", "Open an app and it will wait for you here.",
+        UI.button("Open Notes", { kind: "accent", icon: "notes", id: "btn-continue-notes", onclick: () => openApp("notes") })));
+      return;
+    }
+    const list = el("div", { class: "list", role: "list", "aria-label": "Pages in progress" });
+    rows.forEach((p) => {
+      const a = appFor(p.appId), sp = spaceById(p.space);
+      list.appendChild(el("button", {
+        type: "button", class: "list-row", role: "listitem", id: "continue-" + p.appId, "data-page-id": p.id, "data-fk": "cont:" + p.id,
+        "aria-label": "Open " + p.name + ", " + (sp ? sp.name : p.space) + " Space, " + STATE_TEXT[p.state].toLowerCase(),
+        onclick: () => openApp(p.appId),
+      }, [
+        appTileFor(a, "sm"),
+        el("span", { class: "row-main" }, [el("span", { class: "row-title", text: p.name }), el("span", { class: "row-meta", text: (sp ? sp.name : p.space) + " · " + STATE_TEXT[p.state] })]),
+        el("span", { class: "row-trailing" }, [UI.icon(p.state === "running" ? "play" : "pause"), UI.icon("chevron")]),
+      ]));
+    });
+    box.appendChild(list);
+  }
+
+  function renderHomePins() {
+    const box = $("home-pins");
+    if (!box) return;
+    box.replaceChildren();
+    const sp = spaceById(state.activeSpace);
+    (sp ? sp.pinned : []).map(appFor).filter(Boolean).forEach((a) => {
+      box.appendChild(el("button", { type: "button", class: "pin-btn", "data-app": a.id, "data-fk": "pin:" + a.id, "aria-label": "Open " + a.name, onclick: () => openApp(a.id) },
+        [UI.appTile(a.icon, a.hue), el("span", { class: "pin-label", text: a.name })]));
+    });
+  }
+
+  function renderHomeSpace() {
+    const body = $("home-space-body"), m = models();
+    if (!body) return;
+    const sp = spaceById(state.activeSpace);
+    body.replaceChildren();
+    if (!sp) return;
+    const open = m ? m.pages.list().filter((p) => p.space === sp.id).length : 0;
+    body.appendChild(el("div", { class: "space-summary" }, [
+      el("span", { class: "space-badge", style: { "--h": sp.hue }, "aria-hidden": "true", text: sp.name.charAt(0).toUpperCase() }),
+      el("div", { class: "space-summary-text" }, [
+        el("p", { class: "space-name", id: "home-space-name", text: sp.name }),
+        el("p", { class: "space-desc", text: sp.description }),
+        el("p", { class: "space-count", id: "home-space-count", text: open === 1 ? "1 page open here" : open + " pages open here" }),
+      ]),
+    ]));
+  }
+
+  function renderHomeChips() {
+    const m = models();
+    const focus = $("home-focus-chip");
+    if (focus) focus.hidden = !(m && m.qs.get("focus"));
+    const aura = $("home-aura");
+    if (aura) aura.hidden = !!(m && m.qs.get("auraMode") === "off");
+  }
+
+  function renderHome() {
+    const home = $("screen-home");
+    if (!home) return;
+    UI.keepFocus(home, () => { renderHomeContinue(); renderHomePins(); renderHomeSpace(); renderHomeChips(); }, "#btn-ask");
+  }
+
+  // -- Aurora Horizon: one status source (AuroraSystem "status"); text is set with textContent
+  const horizon = { text: "Ready", running: false, done: 0, total: 0 };
+  let horizonReset = null;
+  function renderHorizon() {
+    const text = $("horizon-text"), meter = $("horizon-meter"), fill = $("horizon-fill"), dot = $("horizon-dot");
+    const pct = horizon.total > 0 ? Math.round((horizon.done / horizon.total) * 100) : 0;
+    if (text) text.textContent = horizon.text;
+    if (meter) { meter.hidden = !horizon.running; meter.setAttribute("aria-valuenow", String(pct)); meter.setAttribute("aria-valuetext", horizon.done + " of " + horizon.total + " steps"); }
+    if (fill) fill.style.width = pct + "%";
+    if (dot) dot.classList.toggle("horizon-active", horizon.running);
+    const dh = $("dock-horizon"), df = $("dock-horizon-fill");
+    if (dh) dh.hidden = !horizon.running;
+    if (df) df.style.width = pct + "%";
+  }
+  function onStatus(s) {
+    if (!s || typeof s.text !== "string") return;
+    clearTimeout(horizonReset);
+    horizon.text = s.text.slice(0, 120); horizon.running = !!s.running; horizon.done = s.done || 0; horizon.total = s.total || 0;
+    renderHorizon();
+    if (!horizon.running) horizonReset = setTimeout(() => { horizon.text = "Ready"; horizon.done = 0; horizon.total = 0; renderHorizon(); }, 12000);
+  }
+
+  // -- Dock: running apps (>= 768 px via CSS) and the tray
+  function renderDockApps() {
+    const box = $("dock-apps");
+    if (!box) return;
+    box.replaceChildren();
+    const pages = livePages();
+    pages.slice(0, 6).forEach((p) => {
+      const a = appFor(p.appId);
+      box.appendChild(el("li", {}, [el("button", {
+        type: "button", class: "dock-app", "data-page-id": p.id, "data-state": p.state, "aria-label": p.name + ", " + p.state, title: p.name + " · " + p.state,
+        onclick: () => openApp(p.appId),
+      }, [appTileFor(a, "sm"), el("span", { class: "dock-state dock-state-" + p.state, "aria-hidden": "true" })])]));
+    });
+    if (pages.length > 6) box.appendChild(el("li", {}, [el("button", { type: "button", class: "dock-app dock-more", "aria-label": (pages.length - 6) + " more open apps", onclick: () => showScreen("screen-pages") }, [el("span", { text: "+" + (pages.length - 6) })])]));
+  }
+
+  function startHome() {
+    hydrateIcons();
+    renderClock();
+    renderHome();
+    renderDockApps();
+    renderHorizon();
+    const m = models();
+    if (m) {
+      m.pages.onChange(() => { renderHome(); renderDockApps(); });
+      m.qs.onChange((k) => { if (k === "focus" || k === "auraMode") renderHomeChips(); });
+    }
+    spaceListeners.push(() => renderHome());
+    if (window.AuroraSystem) window.AuroraSystem.on("status", onStatus);
+    screenListeners.push((id) => { if (id === HOME) renderHome(); });
+  }
+
   // ---------- Wiring ----------
   function wireNav() {
     const go = (btnId, target) => { const b = document.getElementById(btnId); if (b) b.addEventListener("click", () => showScreen(target)); };
@@ -294,8 +448,9 @@
     const ask = (id) => { const b = document.getElementById(id); if (b) b.addEventListener("click", () => openIndex("")); };
     ask("btn-index"); ask("dock-ask");
 
-    // Pinned tools: one handler, driven by data-app.
-    document.querySelectorAll(".pin-btn[data-app]").forEach((b) => b.addEventListener("click", () => openApp(b.dataset.app)));
+    ask("btn-ask");
+    go("btn-continue-all", "screen-pages");
+    go("dock-quick", "screen-quick");
 
     const input = document.getElementById("index-query");
     if (input) {
@@ -368,6 +523,7 @@
     wireKeyboard();
     renderSpaces();
     applyTheme();
+    startHome();
     showScreen(HOME);
     announce("Aurora Glass prototype ready. Home screen.");
   }

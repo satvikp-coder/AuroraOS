@@ -1,49 +1,42 @@
 # Aurora Glass UI handoff
 
-Last updated: 2026-11-12 (Sonnet 5.5 continuation). Update this file at every milestone commit.
+Last updated: 2026-11-12 (Sonnet 5.5). Update this file at every milestone commit. Anything under "Historical notes" is
+background, not current status.
 
-## Repository state
+## Current status (verified)
 
 | | |
 |---|---|
-| Verified `main` | `81254bb9c1ccf21aeff57d25285579262e06e504` (merge of #27; CI green, run 42500835937) |
-| Active UI branch | `feature/aurora-shell-polish` (from `main`) |
-| Open PRs | #28 AuroraFS recovery (kernel, awaiting independent review); #29 EL0 file access (kernel, depends on #28). **Do not modify or merge them from UI work.** UI PR for S1+S2: see the PR list (`gh pr list`). |
-| Working tree | Clean after the docs commit that added this file |
+| `main` | `81254bb9c1ccf21aeff57d25285579262e06e504` |
+| UI PR | #30 `feature/aurora-shell-polish` (open, no review decision yet). Head `58e7007`: all 6 CI jobs passed (run 43206776136) |
+| Kernel PRs | #28 AuroraFS recovery and #29 EL0 file access (#29 depends on #28): open, awaiting independent review. **UI work must not modify or merge them.** |
+| Working checkout | `C:\Users\satvi\Desktop\AuroraOS-Claude`. The sibling `Desktop\AuroraOS` is stale and holds the user's uncommitted kernel work: never touch it |
 
-## Done
+| Task | Status |
+|---|---|
+| F0 foundation | done (commit `fee394a`) |
+| M1 S1 wiring, S2 Shell API | done (commit `78d19e1`); 97/97 Playwright locally, 4/4 unit suites, 6/6 CI |
+| M1 S3 Home and Dock | done (this branch; 152/152 Playwright, 4/4 unit locally) |
+| M1 S4 to S10 | not done (see `AURORA_UI_TASKS.md`; each step carries its own status) |
+| M2 to M8 | not started |
 
-- **F0 design-system foundation** (commit `fee394a`): `tokens.css` (extended), `components.css`, `ui.js`,
-  `system.js`, `review.js`, `AURORA_ARCHITECTURE.md`, project agents in `.claude/agents/`.
-- Handoff documents: `CLAUDE.md`, this file, `AURORA_DESIGN_SYSTEM.md`, `AURORA_UI_TASKS.md`,
-  `AURORA_TESTING.md`, `AURORA_ARCHITECTURE.md`, `SONNET_RESUME_PROMPT.md`.
+Verification honesty: only one screenshot (Aura Plan review at 390 px) has been inspected for the new design. The full
+viewport/theme matrix has NOT been run. `plan/01..08-*.md` were announced by Fable but never written;
+`AURORA_UI_TASKS.md` is the plan of record.
 
-## Done in the Sonnet continuation (2026-11-12)
+Test side effect until S8: the existing browser specs overwrite tracked PNGs in `aurora-glass/screenshots/`. Before
+committing, `git status` them; restore only files this run modified (`git checkout -- aurora-glass/screenshots`) and remove
+untracked PNGs this run created.
 
-- Recovered Fable work: `docs/agents/plan/00-START-HERE.md` was untracked and is now committed. **Missing from Fable's handoff:** `plan/01..08-*.md` were announced but never written; `AURORA_UI_TASKS.md` is the plan of record.
-- **S1 + S2 done** (commit `78d19e1`): foundation runs in the browser with zero console errors; `AuroraShell` implements the documented API; the fake plan flow is gone (plans go through review.js and the broker); `data-motion="reduce"` honoured in tokens. Verified: `node tests/unit/*.test.js` 4/4, `npx playwright test --workers=1` 97/97 (25 new in `shell.test.js`).
-- Four older specs were rewritten (not weakened) to approve a plan before expecting a receipt.
-- Repo state note: the working checkout for UI work is `C:UserssatviDesktopAuroraOS-Claude`. The sibling `DesktopAuroraOS` checkout is stale (`main` at 79e1ff8) and holds uncommitted kernel work; do not touch it.
-- Test side effect to remember: the existing browser specs overwrite tracked PNGs in `aurora-glass/screenshots/`. Run `git checkout -- aurora-glass/screenshots` (and delete untracked PNGs there) before committing until S8 moves screenshots to `testInfo.outputPath`.
+## Historical notes (superseded)
 
-## Not done / important caveats
-
-- **The foundation has never run in a browser.** Only `node --check` was run on `ui.js`, `system.js`,
-  `review.js`. `index.html` still loads the old five scripts and two stylesheets, so the prototype on this
-  branch currently behaves exactly like `main` (old look, fake Aura plan). The existing test suites were not
-  re-run on this branch; since no loaded file except `tokens.css` changed, the only regression risk is from the
-  token changes (new values for `--color-success/warn/danger`, `--radius-*`, `--backdrop-blur`, font stack).
-  Run the full UI suite before building further.
-- An Opus engineer was started on M1 (shell rework) and was cut off by a usage limit before writing any file.
-  Nothing from that attempt exists on disk. No Opus review has happened.
-- No UI feature of milestones M1–M8 is implemented. No screenshots have been inspected for the new design.
-- `AURORA_DESIGN_SYSTEM.md` and `AURORA_ARCHITECTURE.md` describe the **target** shell API
-  (`AuroraShell.back/addScreen/registerApp/openApp/openIndex`, `layout-matrix.test.js`, curated screenshots):
-  those parts do not exist yet; they are specified in `AURORA_UI_TASKS.md` S1–S9.
+- Fable's F0 handoff said the foundation had never run in a browser and that `index.html` still loaded the old scripts. That
+  was true before S1 and is no longer true: the full chain loads with zero console errors.
+- An Opus engineer started M1 and was cut off by a usage limit before writing any file; nothing from it exists.
 
 ## Exact next task
 
-`AURORA_UI_TASKS.md` → **M1 / S3 "Home and Dock"**, then S4…S10 in order (S1, S2 are done).
+`AURORA_UI_TASKS.md` → **M1 / S4 "Spaces"**, then S5…S10 in order (S1 to S3 are done).
 
 ```bash
 cd C:/Users/satvi/Desktop/AuroraOS-Claude
