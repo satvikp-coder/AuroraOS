@@ -8,7 +8,9 @@
  * format, the write ordering, the authorization model and the limits.
  *
  * Principals: 0 is the KERNEL (may do anything; never assigned to a process). Any other value identifies an owner; milestone C
- * binds it to a process instance. Authorization is by permission bits on every operation, never by secrecy of a file id.
+ * lets the kernel assign one to an application (see docs/kernel/userspace.md), never the application itself. Authorization is by
+ * permission bits on every operation, never by secrecy of a file id. File names are unique PER OWNER: two principals may each own
+ * a file of the same name, and fs_lookup returns the caller's own first.
  */
 #define FS_NAME_MAX    31
 #define FS_MAX_FILES   32
@@ -39,7 +41,7 @@ int  fs_mounted(void);
 void fs_unmount(void);
 
 int  fs_create(uint32_t principal, const char *name, uint32_t perm, fs_id_t *id);
-int  fs_lookup(uint32_t principal, const char *name, fs_id_t *id);   /* FS_ENOENT also hides files the principal may not touch */
+int  fs_lookup(uint32_t principal, const char *name, fs_id_t *id);   /* the caller's own file of that name, else the first it may see; FS_ENOENT also hides files it may not touch. Names are unique per owner. */
 int  fs_read(uint32_t principal, fs_id_t id, uint32_t off, void *buf, uint32_t len);        /* bytes read (short at EOF) or FS_E* */
 int  fs_write(uint32_t principal, fs_id_t id, uint32_t off, const void *buf, uint32_t len); /* len, or FS_E*; off <= size (no holes) */
 int  fs_delete(uint32_t principal, fs_id_t id);

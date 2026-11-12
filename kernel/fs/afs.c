@@ -122,7 +122,7 @@ int fs_format(uint32_t total_sectors)
     int rc = blkrc(blk_write(INODE_START, zeros, INODE_SECTORS)); if (rc) return rc;
     rc = blkrc(blk_flush()); if (rc) return rc;
     uint8_t sb[BLK_SECTOR]; sb_encode(sb, total, FS_VERSION);
-    rc = blkrc(blk_write(SB_SECTOR, sb, 1)); if (rc) return rc;           /* the superblock lands LAST: a half-formatted disk is not mountable as new */
+    rc = blkrc(blk_write(SB_SECTOR, sb, 1)); if (rc) return rc;           /* the superblock lands LAST, so a disk that never held a filesystem is not mountable half-formatted. NOT crash-safe on a disk that already held one: its old superblock plus the zeroed inode table would mount as an empty filesystem. Formatting is explicit and test-only. */
     return blkrc(blk_flush());
 }
 
@@ -157,7 +157,7 @@ int fs_mount(void)
         if (n->size > FS_MAX_FILE || n->nblocks != (n->size + BLK_SECTOR - 1) / BLK_SECTOR) return FS_ECORRUPT;
         char nm[33]; copy(nm, n->name, 32); nm[32] = 0;
         if (n->name[31] != 0 || fs_validate_name(nm) != FS_OK) return FS_ECORRUPT;
-        for (uint32_t j = 0; j < i; j++) if (F.t.ino[j].state == ST_USED && streq(F.t.ino[j].name, n->name)) return FS_ECORRUPT;
+        for (uint32_t j = 0; j < i; j++) if (F.t.ino[j].state == ST_USED && F.t.ino[j].owner == n->owner && streq(F.t.ino[j].name, n->name)) return FS_ECORRUPT;   /* names are unique PER OWNER */
         for (uint32_t b = 0; b < FS_MAX_BLOCKS; b++) {
             if (b >= n->nblocks) { if (n->blocks[b]) return FS_ECORRUPT; continue; }
             uint32_t s = n->blocks[b];
@@ -233,10 +233,13 @@ int fs_create(uint32_t principal, const char *name, uint32_t perm, fs_id_t *id)
     if (!F.mounted) return FS_EMOUNT;
     if (!id || principal == 0 || (perm & ~FS_PERM_MASK)) return FS_EARG;      /* the kernel principal owns nothing */
     int rc = fs_validate_name(name); if (rc) return rc;
+    /* Names are unique per OWNER, not globally: another principal's file with the same name (even a hidden one) must neither
+     * block this create nor reveal itself through FS_EEXIST. A slot whose generation is used up can never be reused (ids must
+     * never repeat), so it is skipped: one worn-out slot must not stop all creation while other slots are free. */
     int free_idx = -1;
     for (uint32_t i = 0; i < FS_MAX_FILES; i++) {
-        if (F.t.ino[i].state == ST_USED) { if (streq(F.t.ino[i].name, name)) return FS_EEXIST; }
-        else if (free_idx < 0) free_idx = (int)i;
+        if (F.t.ino[i].state == ST_USED) { if (F.t.ino[i].owner == principal && streq(F.t.ino[i].name, name)) return FS_EEXIST; }
+        else if (free_idx < 0 && F.t.ino[i].gen < 0x00FFFFFFu) free_idx = (int)i;
     }
     if (free_idx < 0) return FS_ENFILE;
     struct inode n; zero(&n, sizeof n);
@@ -254,12 +257,17 @@ int fs_lookup(uint32_t principal, const char *name, fs_id_t *id)
     if (!F.mounted) return FS_EMOUNT;
     if (!id) return FS_EARG;
     int rc = fs_validate_name(name); if (rc) return rc;
-    for (uint32_t i = 0; i < FS_MAX_FILES; i++)
-        if (F.t.ino[i].state == ST_USED && streq(F.t.ino[i].name, name)) {
-            if (!can_see(principal, &F.t.ino[i])) return FS_ENOENT;           /* hidden, indistinguishable from absent */
-            *id = make_id(&F.t.ino[i], i); return FS_OK;
-        }
-    return FS_ENOENT;
+    /* Several principals may own a file of this name. The caller's OWN file wins; otherwise the first file it is allowed to see.
+     * A file it may not see is skipped, so a hidden file is indistinguishable from an absent one. */
+    int best = -1;
+    for (uint32_t i = 0; i < FS_MAX_FILES; i++) {
+        if (F.t.ino[i].state != ST_USED || !streq(F.t.ino[i].name, name)) continue;
+        if (principal != 0 && F.t.ino[i].owner == principal) { best = (int)i; break; }
+        if (best < 0 && can_see(principal, &F.t.ino[i])) best = (int)i;
+    }
+    if (best < 0) return FS_ENOENT;
+    *id = make_id(&F.t.ino[best], (uint32_t)best);
+    return FS_OK;
 }
 
 /* load a file's whole content into scratch and verify its CRC */

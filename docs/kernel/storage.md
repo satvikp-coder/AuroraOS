@@ -81,8 +81,17 @@ a later file (the PID-reuse lesson applied again). Ids are *not* secrets: every 
 r/w); owner-only files are hidden from `lookup` (indistinguishable from absent) and a principal that guesses the exact id still gets
 `FS_EACCES`. Only the owner or the kernel may delete or change permissions.
 
+**Names are unique per owner.** Two principals may each own a file called `config`. `create` only refuses a name the SAME principal already
+owns (`FS_EEXIST`); a stranger's file of that name, hidden or not, neither blocks the create nor shows through its error code (an earlier
+design returned `FS_EEXIST` for any file, which let a principal probe whether a hidden name exists and squat on names). `lookup` returns the
+caller's own file of that name first, otherwise the first file it may see. **Known limits** (not solved here): (1) a caller that holds or
+guesses a file *id* gets `FS_EACCES` for a hidden file but `FS_EBADID` for a missing one, so ids are not an existence-proof-free channel
+(ids are 32 slots x a generation, not secrets, as stated above); (2) there are no quotas: one principal can use all 32 inodes and all free
+blocks (`FS_ENFILE` / `FS_ENOSPC` for everyone). Both must be addressed (per-principal quotas, and id checks that do not reveal
+existence) before milestone D runs mutually distrusting programs.
+
 **Mount** validates and writes nothing: magic, version (`FS_EVERSION`), CRCs, geometry, per-inode sanity, block ranges, no sector used twice,
-no duplicate names, never-used slots all zero. Any failure leaves the filesystem unmounted. No automatic repair or format (`fs_format`
+no duplicate names *within one owner*, never-used slots all zero. Any failure leaves the filesystem unmounted. No automatic repair or format (`fs_format`
 is an explicit call, used only by test kernels). File data is checked against its CRC on every read, so silent corruption returns an
 error, never wrong bytes.
 
@@ -96,7 +105,7 @@ the corruption test.
 cannot be appended to: `FS_ENOSPC`, documented and tested), 32 MiB maximum filesystem (RAM allocation map), single mount, no
 timestamps, no concurrency control (single CPU, callers are not preempted inside the filesystem), QEMU only.
 
-**Tests:** `tests/qemu/fs-tests.sh` (81 checks, in CI): three boots on one image (format + 39 checks; then 17 checks each on mount without
+**Tests:** `tests/qemu/fs-tests.sh` (92 checks, in CI): three boots on one image (format + 57 in-kernel checks; then 21 each on mount without
 formatting incl. injected corruption), host-side proof that the bytes are in the image file, host-damaged images (flipped inode bit, wrong
 version, foreign content, flipped superblock bit) reported precisely with the image checksum unchanged, read-only disk, no disk.
 
