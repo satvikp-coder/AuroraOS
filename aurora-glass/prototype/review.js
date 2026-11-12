@@ -111,7 +111,7 @@
     const select = (label, values, cur, names, make) => el("label", { class: "step-edit", for: id }, [el("span", { text: label }),
       el("select", { id, class: "field step-text", "data-fk": "edit:" + s.index, onchange: (e) => apply(make(e.target.value)) }, values.map((v) => { const o = el("option", { value: v, text: names(v) }); if (v === cur) o.selected = true; return o; }))]);
     const capz = (v) => v.charAt(0).toUpperCase() + v.slice(1);
-    if (a.type === "space.switch") return select("Space", System.SPACES, a.arguments.space, (v) => System.SPACE_NAME[v] || v, (v) => ({ type: a.type, arguments: { space: v } }));
+    if (a.type === "space.switch") return select("Space", System.SPACES, a.arguments.space, (v) => System.spaceName(v), (v) => ({ type: a.type, arguments: { space: v } }));
     if (a.type === "app.open") return select("App", System.APPS, a.arguments.app, capz, (v) => ({ type: a.type, arguments: { app: v } }));
     if (a.type === "focus.set") return select("Focus mode", ["on", "off"], a.arguments.enabled ? "on" : "off", capz, (v) => ({ type: a.type, arguments: { enabled: v === "on" } }));
     if (a.type === "timer.start") {

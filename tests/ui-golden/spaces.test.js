@@ -235,3 +235,19 @@ test.describe("Spaces: layout and appearance", () => {
     expect(one).toBe(1);
   });
 });
+
+test.describe("Spaces: a renamed Space is renamed everywhere", () => {
+  test("Pages, the Aura plan and its editor use the live name", async ({ page }) => {
+    await page.goto(BASE_URL);
+    await ev(page, () => window.AuroraShell.renameSpace("study", "Exams"));
+    await page.locator("#dock-pages").click();
+    await expect(page.locator('[data-page="page-notes"] .page-meta')).toContainText("Exams Space");
+    await ev(page, () => window.AuroraShell.showScreen("screen-home"));
+    await page.locator("#btn-aura-study").click();
+    await expect(page.locator("#screen-aura")).toContainText("Switch to Exams Space");
+    await page.locator("#btn-plan-edit").click();
+    await expect(page.locator("#screen-aura select option", { hasText: "Exams" })).toHaveCount(1);
+    expect(await ev(page, () => window.AuroraSystem.describe({ type: "space.switch", arguments: { space: "study" } }).title)).toBe("Switch to Exams Space");
+    expect(await ev(page, () => window.AuroraSystem.describe({ type: "file.move", arguments: { id: "timetable", destination: "study" } }).title)).toBe("Move “Exam timetable.txt” to Exams");
+  });
+});

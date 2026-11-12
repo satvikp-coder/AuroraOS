@@ -151,6 +151,12 @@
 
   // ---------------- descriptions (plain text only; callers must use textContent) ----------------
   const SPACE_NAME = { study: "Study", work: "Work", projects: "Projects", personal: "Personal" };
+  /** Display name of a Space: the shell's live name (Spaces can be renamed), falling back to the built-in name. */
+  function spaceName(id) {
+    const sh = shell(), list = sh && typeof sh.spaces === "function" ? sh.spaces() : [];
+    const hit = list.find((x) => x.id === id);
+    return hit ? hit.name : (Object.prototype.hasOwnProperty.call(SPACE_NAME, id) ? SPACE_NAME[id] : String(id));
+  }
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
   function duration(seconds) {
     if (seconds % 3600 === 0) return seconds / 3600 + " hour" + (seconds === 3600 ? "" : "s");
@@ -163,11 +169,11 @@
     const a = (action && action.arguments) || {};
     switch (action && action.type) {
       case "app.open": return { kind: "App", icon: a.app, title: "Open " + cap(String(a.app)), detail: "Brings the app to the front." };
-      case "space.switch": return { kind: "Space", icon: "spaces", title: "Switch to " + (SPACE_NAME[a.space] || a.space) + " Space", detail: "Pinned tools and context follow the Space." };
+      case "space.switch": return { kind: "Space", icon: "spaces", title: "Switch to " + spaceName(a.space) + " Space", detail: "Pinned tools and context follow the Space." };
       case "timer.start": return { kind: "Timer", icon: "timer", title: "Start a timer for " + duration(a.seconds), detail: "Runs in Clock. Can be cancelled." };
       case "search.query": return { kind: "Search", icon: "search", title: "Search for “" + a.query + "”", detail: "Looks on this device only." };
       case "focus.set": return { kind: "Setting", icon: "focus", title: "Turn Focus mode " + (a.enabled ? "on" : "off"), detail: "A reversible setting." };
-      case "file.move": return { kind: "File", icon: "move", title: "Move “" + fileName(a.id) + "” to " + (SPACE_NAME[a.destination] || a.destination), detail: "The file changes Space. Can be undone." };
+      case "file.move": return { kind: "File", icon: "move", title: "Move “" + fileName(a.id) + "” to " + spaceName(a.destination), detail: "The file changes Space. Can be undone." };
       case "file.delete": return { kind: "File", icon: "trash", title: "Delete “" + fileName(a.id) + "”", detail: "Moves it to Trail, where it can be restored during this session." };
       case "share.send": return { kind: "Share", icon: "share", title: "Send “" + fileName(a.id) + "” to " + a.to, detail: "Leaves this device and cannot be undone." };
       default: return { kind: "Action", icon: "info", title: "Unknown action", detail: "" };
@@ -217,7 +223,7 @@
   let reviewer = null;
   window.AuroraSystem = {
     on, emit, dev, world, describe, explain, duration,
-    SPACE_NAME, APPS: Broker.APPS.slice(), SPACES: Broker.SPACES.slice(), ACTIONS: Broker.ACTIONS,
+    SPACE_NAME, spaceName, APPS: Broker.APPS.slice(), SPACES: Broker.SPACES.slice(), ACTIONS: Broker.ACTIONS,
     parseCommand: Broker.parseCommand,
     permissions,
     /** Untrusted-safe broker surface: propose / preview / getProposal only. */

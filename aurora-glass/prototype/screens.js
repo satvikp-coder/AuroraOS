@@ -26,7 +26,7 @@
   window.AuroraModels = { pages, qs, sessions }; // exposed for tests / later modules
 
   const STATE_LABEL = { running: "Running", paused: "Paused", saved: "Saved (frozen)" };
-  const SPACE_NAME = { study: "Study", work: "Work", projects: "Projects", personal: "Personal" };
+  const spaceName = (id) => { const hit = Shell.spaces().find((x) => x.id === id); return hit ? hit.name : id; };
 
   // ---------------- Pages ----------------
   function renderPages() { keepFocus(document.getElementById("screen-pages"), renderPagesInner, "#btn-pages-back"); }
@@ -61,7 +61,7 @@
           el("h3", { class: "section-title", text: p.name }),
           el("span", { class: "state-badge state-" + p.state, text: STATE_LABEL[p.state] }),
         ]),
-        el("p", { class: "page-meta", text: (SPACE_NAME[p.space] || p.space) + " Space · " + (p.state === "saved" ? "0 MB in RAM (" + p.memMB + " MB when resumed)" : p.memMB + " MB") }),
+        el("p", { class: "page-meta", text: spaceName(p.space) + " Space · " + (p.state === "saved" ? "0 MB in RAM (" + p.memMB + " MB when resumed)" : p.memMB + " MB") }),
         el("div", { class: "page-actions" }, actions),
       ]));
     });
