@@ -107,5 +107,5 @@ Strings are plain text in JS today; keep them out of layout decisions so they ca
 
 ## 7. Reference screenshots
 
-`aurora-glass/screenshots/` holds a small curated set (regenerate with `AURORA_SHOTS=1 npx playwright test
---workers=1`). Routine test runs write screenshots to `test-results/`, which is ignored.
+`aurora-glass/screenshots/` holds a small curated set of 22 images (regenerate with `AURORA_SHOTS=1 npx playwright test
+--workers=1 tests/ui-golden/curated-shots.test.js`; the spec is skipped otherwise). Routine test runs write screenshots to `test-results/`, which is ignored.

@@ -419,3 +419,20 @@ test.describe("Home: reduced motion and keyboard", () => {
     expect(seen.some((s) => /^Open Notes/.test(s))).toBe(true);
   });
 });
+
+test.describe("Text scaling keeps the type hierarchy", () => {
+  test("at 200% text on a phone the root size scales and a row title is never smaller than its subtitle", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.goto(BASE_URL);
+    const base = await ev(page, () => parseFloat(getComputedStyle(document.documentElement).fontSize));
+    await ev(page, () => document.documentElement.setAttribute("data-text-scale", "200"));
+    const r = await ev(page, () => ({
+      root: parseFloat(getComputedStyle(document.documentElement).fontSize),
+      title: parseFloat(getComputedStyle(document.querySelector("#home-continue-list .row-title")).fontSize),
+      meta: parseFloat(getComputedStyle(document.querySelector("#home-continue-list .row-meta")).fontSize),
+    }));
+    expect(base).toBe(16);
+    expect(r.root).toBe(32);
+    expect(r.title).toBeGreaterThanOrEqual(r.meta);
+  });
+});

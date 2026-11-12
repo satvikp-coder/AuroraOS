@@ -264,7 +264,7 @@ the reset confirmation in Settings is still the inline panel until S6.
   directory by default (`git status` clean after a run).
 - Depends on: S1–S7.
 
-### S9. Visual quality loop — `not started`
+### S9. Visual quality loop — `done` (see "S9 record" below)
 
 - Screenshot pass for all seven screens plus the review dialog and the receipt. Checklist per image:
   alignment to a common left edge; consistent card padding; one primary button per view; heading sizes step
@@ -274,6 +274,16 @@ the reset confirmation in Settings is still the inline panel until S6.
 - Record in the PR body which combinations were looked at and each defect fixed.
 - Regenerate the curated set in `aurora-glass/screenshots/` (<= 24 PNGs) and `git rm` the stale ones.
 - Depends on: S8.
+
+**S9 record (what was actually looked at, 2026-11-12).** Images opened and inspected: Home at 390 light and dark, 360 at 200% text (before and after the fix),
+768, 1280 light, 1440 dark Clear, 390 high contrast with the Focus chip; Spaces 390 light and 1280 dark, New Space dialog with an inline error at 390;
+Index 390 (empty and with an Aura row) and 1280 dark; Pages 390 and 1280; Quick Center 390 dark and 1280 (before and after); Settings 390 light and
+1280 dark (before and after); Aura review 390 dark, confirmation dialog 390, receipt 390; S3 delete dialog 390 dark Clear; Glass Corner popover 390 and
+1280 dark. Defects found and fixed: all app tiles shared one hue; clock wrapped at 390; Quick Center and Settings were stretched phone layouts on desktop
+(now two columns / a bounded sheet); root font size pinned to 16px on phones so inherited text did not scale (row title was smaller than its subtitle at 200%);
+a padlock on "Can't be undone". NOT inspected by eye (covered by the layout matrix assertions only): 412 and 1024 widths, 1440 for non-Home screens,
+Settings/Pages/Quick Center in Clear + high contrast, most of the final curated PNGs, reduced-motion appearance. The 22 curated PNGs in
+`aurora-glass/screenshots/` replace the 24 stale images of the old design; regenerate with `AURORA_SHOTS=1` (curated-shots.test.js).
 
 ### S10. Deliver M1 — `not started`
 

@@ -202,7 +202,7 @@
       const undoState = r ? r.undoState : "unavailable";
       const undoBtn = undoState === "available" ? el("button", { type: "button", class: "btn outline btn-small", "data-fk": "undo:" + s.receiptId, "aria-label": "Undo: " + System.describe(p.steps[s.index]).title,
         onclick: async () => { const u = await System.undo(s.receiptId); UI.toast(u.ok ? "Undone: " + System.describe(p.steps[s.index]).title : u.text, { tone: u.ok ? "ok" : "error" }); render(); } }, [icon("undo"), el("span", { text: "Undo" })])
-        : undoState === "used" ? UI.chip("Undone", "muted", "undo") : undoState === "failed" ? UI.chip("Undo failed", "error", "alert") : s.status === "done" ? UI.chip("Can't be undone", "muted", "lock") : null;
+        : undoState === "used" ? UI.chip("Undone", "muted", "undo") : undoState === "failed" ? UI.chip("Undo failed", "error", "alert") : s.status === "done" ? UI.chip("Can't be undone", "muted", "info") : null;
       list.appendChild(el("li", { class: "result-row", dataset: { status: s.status } }, [
         el("span", { class: "result-title" }, [el("span", { text: System.describe(p.steps[s.index]).title }), s.error ? el("span", { class: "result-error", text: System.explain(s.error) }) : null]),
         el("span", { class: "result-side" }, [statusChip(s.status), undoBtn]),
