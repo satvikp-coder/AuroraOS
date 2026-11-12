@@ -285,7 +285,15 @@ a padlock on "Can't be undone". NOT inspected by eye (covered by the layout matr
 Settings/Pages/Quick Center in Clear + high contrast, most of the final curated PNGs, reduced-motion appearance. The 22 curated PNGs in
 `aurora-glass/screenshots/` replace the 24 stale images of the old design; regenerate with `AURORA_SHOTS=1` (curated-shots.test.js).
 
-### S10. Deliver M1 — `not started`
+### S10. Deliver M1 — `done except the human review/merge`
+
+**Independent review (2026-11-12).** A read-only Opus subagent (`token-saver-opus-architect`) reviewed app.js, review.js, system.js, ui.js, screens.js, settings-screen.js and
+index.html against the architecture rules. Result: no P0 (no way around the review/approval boundary, no untrusted-text sink). Findings, all verified and fixed with
+regression tests in `tests/ui-golden/review-fixes.test.js`: (P1) focus lost on the Plan screen; Ctrl+K reached behind a modal and stacked dialogs shared one focus trap;
+a single "Open X" command reported success without opening anything; reserved system apps (Passport/Trail/Vault) could never gain a screen. (P2) a second plan could be
+started during a run and corrupt its receipt; "Undo all" reported failure after a single step was undone; the Glass Corner badge counted items already seen.
+**Open product decision (not changed):** Aura mode "Ask before acting" (the default) behaves exactly like "Quick Commands only": only "Off" is checked, so S0 commands run
+without a prompt and Index says "Runs now". Either enforce a review in Ask mode or rename the option. This was a review by a model, not a human review: PR #30 still needs a human.
 
 - Review the diff, run Gitleaks' scan via CI, push, open the PR to `main` titled
   `feat(ui): Aurora Glass shell on the shared design system (broker-backed Aura, Home, Dock, Spaces, Index)`,

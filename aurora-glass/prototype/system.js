@@ -60,7 +60,8 @@
   const adapters = {
     "app.open": async ({ app }) => {
       await pace("app.open");
-      const r = shell().openApp(app, { background: true });
+      // Plan steps run while the Plan screen is showing and must not navigate away from it; a single command opens the app.
+      const r = shell().openApp(app, { background: shell().state.activeScreen === "screen-aura" });
       if (!r.ok) throw new Error(r.reason || "cannot-open");
       return { result: app, undo: r.created ? () => { models().pages.close(r.id); } : undefined };
     },

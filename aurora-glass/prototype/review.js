@@ -99,8 +99,8 @@
 
   function header() {
     return el("header", { class: "screen-header" }, [
-      el("button", { type: "button", class: "btn btn-icon ghost", id: "btn-aura-back", "aria-label": "Back", onclick: () => Shell.back() }, [icon("back")]),
-      el("div", { class: "screen-heading" }, [el("p", { class: "eyebrow eyebrow-aura", text: "Aura" }), el("h1", { class: "screen-title", text: "Plan" })]),
+      el("button", { type: "button", class: "btn btn-icon ghost", id: "btn-aura-back", "data-fk": "aura-back", "aria-label": "Back", onclick: () => Shell.back() }, [icon("back")]),
+      el("div", { class: "screen-heading" }, [el("p", { class: "eyebrow eyebrow-aura", text: "Aura" }), el("h1", { class: "screen-title", tabindex: -1, "data-fk": "aura-title", text: "Plan" })]),
     ]);
   }
 
@@ -215,7 +215,7 @@
       el("p", { class: "receipt-summary", id: failed ? "failure-text" : undefined, text: summary }),
       list,
       el("div", { class: "action-bar" }, [
-        anyUndo ? el("button", { type: "button", class: "btn outline", id: "btn-plan-undo-all", "data-fk": "undo-all", onclick: async () => { const u = await System.undoProposal(p.id); UI.toast(u.ok ? "Completed steps were undone." : "Some steps could not be undone.", { tone: u.ok ? "ok" : "error" }); render(); } }, [icon("undo"), el("span", { text: failed ? "Undo completed steps" : "Undo all" })]) : null,
+        anyUndo ? el("button", { type: "button", class: "btn outline", id: "btn-plan-undo-all", "data-fk": "undo-all", onclick: async () => { const u = await System.undoProposal(p.id); const okAll = u.ok || (Array.isArray(u.steps) && u.steps.every((x) => x.ok || x.reason === "already-undone" || x.reason === "not-undoable")); UI.toast(okAll ? "Completed steps were undone." : "Some steps could not be undone.", { tone: okAll ? "ok" : "error" }); render(); } }, [icon("undo"), el("span", { text: failed ? "Undo completed steps" : "Undo all" })]) : null,
         el("button", { type: "button", class: "btn outline", id: "btn-plan-trail", onclick: () => Shell.openApp("trail") }, [icon("trail"), el("span", { text: "Open Trail" })]),
         el("button", { type: "button", class: "btn accent", id: "btn-receipt-close", "data-fk": "receipt-close", onclick: () => { plan.phase = "idle"; plan.p = null; Shell.showScreen("screen-home"); } }, [el("span", { text: "Done" })]),
       ]),
@@ -240,6 +240,7 @@
 
   /** Open the plan screen for an already-parsed plan payload ({steps:[...]}). Proposes only; nothing runs. */
   function openPlan(payload, text, meta) {
+    if (plan.phase === "running") { UI.toast("A plan is still running. Wait for it to finish, or stop it first.", { tone: "warn" }); Shell.showScreen("screen-aura"); return { ok: false, reason: "busy" }; }
     const r = System.proposer.propose(payload);
     if (!r.ok) { UI.toast("Aura could not build that plan.", { tone: "error" }); return { ok: false, reason: r.error }; }
     if (plan.p && plan.phase === "review") T.reject(plan.p.id);
@@ -258,6 +259,11 @@
     return System.request(parsed.action, { source: "aura", requestText: text.trim() });
   }
 
-  Shell.onScreenShow((id) => { if (id === "screen-aura") render(); });
+  Shell.onScreenShow((id) => {
+    if (id !== "screen-aura") return;
+    render();
+    // The screen was empty when showScreen tried to focus its heading, so move focus in now (screen readers land on the new screen).
+    if (!screen.contains(document.activeElement)) { const h = screen.querySelector("h1"); if (h) { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); } }
+  });
   window.AuroraReview = { ask, openPlan, describeCommand(text) { const r = System.parseCommand(text); if (!r.ok) return null; const steps = r.kind === "plan" ? r.plan.steps : [r.action]; return { kind: r.kind, count: steps.length, title: r.kind === "plan" ? steps.length + "-step plan" : System.describe(steps[0]).title, preview: System.proposer.preview(r.kind === "plan" ? r.plan : r.action) }; } };
 })();

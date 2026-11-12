@@ -686,7 +686,7 @@
   function closeCorner(restoreFocus) {
     const gc = $("glass-corner"), panel = $("gc-panel");
     if (!gc || !panel || !corner.open) return;
-    corner.open = false;
+    corner.open = false; corner.seen = Date.now();
     gc.setAttribute("aria-expanded", "false");
     panel.hidden = true;
     renderCornerBadge();
@@ -700,8 +700,8 @@
     gc.addEventListener("click", () => { if (corner.open) closeCorner(true); else openCorner(); });
     document.addEventListener("pointerdown", (e) => { if (corner.open && !panel.contains(e.target) && !gc.contains(e.target)) closeCorner(false); });
     if (window.AuroraSystem) {
-      window.AuroraSystem.on("receipts", () => { renderCornerBadge(); if (corner.open) renderCornerPanel(); });
-      window.AuroraSystem.on("permission", () => { renderCornerBadge(); if (corner.open) renderCornerPanel(); });
+      window.AuroraSystem.on("receipts", () => { if (corner.open) corner.seen = Date.now(); renderCornerBadge(); if (corner.open) renderCornerPanel(); });
+      window.AuroraSystem.on("permission", () => { if (corner.open) corner.seen = Date.now(); renderCornerBadge(); if (corner.open) renderCornerPanel(); });
     }
     renderCornerBadge();
   }
@@ -747,7 +747,7 @@
         if (corner.open) { closeCorner(true); return; }
                 if (state.activeScreen !== HOME) back();
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openIndex(state.indexQuery); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); if (!document.querySelector(".scrim")) openIndex(state.indexQuery); }
     });
   }
 
@@ -775,9 +775,9 @@
     { id: "clock", name: "Clock", hue: 262, memMB: 90, keywords: ["timer", "stopwatch", "alarm"] },
     { id: "settings", name: "Settings", hue: 220, memMB: 120, screen: "screen-settings", keywords: ["preferences", "options"] },
     { id: "calendar", name: "Calendar", hue: 6, memMB: 150, keywords: ["events", "schedule"] },
-    { id: "passport", name: "Passport", hue: 152, system: true, keywords: ["permissions", "privacy", "access"] },
-    { id: "trail", name: "Trail", hue: 280, system: true, keywords: ["history", "undo", "receipts"] },
-    { id: "vault", name: "Vault", hue: 188, system: true, keywords: ["files", "storage"] },
+    { id: "passport", name: "Passport", hue: 152, system: true, screen: "screen-passport", keywords: ["permissions", "privacy", "access"] },
+    { id: "trail", name: "Trail", hue: 280, system: true, screen: "screen-trail", keywords: ["history", "undo", "receipts"] },
+    { id: "vault", name: "Vault", hue: 188, system: true, screen: "screen-vault", keywords: ["files", "storage"] },
   ].forEach(registerApp);
 
   function init() {
