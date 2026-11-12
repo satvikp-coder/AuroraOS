@@ -360,7 +360,7 @@ without a prompt and Index says "Runs now". Either enforce a review in Ask mode 
 - Depends on: M1 (richer with M2 for blocked receipts). Both are merged.
 - Delivered notes: filters operate per receipt (a plan stays while any step matches and says "showing N matching"); the selection is dropped when a filter hides it; detail is inline below 1024 px and a side panel at 1024 px and up; Restore calls `System.undo` on the newest `file.delete` receipt that is still `available`; Passport-refused requests never ran and so are not listed.
 
-## M4. Vault — `done, PR open` (vault.test.js 55, unit 15; 465 Playwright locally; layout matrix 28/28) — branch `feature/aurora-vault` (from main after M3)
+## M4. Vault — `merged (#33)` (vault.test.js 55, unit 15; 465 Playwright locally; layout matrix 28/28) — branch `feature/aurora-vault` (from main after M3)
 
 - Objective: file manager over the mock files, with every mutation through the broker.
 - Files: `vault.js`, `vault.css`, `tests/ui-golden/vault.test.js`, `tests/unit/vault.test.js` (sort/filter/

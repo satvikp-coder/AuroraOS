@@ -1,6 +1,6 @@
 # Aurora Glass UI handoff
 
-Last updated: 2026-11-12 (Sonnet 5.5, M4 Vault on its branch; M1-M3 merged)
+Last updated: 2026-11-13 (Sonnet 5.5; M1-M4 and kernel milestones B-C merged)
 background, not current status.
 
 ## Current status (verified 2026-11-12, Sonnet 5.5)
@@ -10,16 +10,16 @@ Project model: one human owner (solo maintainer). No external reviewer is requir
 
 | | |
 |---|---|
-| `main` | `a9da43c8b21bcaaa45d6200880d4711643e3f7c0` (merge of #32). Main CI 6/6: https://github.com/satvikp-coder/AuroraOS/actions/runs/43257017512 |
-| Merged | #30 M1 shell (`b38f87b`), #31 M2 Passport (`29cc122`), #32 M3 Trail (`a9da43c`). All with merge commits after a documented self-review |
-| In progress | M4 Vault on `feature/aurora-vault` (from `a9da43c`): PR to `main` |
-| Kernel PRs | #28 AuroraFS and #29 EL0 file access (#29 stacked on #28): open, mergeable, CI 6/6. An Opus model review (read-only, nothing built) says MERGE for both with fixes; the P1 is that all apps share one flat file namespace (name-existence oracle, squatting) so the docs' "indistinguishable from absent" claim is false and must be corrected before merge. **Not merged.** Kernel worktree: `..AuroraOS-Claude-kernel` (detached at #29 head). The sibling `DesktopAuroraOS` holds the user's uncommitted kernel work: never touch it |
+| `main` | `9d4afab61cc7705522537db981f62dcca1116903`. Main CI 6/6: https://github.com/satvikp-coder/AuroraOS/actions/runs/43284806714 |
+| Merged (all with merge commits, after a documented self-review and 6/6 CI on the exact head) | #30 M1 shell, #31 M2 Passport, #32 M3 Trail, #33 M4 Vault (`1d5e2dc` / earlier), #28 AuroraFS (`aa37c17`), #29 EL0 file access (`4e5cae6`) |
+| Open PRs | none |
+| Kernel | milestones B (AuroraFS) and C (EL0 file access) are on main with the review fixes (per-owner names, exhausted-slot skip, real PID-reuse test). Issue #6 stays OPEN: init, program loader (D) and the native settings registry (E) are not built. Status comment posted on the issue. Kernel worktree: `..\AuroraOS-Claude-kernel` (use an LF copy inside WSL to run QEMU tests; see the dev-environment memory). The sibling `Desktop\AuroraOS` holds the user's uncommitted kernel work: never touch it |
 
 | Task | Status |
 |---|---|
-| F0, M1 shell, M2 Passport, M3 Trail | **merged to main** |
-| M4 Vault | done on `feature/aurora-vault`: vault-model.js (DOM-free), vault.js, vault.css. Unit 8/8 suites (vault 15); Playwright 465 passed, 22 skipped (curated screenshots, normal), 0 failed with one worker (55 are vault.test.js); layout matrix 28/28 with 3 Vault states; run leaves git status clean |
+| F0, M1 shell, M2 Passport, M3 Trail, M4 Vault | **merged to main** (unit 8/8 suites; Playwright 465 passed, 22 skipped, 0 failed; layout matrix 28/28) |
 | M5 Notes, M6 Calculator, M7 Clock, M8 polish | not started |
+| Kernel D program loader, E settings registry | not started |
 
 M4 visual review: actually looked at Vault at 390 dark (select mode, two selected), 390 light (preview), 1280 dark (grid + side preview), 1280 light (list + preview). Not looked at by eye: 360, 412, 768, 1024, 1440, Clear mode, high contrast, 200% text, reduced motion (covered by assertions in vault.test.js and the layout matrix only).
 Defects found and fixed in review: selected rows showed two check marks (redundant mark removed; the filled checkbox plus aria-checked remain); after a move or delete on a scrolled page the result with Undo / View in Trail was off-screen (now scrolled into view); the Glass Corner covered the sticky selection bar, the preview's top-right Close and the search field when scrolled (bar no longer sticky, Close moved into the action row, search reserves room for the corner below 1024 px); the Vault Space chips reused the Spaces screen's focus keys (renamed).
@@ -45,9 +45,8 @@ Test side effect: normal runs no longer modify tracked files (CI asserts a clean
 
 ## Exact next task
 
-1. Open the M4 Vault PR to `main`, wait for CI 6/6, self-review the incremental diff, merge, verify main CI.
-2. M5 Notes on `feature/aurora-notes` from `main`; then M6 Calculator, M7 Clock, M8 polish.
-3. Kernel (separate worktree): fix #28/#29 review findings (docs honesty first, generation-exhaustion fix, vacuous test, negative tests), QEMU tests under WSL, merge #28 then #29, then milestones D (program loader) and E (settings registry).
+1. **M5 Notes** on `feature/aurora-notes` from `main` (see `AURORA_UI_TASKS.md` M5: DOM-free notes model, versioned `localStorage` envelope with validation and corrupt-data handling, autosave, undo-delete, two-pane layout). Then M6 Calculator, M7 Clock, M8 polish (including a shell-level fix for the Glass Corner floating over scrolled content).
+2. **Kernel** in the separate worktree: first close the known limits listed in `docs/kernel/userspace.md` (per-principal quotas, id-based existence leak, the missing EL0 negative tests), then milestone D (program loader: validated executable format, run a file loaded from persistent storage at real EL0) and E (typed, authorized, persistent settings registry). Do not close issue #6 until all of its acceptance criteria are verified in QEMU.
 
 ```bash
 cd C:/Users/satvi/Desktop/AuroraOS-Claude
@@ -88,4 +87,4 @@ See "F0 … Known things to check the first time it runs" and "Risks" in `AURORA
 - `main` at `81254bb`: https://github.com/satvikp-coder/AuroraOS/actions/runs/42500835937 (green)
 - `main` at `b38f87b` (after #30): https://github.com/satvikp-coder/AuroraOS/actions/runs/43249737378 (6/6 green)
 - `main` at `a9da43c` (after #32): https://github.com/satvikp-coder/AuroraOS/actions/runs/43257017512 (6/6 green)
-- Vault PR CI: recorded on the PR.
+- `main` at `9d4afab` (after #29): https://github.com/satvikp-coder/AuroraOS/actions/runs/43284806714 (6/6 green)
