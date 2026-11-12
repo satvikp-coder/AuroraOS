@@ -302,6 +302,8 @@
       });
       function focusables() { return [...panel.querySelectorAll("button, input, select, textarea, [tabindex='0']")].filter((n) => !n.disabled && n.offsetParent !== null); }
       function onKey(e) {
+        const all = document.querySelectorAll(".scrim");
+        if (all.length && all[all.length - 1] !== scrim) return;          // not the top-most dialog
         if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(o.dismissValue === undefined ? null : o.dismissValue); return; }
         if (e.key !== "Tab") return;
         const f = focusables(); if (!f.length) return;
