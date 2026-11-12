@@ -105,7 +105,7 @@
       case "accessibility.highContrast": Shell.setContrast(v ? "high" : "normal"); break;
       case "accessibility.reduceMotion": Shell.setMotion(v ? "reduce" : "normal"); break;
       case "notifications.focus": qs.set("focus", v); break;
-      case "notifications.glassCorner": { const gc = document.querySelector(".glass-corner"); if (gc) gc.hidden = !v; break; }
+      case "notifications.glassCorner": { const gc = document.querySelector(".glass-corner"); if (gc) { gc.hidden = !v; if (!v && Shell.closeGlassCorner) Shell.closeGlassCorner(); } break; }
       case "privacy.indicators": { const c = document.getElementById("qc-privacy-card"); if (c) c.classList.toggle("panel-hidden", !v); break; }
       case "battery.saver": qs.set("batterySaver", v); break;
       case "aura.mode": qs.set("auraMode", v); break;

@@ -108,7 +108,8 @@ async function main() {
 
   const gc = document.querySelector(".glass-corner");
   assert(gc.getAttribute("aria-label"), "Glass Corner has aria-label");
-  assert(gc.getAttribute("tabindex") === "0", "Glass Corner is keyboard-focusable");
+  // A native <button> is focusable and keyboard-operable without tabindex (it was a div with role=button before S7).
+  assert(gc.tagName === "BUTTON" && gc.getAttribute("aria-controls") === "gc-panel" && gc.getAttribute("aria-expanded") === "false", "Glass Corner is a native button controlling the held-items panel");
 
   const searchInput = document.getElementById("index-query");
   assert(searchInput.getAttribute("role") === "combobox" || !!searchInput.getAttribute("aria-label") || !!searchInput.getAttribute("placeholder"), "Index input has accessible name");

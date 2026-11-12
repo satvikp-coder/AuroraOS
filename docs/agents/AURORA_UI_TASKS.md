@@ -66,7 +66,7 @@ Known things to check the first time it runs (found by reading, not by running):
 
 S1 and S2 are done (Claude Sonnet 5.5, 2026-11-12). Do the remaining sub-tasks in order; commit after each one that leaves the suite green.
 Known deviations from the S1 text, to be closed by later steps: `.icon-btn` is kept (legacy, in shell.css) until S3/S6 rebuild the
-screen headers; the Glass Corner is still the old click-toggle until S7; Index is still the old list until S5; the
+screen headers; Index is still the old list until S5; the
 the reset confirmation in Settings is still the inline panel until S6.
 
 ### S1. Wire the foundation into the page — `done` (commit 78d19e1; verified: 97 Playwright specs, 4 unit suites, zero console errors)
@@ -216,7 +216,7 @@ the reset confirmation in Settings is still the inline panel until S6.
   (S8); two-way Quick Center/Settings sync unchanged.
 - Depends on: S1.
 
-### S7. Glass Corner and Horizon — `not started`
+### S7. Glass Corner and Horizon — `done` (tests/ui-golden/glass-corner.test.js, 30 specs; screenshots inspected: popover with real items at 390 light, empty state at 1280 dark; Horizon rail/Dock line shipped in S3 and tested here)
 
 - Files: `app.js`, `shell.css`.
 - Glass Corner: `button.glass-corner[aria-expanded][aria-controls=gc-panel]` with a count badge when there

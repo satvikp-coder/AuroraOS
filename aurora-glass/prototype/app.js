@@ -621,6 +621,91 @@
     screenListeners.push((id) => { if (id === HOME) renderHome(); });
   }
 
+  // ---------- Glass Corner (held items) ----------
+  // Everything shown here is read from AuroraSystem (broker receipts and the permission log); nothing is invented.
+  const corner = { seen: Date.now(), open: false };
+  const RECEIPT_CHIP = { done: ["Done", "ok", "check"], failed: ["Failed", "error", "alert"], denied: ["Blocked", "error", "lock"], unsupported: ["Not available", "warn", "info"], "needs-reapproval": ["Review again", "warn", "eye"] };
+  const DECISION_WORD = { allow: "Allow", ask: "Ask", deny: "Deny" };
+
+  function unreadCount() {
+    const S = window.AuroraSystem;
+    if (!S) return 0;
+    return S.receipts().filter((r) => r.at > corner.seen).length + S.permissions.log().filter((e) => e.at > corner.seen).length;
+  }
+
+  function renderCornerBadge() {
+    const gc = $("glass-corner"), badge = $("gc-badge");
+    if (!gc || !badge) return;
+    const n = corner.open ? 0 : unreadCount();
+    badge.hidden = n === 0;
+    badge.textContent = n > 9 ? "9+" : String(n);
+    gc.setAttribute("aria-label", n ? "Glass Corner, " + n + " new" : "Glass Corner");
+  }
+
+  function renderCornerPanel() {
+    const panel = $("gc-panel"), S = window.AuroraSystem;
+    if (!panel || !S) return;
+    UI.keepFocus(panel, () => {
+      panel.replaceChildren();
+      const receipts = S.receipts().slice(0, 5);
+      const perms = S.permissions.log().slice().reverse().slice(0, 3);
+      panel.appendChild(el("h2", { class: "gc-title", id: "gc-title", tabindex: -1, "data-fk": "gc:title", text: "Held for you" }));
+      if (!receipts.length && !perms.length) panel.appendChild(el("p", { class: "gc-empty", id: "gc-empty", text: "Nothing held" }));
+      if (receipts.length) {
+        panel.appendChild(el("h3", { class: "gc-group", text: "Recent actions" }));
+        panel.appendChild(el("ul", { class: "gc-list", "aria-label": "Recent actions" }, receipts.map((r) => {
+          const chip = r.undoState === "used" ? UI.chip("Undone", "muted", "undo") : UI.chip(...(RECEIPT_CHIP[r.status] || RECEIPT_CHIP.failed));
+          return el("li", { class: "gc-item", "data-receipt": r.id }, [el("span", { class: "gc-item-title", text: r.describe.title }), chip, el("span", { class: "gc-item-time", text: UI.timeAgo(r.at) })]);
+        })));
+      }
+      if (perms.length) {
+        panel.appendChild(el("h3", { class: "gc-group", text: "Permission changes" }));
+        panel.appendChild(el("ul", { class: "gc-list", "aria-label": "Permission changes" }, perms.map((e) => el("li", { class: "gc-item", "data-permission": e.id }, [
+          el("span", { class: "gc-item-title", text: e.label + ": " + DECISION_WORD[e.from] + " \u2192 " + DECISION_WORD[e.to] }), el("span", { class: "gc-item-time", text: UI.timeAgo(e.at) })]))));
+      }
+      const trail = appFor("trail"), trailReady = !!(trail && trail.screen && screenEl(trail.screen));
+      panel.appendChild(el("div", { class: "gc-foot" }, [
+        el("button", { type: "button", class: "btn outline", id: "btn-gc-trail", "data-fk": "gc:trail", disabled: trailReady ? undefined : true, "aria-describedby": trailReady ? undefined : "gc-trail-note", onclick: () => { closeCorner(false); openApp("trail"); } }, [UI.icon("trail"), el("span", { text: "Open Trail" })]),
+        trailReady ? null : el("p", { class: "gc-note", id: "gc-trail-note", text: "Trail arrives in a later milestone." }),
+      ]));
+    }, "#gc-title");
+  }
+
+  function openCorner() {
+    const gc = $("glass-corner"), panel = $("gc-panel");
+    if (!gc || !panel || gc.hidden) return;
+    corner.open = true; corner.seen = Date.now();
+    gc.setAttribute("aria-expanded", "true");
+    panel.hidden = false;
+    renderCornerPanel(); renderCornerBadge();
+    $("gc-title").focus({ preventScroll: true });
+    announce("Glass Corner opened");
+  }
+
+  /** Close the popover. restoreFocus=true returns focus to the handle (Escape, toggle); outside clicks leave focus where the person put it. */
+  function closeCorner(restoreFocus) {
+    const gc = $("glass-corner"), panel = $("gc-panel");
+    if (!gc || !panel || !corner.open) return;
+    corner.open = false;
+    gc.setAttribute("aria-expanded", "false");
+    panel.hidden = true;
+    renderCornerBadge();
+    if (restoreFocus !== false) gc.focus();
+    announce("Glass Corner closed");
+  }
+
+  function wireCorner() {
+    const gc = $("glass-corner"), panel = $("gc-panel");
+    if (!gc || !panel) return;
+    gc.addEventListener("click", () => { if (corner.open) closeCorner(true); else openCorner(); });
+    document.addEventListener("pointerdown", (e) => { if (corner.open && !panel.contains(e.target) && !gc.contains(e.target)) closeCorner(false); });
+    if (window.AuroraSystem) {
+      window.AuroraSystem.on("receipts", () => { renderCornerBadge(); if (corner.open) renderCornerPanel(); });
+      window.AuroraSystem.on("permission", () => { renderCornerBadge(); if (corner.open) renderCornerPanel(); });
+    }
+    renderCornerBadge();
+  }
+
   // ---------- Wiring ----------
   function wireNav() {
     const go = (btnId, target) => { const b = document.getElementById(btnId); if (b) b.addEventListener("click", () => showScreen(target)); };
@@ -652,25 +737,15 @@
     const btnAura = document.getElementById("btn-aura-study");
     if (btnAura) btnAura.addEventListener("click", () => { if (window.AuroraReview) window.AuroraReview.ask("Prepare my phone for studying"); });
 
-    // Glass Corner (the held-inbox popover arrives in a later step).
-    const gc = document.querySelector(".glass-corner");
-    if (gc) {
-      gc.addEventListener("click", () => {
-        const expanded = gc.getAttribute("aria-expanded") === "true";
-        gc.setAttribute("aria-expanded", String(!expanded));
-        announce(expanded ? "Glass Corner closed" : "Glass Corner opened — notifications");
-      });
-      gc.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); gc.click(); } });
-    }
+    wireCorner();
   }
 
   function wireKeyboard() {
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
         // Dialogs handle their own Escape (capture phase, preventDefault). Next layer: the Glass Corner, then Back.
-        const gc = document.querySelector(".glass-corner");
-        if (gc && gc.getAttribute("aria-expanded") === "true") { gc.setAttribute("aria-expanded", "false"); gc.focus(); announce("Glass Corner closed"); return; }
-        if (state.activeScreen !== HOME) back();
+        if (corner.open) { closeCorner(true); return; }
+                if (state.activeScreen !== HOME) back();
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openIndex(state.indexQuery); }
     });
@@ -688,6 +763,7 @@
     setTier(tier) { state.tier = tier === "clear" ? "clear" : "soft"; applyTheme(); },
     setContrast(c) { state.contrast = c === "high" ? "high" : "normal"; applyTheme(); },
     setMotion(m) { state.motion = m === "reduce" ? "reduce" : "normal"; applyTheme(); },
+    closeGlassCorner() { closeCorner(false); },
     announce, showToast,
   };
 

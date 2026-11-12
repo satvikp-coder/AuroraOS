@@ -21,11 +21,12 @@
     <!-- Screen reader live region -->
     <div class="visually-hidden" aria-live="polite" id="a11y-live"></div>
 
-    <!-- Glass Corner (top-right notification handle) -->
-    <div class="glass-corner" role="button" tabindex="0" aria-label="Notifications, Glass Corner" aria-haspopup="true" aria-expanded="false">
-      <span class="gc-dot"></span>
-      <span class="visually-hidden">Glass Corner — held inbox / notifications</span>
-    </div>
+    <!-- Glass Corner: fixed top-right handle that opens the held-items popover (receipts and permission changes from AuroraSystem) -->
+    <button type="button" class="glass-corner" id="glass-corner" aria-label="Glass Corner" aria-haspopup="true" aria-expanded="false" aria-controls="gc-panel">
+      <span class="gc-dot" aria-hidden="true"></span>
+      <span class="count gc-badge" id="gc-badge" aria-hidden="true" hidden></span>
+    </button>
+    <section class="gc-panel" id="gc-panel" role="region" aria-labelledby="gc-title" hidden></section>
 
     <!-- Main content area -->
     <main class="content" id="content">
