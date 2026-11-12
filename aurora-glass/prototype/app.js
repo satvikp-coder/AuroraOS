@@ -138,10 +138,10 @@
   const BAD_NAME = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩​-‏﻿]/;
   const MAX_SPACES = 8;
   const spaceList = [
-    { id: "study", name: "Study", description: "Notes, focus timer, reading list", hue: 215, pinned: ["notes", "clock", "calculator", "settings", "calendar", "files"], builtin: true },
-    { id: "work", name: "Work", description: "Projects, files, meetings", hue: 235, pinned: ["files", "notes", "calendar", "settings"], builtin: true },
-    { id: "projects", name: "Projects", description: "Active builds, drafts, reviews", hue: 190, pinned: ["files", "notes", "calculator", "settings"], builtin: true },
-    { id: "personal", name: "Personal", description: "Journal, photos, reminders", hue: 300, pinned: ["notes", "calendar", "clock", "settings"], builtin: true },
+    { id: "study", name: "Study", description: "Notes, focus timer, reading list", hue: 215, pinned: ["notes", "clock", "calculator", "settings", "calendar", "files", "passport"], builtin: true },
+    { id: "work", name: "Work", description: "Projects, files, meetings", hue: 235, pinned: ["files", "notes", "calendar", "settings", "passport"], builtin: true },
+    { id: "projects", name: "Projects", description: "Active builds, drafts, reviews", hue: 190, pinned: ["files", "notes", "calculator", "settings", "passport"], builtin: true },
+    { id: "personal", name: "Personal", description: "Journal, photos, reminders", hue: 300, pinned: ["notes", "calendar", "clock", "settings", "passport"], builtin: true },
   ];
   const spaceListeners = [];
   const spaces = () => spaceList.map((s) => Object.assign({}, s, { pinned: s.pinned.slice() }));
@@ -775,9 +775,9 @@
     { id: "clock", name: "Clock", hue: 262, memMB: 90, keywords: ["timer", "stopwatch", "alarm"] },
     { id: "settings", name: "Settings", hue: 220, memMB: 120, screen: "screen-settings", keywords: ["preferences", "options"] },
     { id: "calendar", name: "Calendar", hue: 6, memMB: 150, keywords: ["events", "schedule"] },
-    { id: "passport", name: "Passport", hue: 152, system: true, keywords: ["permissions", "privacy", "access"] },
-    { id: "trail", name: "Trail", hue: 280, system: true, keywords: ["history", "undo", "receipts"] },
-    { id: "vault", name: "Vault", hue: 188, system: true, keywords: ["files", "storage"] },
+    { id: "passport", name: "Passport", hue: 152, system: true, screen: "screen-passport", keywords: ["permissions", "privacy", "access"] },
+    { id: "trail", name: "Trail", hue: 280, system: true, screen: "screen-trail", keywords: ["history", "undo", "receipts"] },
+    { id: "vault", name: "Vault", hue: 188, system: true, screen: "screen-vault", keywords: ["files", "storage"] },
   ].forEach(registerApp);
 
   function init() {

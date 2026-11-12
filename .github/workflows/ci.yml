@@ -26,6 +26,7 @@ jobs:
       - run: node tests/unit/broker.test.js
       - run: node tests/unit/settings.test.js
       - run: node tests/unit/system.test.js
+      - run: node tests/unit/passport.test.js
 
   ui-browser-tests:
     name: Browser interaction tests (Playwright)
@@ -49,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node -e "const fs=require('fs');['index.html','shell.css','components.css','tokens.css','app.js','ui.js','system.js','review.js','core.js','screens.js','broker.js','settings.js','settings-screen.js'].forEach(f=>{if(!fs.existsSync('aurora-glass/prototype/'+f)){console.error('missing',f);process.exit(1)}});console.log('prototype files OK');"
+      - run: node -e "const fs=require('fs');['index.html','shell.css','components.css','tokens.css','app.js','ui.js','system.js','review.js','core.js','screens.js','broker.js','settings.js','settings-screen.js','passport-model.js','passport.js','passport.css'].forEach(f=>{if(!fs.existsSync('aurora-glass/prototype/'+f)){console.error('missing',f);process.exit(1)}});console.log('prototype files OK');"
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}

@@ -1,0 +1,33 @@
+/* aurora-glass/prototype/passport.css — layout for the Passport screen only. Component classes live in components.css. */
+
+#screen-passport { max-width: 880px; }
+.passport-panel { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.passport-panel:focus-visible { outline-offset: 4px; border-radius: var(--radius-card); }
+
+.perm-summary { display: flex; flex-direction: column; gap: var(--space-2); }
+.perm-sentence { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-bold); letter-spacing: var(--tracking-tight); line-height: var(--line-tight); overflow-wrap: anywhere; }
+
+.perm-list { overflow: visible; }
+.perm-row { align-items: flex-start; gap: var(--space-3) var(--space-4); padding: var(--space-4); }
+.perm-row .row-main { flex: 1 1 22ch; gap: var(--space-1); }
+.perm-badges { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin-top: var(--space-2); }
+.perm-control { flex: 0 1 auto; display: flex; flex-direction: column; gap: var(--space-1); align-items: flex-start; max-width: 100%; }
+.perm-note { margin: 0; font-size: var(--text-xs); color: var(--color-ink-muted); max-width: 26ch; }
+.perm-affects { margin: 0; font-weight: var(--weight-medium); }
+.segment:disabled { opacity: 0.45; text-decoration: line-through; }
+@media (max-width: 600px) { .perm-control { width: 100%; } .perm-control .segmented { width: 100%; } .perm-control .segment { flex: 1 1 0; } }
+
+.perm-app-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
+.perm-app { display: flex; flex-direction: column; gap: var(--space-3); }
+.perm-app-head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.perm-app-head h3 { margin: 0; overflow-wrap: anywhere; }
+.perm-app-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.perm-app-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); padding: var(--space-2) var(--space-3); background: var(--color-surface-sunken); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-control); }
+.perm-app-label { flex: 1 1 14ch; min-width: 0; font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.perm-hw-icon { display: inline-flex; color: var(--color-ink-muted); }
+.perm-none { margin: 0; color: var(--color-ink-muted); font-size: var(--text-sm); }
+.perm-app-actions { margin-top: auto; justify-content: flex-start; }
+.perm-log, .perm-blocked { margin-top: var(--space-2); }
+
+/* At large text sizes the tabs wrap instead of scrolling a tab out of sight. */
+#screen-passport .tabs { flex-wrap: wrap; overflow-x: visible; }

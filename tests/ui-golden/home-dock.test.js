@@ -118,11 +118,11 @@ test.describe("Home: pins and Current Space", () => {
 
   test("pins come from the active Space and change with it", async ({ page }) => {
     const pins = () => page.locator("#home-pins .pin-btn").evaluateAll((n) => n.map((b) => b.dataset.app));
-    expect(await pins()).toEqual(["notes", "clock", "calculator", "settings", "calendar", "files"]);
+    expect(await pins()).toEqual(["notes", "clock", "calculator", "settings", "calendar", "files", "passport"]);
     await ev(page, () => window.AuroraShell.switchSpace("work", { quiet: true }));
-    expect(await pins()).toEqual(["files", "notes", "calendar", "settings"]);
+    expect(await pins()).toEqual(["files", "notes", "calendar", "settings", "passport"]);
     await ev(page, () => window.AuroraShell.switchSpace("personal", { quiet: true }));
-    expect(await pins()).toEqual(["notes", "calendar", "clock", "settings"]);
+    expect(await pins()).toEqual(["notes", "calendar", "clock", "settings", "passport"]);
   });
 
   test("every pin has an accessible name, an app tile and opens its app", async ({ page }) => {

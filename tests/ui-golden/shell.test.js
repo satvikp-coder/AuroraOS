@@ -150,10 +150,10 @@ test.describe("Shell: Spaces", () => {
   test("the four built-in Spaces carry their pinned apps", async ({ page }) => {
     const s = await shell(page, () => window.AuroraShell.spaces().map((x) => [x.id, x.builtin, x.pinned.join(",")]));
     expect(s).toEqual([
-      ["study", true, "notes,clock,calculator,settings,calendar,files"],
-      ["work", true, "files,notes,calendar,settings"],
-      ["projects", true, "files,notes,calculator,settings"],
-      ["personal", true, "notes,calendar,clock,settings"],
+      ["study", true, "notes,clock,calculator,settings,calendar,files,passport"],
+      ["work", true, "files,notes,calendar,settings,passport"],
+      ["projects", true, "files,notes,calculator,settings,passport"],
+      ["personal", true, "notes,calendar,clock,settings,passport"],
     ]);
   });
 
