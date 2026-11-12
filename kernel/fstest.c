@@ -106,7 +106,23 @@ static void phase_functional(void)
     fill(big, 3000, 1);
     check("create, write 3000 bytes, read back: exact bytes and size", put_file(1, "a.txt", 3, big, 3000, &a));
     fs_id_t again;
-    check("creating the same name twice is FS_EEXIST; lookup finds the file with the same id", fs_create(2, "a.txt", 3, &again) == FS_EEXIST && fs_lookup(1, "a.txt", &again) == FS_OK && again == a);
+    check("creating the same name twice as the SAME principal is FS_EEXIST; lookup finds the file with the same id", fs_create(1, "a.txt", 3, &again) == FS_EEXIST && fs_lookup(1, "a.txt", &again) == FS_OK && again == a);
+    {
+        /* Names are per owner. Before this rule a stranger got FS_EEXIST for a name it could not even see (an existence oracle), and one
+         * principal could squat on a name forever. */
+        fs_id_t other, x, c3;
+        int c1 = fs_create(2, "a.txt", 3, &other) == FS_OK && other != a;
+        check("another principal creating a name that owner 1 holds as a HIDDEN file succeeds with its own id: no 'file exists' oracle, no name squatting", c1);
+        check("each principal's lookup of that name finds its OWN file; the hidden file is never returned to the stranger and the stranger's is never returned to the owner",
+              fs_lookup(2, "a.txt", &x) == FS_OK && x == other && fs_lookup(1, "a.txt", &x) == FS_OK && x == a && fs_lookup(3, "a.txt", &c3) == FS_ENOENT);
+        check("the stranger cannot read or delete the owner's same-named file through its id, but can delete its own",
+              fs_read(2, a, 0, big2, 4) == FS_EACCES && fs_delete(2, a) == FS_EACCES && fs_delete(2, other) == FS_OK && fs_lookup(2, "a.txt", &x) == FS_ENOENT);
+        fs_id_t w1, w2;
+        int s1 = fs_create(1, "pub.txt", 3 | FS_PERM_OTHER_R, &w1) == FS_OK, s2 = fs_create(2, "pub.txt", 3, &w2) == FS_OK;
+        check("a world-readable file and a hidden file of the same name from two owners: owner 2 gets its own, an unrelated principal gets the readable one, never the hidden one",
+              s1 && s2 && fs_lookup(2, "pub.txt", &x) == FS_OK && x == w2 && fs_lookup(3, "pub.txt", &x) == FS_OK && x == w1 && fs_lookup(1, "pub.txt", &x) == FS_OK && x == w1);
+        check("cleanup of the same-named test files leaves exactly the original file", fs_delete(1, w1) == FS_OK && fs_delete(2, w2) == FS_OK && fs_file_count() == 1);
+    }
     {
         static const uint32_t sizes[] = { 0, 1, 511, 512, 513, 1023, 1024, 1025, 4096, 10000, FS_MAX_FILE };
         int ok = 1;
@@ -460,6 +476,31 @@ static void phase_persistent(void)
     copy(in, in0, BLK_SECTOR); copy(in + 28, in + 256 + 28, 32); put32(in + 252, fs_crc32(in, 252)); sector_rw(1, in, 1);
     e = fs_mount(); sector_rw(1, in0, 1);
     check("two files with the same name behind valid checksums are rejected", e == FS_ECORRUPT);
+
+    {
+        /* the same name behind valid checksums is only corruption within ONE owner's namespace: with different owners it mounts */
+        copy(in, in0, BLK_SECTOR); copy(in + 28, in + 256 + 28, 32); put32(in + 8, 9); put32(in + 252, fs_crc32(in, 252)); sector_rw(1, in, 1);
+        e = fs_mount(); fs_id_t d1, d2;
+        int both = e == FS_OK && fs_lookup(9, "shared.txt", &d1) == FS_OK && fs_lookup(7, "shared.txt", &d2) == FS_OK && d1 != d2;
+        sector_rw(1, in0, 1);
+        check("two files with the same name but DIFFERENT owners behind valid checksums mount (names are per owner); each owner finds its own", both);
+        check("... and restoring the original inode mounts the original filesystem again", fs_mount() == FS_OK && fs_file_count() == 3);
+    }
+
+    {
+        /* A slot whose generation is used up must be skipped, not block creation: craft slot 3 (the first free one) as FREED at the last generation. */
+        static uint8_t g2[BLK_SECTOR], g20[BLK_SECTOR], g30[BLK_SECTOR];
+        sector_rw(2, g20, 0); sector_rw(3, g30, 0); copy(g2, g20, BLK_SECTOR);
+        for (int k = 0; k < 256; k++) g2[256 + k] = 0;
+        put32(g2 + 256, 0xF4EEF4EEu); put32(g2 + 256 + 4, 0x00FFFFFFu); put32(g2 + 256 + 252, fs_crc32(g2 + 256, 252));
+        sector_rw(2, g2, 1);
+        e = fs_mount(); fs_id_t nid = 0; int rc = e == FS_OK ? fs_create(7, "after.txt", 3, &nid) : e;
+        int skipped = e == FS_OK && rc == FS_OK && (nid & 0xFF) != 3;
+        if (rc == FS_OK) fs_delete(7, nid);
+        sector_rw(2, g20, 1); sector_rw(3, g30, 1);                                          /* restore both inode sectors exactly */
+        check("a slot whose generation is used up (FREED at 0xFFFFFF) is skipped: create still succeeds in another slot while other slots are free", skipped);
+        check("... and after restoring the sectors the original filesystem mounts with the same three files", fs_mount() == FS_OK && fs_file_count() == 3);
+    }
 
     {
         static uint8_t j[BLK_SECTOR], j0[BLK_SECTOR];
