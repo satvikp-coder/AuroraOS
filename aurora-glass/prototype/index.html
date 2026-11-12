@@ -100,39 +100,15 @@
       </section>
 
       <!-- Spaces screen -->
-      <section id="screen-spaces" class="screen" aria-label="Spaces selector">
-        <header class="home-header">
-          <button class="icon-btn back" id="btn-spaces-back" aria-label="Back to Home">Back</button>
-          <h1 class="home-title">Spaces</h1>
+      <section id="screen-spaces" class="screen" aria-label="Spaces">
+        <header class="screen-header">
+          <button type="button" class="btn btn-icon ghost" id="btn-spaces-back" aria-label="Back" title="Back"><span data-icon="back"></span></button>
+          <div class="screen-heading"><h1 class="screen-title">Spaces</h1></div>
+          <div class="screen-actions"><button type="button" class="btn accent" id="btn-space-new"><span data-icon="plus"></span><span>New Space</span></button></div>
         </header>
-        <p class="space-intro">Each Space holds its own content, pinned tools, and permissioned settings.</p>
-        <div class="space-grid" role="list">
-          <article class="space-card-item" role="listitem" tabindex="0" data-space="study" aria-label="Study Space — blue accent, active">
-            <div class="space-badge">S</div>
-            <h3>Study</h3>
-            <p>Notes, focus timer, reading list</p>
-            <span class="space-state">Active</span>
-          </article>
-          <article class="space-card-item" role="listitem" tabindex="0" data-space="work" aria-label="Work Space — blue accent">
-            <div class="space-badge">W</div>
-            <h3>Work</h3>
-            <p>Projects, files, meetings</p>
-            <span class="space-state">Inactive</span>
-          </article>
-          <article class="space-card-item" role="listitem" tabindex="0" data-space="projects" aria-label="Projects Space — cyan accent">
-            <div class="space-badge">P</div>
-            <h3>Projects</h3>
-            <p>Active builds, drafts, reviews</p>
-            <span class="space-state">Inactive</span>
-          </article>
-          <article class="space-card-item" role="listitem" tabindex="0" data-space="personal" aria-label="Personal Space — cyan accent">
-            <div class="space-badge">X</div>
-            <h3>Personal</h3>
-            <p>Journal, photos, reminders</p>
-            <span class="space-state">Inactive</span>
-          </article>
-        </div>
-        <p class="space-footnote">Switching a Space changes pinned tools, accent color, and notification preferences. No data leaves the device.</p>
+        <p class="screen-intro">Each Space keeps its own pinned tools and pages. Switching changes what Home shows and where new pages open.</p>
+        <div class="space-grid" id="space-grid" role="list" aria-label="Spaces"></div>
+        <p class="space-footnote">Spaces live in this browser prototype only and are forgotten when you reload. Nothing leaves your device.</p>
       </section>
 
       <!-- Index search screen -->

@@ -162,7 +162,7 @@ the reset confirmation in Settings is still the inline panel until S6.
   Screenshot pass for Home.
 - Depends on: S2.
 
-### S4. Spaces — `not started`
+### S4. Spaces — `done` (tests/ui-golden/spaces.test.js, 28 specs; screenshots inspected: Spaces 390 light, 1280 dark with 5 Spaces, New Space dialog with inline error at 390)
 
 - Files: `app.js`, `shell.css`, `index.html` (container only).
 - Card = `article.space-card-item[data-space]` (+ `.selected` when active) containing: hue badge with initial,

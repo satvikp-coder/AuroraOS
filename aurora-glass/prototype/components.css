@@ -20,6 +20,8 @@ button { cursor: pointer; }
 button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity: 0.5; }
 :focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
 :focus:not(:focus-visible) { outline: none; }
+/* Headings are focused by script after navigation so screen readers land on the new screen; they are not controls. */
+h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
 ::selection { background: var(--color-accent-soft); }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

@@ -192,25 +192,11 @@
     return { ok: true, id };
   }
 
+  function pageCount(spaceId) { const m = models(); return m ? m.pages.list().filter((p) => p.space === spaceId).length : 0; }
+
   function renderSpaces() {
-    const grid = document.querySelector(".space-grid");
-    if (grid) {
-      grid.replaceChildren();
-      spaceList.forEach((sp) => {
-        const active = sp.id === state.activeSpace;
-        grid.appendChild(el("article", {
-          class: "space-card-item" + (active ? " selected" : ""), role: "listitem", tabindex: 0, "data-space": sp.id,
-          "aria-label": sp.name + " Space — " + (active ? "active" : "inactive"),
-          onclick: () => switchSpace(sp.id),
-          onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchSpace(sp.id); } },
-        }, [
-          el("div", { class: "space-badge", text: sp.name.charAt(0).toUpperCase() }),
-          el("h3", { text: sp.name }),
-          el("p", { text: sp.description }),
-          el("span", { class: "space-state", text: active ? "Active" : "Inactive" }),
-        ]));
-      });
-    }
+    const screen = $("screen-spaces");
+    if (screen) UI.keepFocus(screen, renderSpaceGrid, "#btn-space-new");
     const chip = document.querySelector(".space-chip");
     if (chip) {
       chip.dataset.space = state.activeSpace;
@@ -218,6 +204,51 @@
       const label = chip.querySelector("span:last-child");
       if (label) label.textContent = spaceById(state.activeSpace).name;
     }
+  }
+
+  function renderSpaceGrid() {
+    const grid = $("space-grid");
+    if (!grid) return;
+    grid.replaceChildren();
+    spaceList.forEach((sp) => {
+      const active = sp.id === state.activeSpace;
+      const n = pageCount(sp.id);
+      const pins = sp.pinned.map((id) => appList.find((a) => a.id === id)).filter(Boolean);
+      grid.appendChild(el("article", { class: "space-card-item" + (active ? " selected" : ""), role: "listitem", "data-space": sp.id }, [
+        el("div", { class: "space-card-head" }, [
+          el("span", { class: "app-tile space-badge", style: { "--h": sp.hue }, "aria-hidden": "true", text: sp.name.charAt(0).toUpperCase() }),
+          el("div", { class: "space-card-title" }, [el("h3", { text: sp.name }), el("p", { class: "space-card-desc", text: sp.description })]),
+        ]),
+        el("div", { class: "space-pins", role: "group", "aria-label": "Pinned in " + sp.name + ": " + pins.map((a) => a.name).join(", ") }, pins.map((a) => UI.appTile(a.icon, a.hue, "sm"))),
+        el("p", { class: "space-pages", text: n === 1 ? "1 page open" : n + " pages open" }),
+        el("div", { class: "space-card-foot" }, [
+          el("button", {
+            type: "button", class: "space-switch", "data-fk": "space:" + sp.id, "aria-current": active ? "true" : undefined,
+            "aria-label": active ? sp.name + " Space, active" : "Switch to " + sp.name + " Space", onclick: () => switchSpace(sp.id),
+          }, active ? [UI.icon("check"), el("span", { class: "space-state", text: "Active" })] : [el("span", { class: "space-state", text: "Switch to this Space" })]),
+          el("button", { type: "button", class: "btn outline btn-icon space-rename", "data-fk": "rename:" + sp.id, "aria-label": "Rename " + sp.name, title: "Rename", onclick: () => renameFlow(sp.id) }, [UI.icon("edit")]),
+        ]),
+      ]));
+    });
+  }
+
+  async function newSpaceFlow() {
+    if (spaceList.length >= MAX_SPACES) { showToast("Up to " + MAX_SPACES + " Spaces are supported. Rename one instead.", { tone: "warn" }); return; }
+    const name = await UI.prompt({ title: "New Space", label: "Space name", confirmLabel: "Create", maxLength: 24, validate: (t) => validateSpaceName(t, null) });
+    if (name === null) return;
+    const r = addSpace(name);
+    if (r.ok) { announce("Space " + name + " created"); showToast("Created " + name); const b = document.querySelector('[data-fk="space:' + CSS.escape(r.id) + '"]'); if (b) b.focus(); }
+    else showToast(r.reason, { tone: "error" });
+  }
+
+  async function renameFlow(id) {
+    const sp = spaceById(id);
+    if (!sp) return;
+    const name = await UI.prompt({ title: "Rename " + sp.name, label: "Space name", value: sp.name, confirmLabel: "Rename", maxLength: 24, validate: (t) => validateSpaceName(t, id) });
+    if (name === null) return;
+    const r = renameSpace(id, name);
+    if (r.ok) { announce("Space renamed to " + name); showToast("Renamed to " + name); }
+    else showToast(r.reason, { tone: "error" });
   }
 
   // ---------- Index ----------
@@ -357,7 +388,7 @@
     if (!sp) return;
     const open = m ? m.pages.list().filter((p) => p.space === sp.id).length : 0;
     body.appendChild(el("div", { class: "space-summary" }, [
-      el("span", { class: "space-badge", style: { "--h": sp.hue }, "aria-hidden": "true", text: sp.name.charAt(0).toUpperCase() }),
+      el("span", { class: "app-tile space-badge", style: { "--h": sp.hue }, "aria-hidden": "true", text: sp.name.charAt(0).toUpperCase() }),
       el("div", { class: "space-summary-text" }, [
         el("p", { class: "space-name", id: "home-space-name", text: sp.name }),
         el("p", { class: "space-desc", text: sp.description }),
@@ -426,7 +457,7 @@
     renderHorizon();
     const m = models();
     if (m) {
-      m.pages.onChange(() => { renderHome(); renderDockApps(); });
+      m.pages.onChange(() => { renderHome(); renderDockApps(); renderSpaces(); });
       m.qs.onChange((k) => { if (k === "focus" || k === "auraMode") renderHomeChips(); });
     }
     spaceListeners.push(() => renderHome());
@@ -449,6 +480,7 @@
     ask("btn-index"); ask("dock-ask");
 
     ask("btn-ask");
+    const addBtn = $("btn-space-new"); if (addBtn) addBtn.addEventListener("click", newSpaceFlow);
     go("btn-continue-all", "screen-pages");
     go("dock-quick", "screen-quick");
 
@@ -521,9 +553,9 @@
   function init() {
     wireNav();
     wireKeyboard();
-    renderSpaces();
     applyTheme();
     startHome();
+    renderSpaces();
     showScreen(HOME);
     announce("Aurora Glass prototype ready. Home screen.");
   }
