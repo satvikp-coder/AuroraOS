@@ -121,6 +121,10 @@ jobs:
         run: |
           chmod +x tests/qemu/storage-tests.sh
           ./tests/qemu/storage-tests.sh
+      - name: Run filesystem tests (AuroraFS persistence over three QEMU runs, authorization, corruption, crash injection)
+        run: |
+          chmod +x tests/qemu/fs-tests.sh
+          ./tests/qemu/fs-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

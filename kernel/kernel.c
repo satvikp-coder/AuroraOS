@@ -13,6 +13,7 @@
  */
 #include <arch.h>
 #include <blk.h>
+#include <fs.h>
 #include <console.h>
 #include <gic.h>
 #include <irq.h>
@@ -135,6 +136,8 @@ void kernel_main(uint64_t dtb)
         else { console_puts("[blk] block device present but unusable: "); console_puts(blk_strerror(br)); console_puts("\n"); }
         blktest_run();
         if (blktest_summary()) { console_puts("BLOCK SELFTEST FAILED\n"); halt_forever(); }
+        fstest_run();
+        if (fstest_summary()) { console_puts("FILESYSTEM SELFTEST FAILED\n"); halt_forever(); }
 
         /* 5. Userspace: real EL0 processes, syscalls, scheduler, isolation. */
         proctest_run();

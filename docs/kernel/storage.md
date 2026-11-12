@@ -65,3 +65,62 @@ Single outstanding request; polled (a 1 s worst-case stall blocks the CPU); no i
 no scatter-gather from callers; only block size 512; modern transport only; the lost-doorbell timeout is simulated by skipping
 the doorbell, not by a hung real device; behaviour on I/O error mid-multi-sector write is "stops at the failing chunk" (no
 atomicity); nothing is claimed about crash consistency. QEMU only.
+
+# AuroraFS v1 (issue #6, milestone B)
+
+Kernel-internal filesystem over `blk_*` (`kernel/fs/afs.c`, `kernel/include/fs.h`). No EL0 access yet (milestone C): authorization
+is already enforced in the filesystem API per *principal* (0 = kernel, never given to a process; others identify owners).
+
+**On-disk format** (512-byte sectors, little-endian): sector 0 superblock (`AURORAFS`, version 1, geometry, CRC-32); sectors 1-16
+inode table, 32 inodes x 256 B (state, generation, owner, permission bits, size, block count, data CRC-32, name, 48 block
+pointers, inode CRC-32); data from sector 17. There is **no stored allocation bitmap**: free space is rebuilt from the inodes at
+mount, so it cannot disagree with them. Flat namespace, names `[A-Za-z0-9._-]` of 1-31 characters, files up to 24 KiB.
+
+**Ids and authorization:** a file id is `(generation << 8) | slot`. Deleting keeps the slot's generation, so an old id never names
+a later file (the PID-reuse lesson applied again). Ids are *not* secrets: every operation checks permission bits (owner r/w, other
+r/w); owner-only files are hidden from `lookup` (indistinguishable from absent) and a principal that guesses the exact id still gets
+`FS_EACCES`. Only the owner or the kernel may delete or change permissions.
+
+**Names are unique per owner.** Two principals may each own a file called `config`. `create` only refuses a name the SAME principal already
+owns (`FS_EEXIST`); a stranger's file of that name, hidden or not, neither blocks the create nor shows through its error code (an earlier
+design returned `FS_EEXIST` for any file, which let a principal probe whether a hidden name exists and squat on names). `lookup` returns the
+caller's own file of that name first, otherwise the first file it may see. **Known limits** (not solved here): (1) a caller that holds or
+guesses a file *id* gets `FS_EACCES` for a hidden file but `FS_EBADID` for a missing one, so ids are not an existence-proof-free channel
+(ids are 32 slots x a generation, not secrets, as stated above); (2) there are no quotas: one principal can use all 32 inodes and all free
+blocks (`FS_ENFILE` / `FS_ENOSPC` for everyone). Both must be addressed (per-principal quotas, and id checks that do not reveal
+existence) before milestone D runs mutually distrusting programs.
+
+**Mount** validates and writes nothing: magic, version (`FS_EVERSION`), CRCs, geometry, per-inode sanity, block ranges, no sector used twice,
+no duplicate names *within one owner*, never-used slots all zero. Any failure leaves the filesystem unmounted. No automatic repair or format (`fs_format`
+is an explicit call, used only by test kernels). File data is checked against its CRC on every read, so silent corruption returns an
+error, never wrong bytes.
+
+**Write ordering:** whole-file copy-on-write: new data to free sectors, flush, one inode sector, flush. Tested by dropping every device
+write after the k-th for every k (and for create and delete): after remount the file is exactly the old or exactly the new content, and
+the filesystem always mounts. **This is simulated power loss with in-order writes, not a real power cut, and it assumes the device honours
+flush and 512-byte writes are atomic.** Mutation checks: writing the inode before the data fails the sweep; disabling the data CRC fails
+the corruption test.
+
+**Limits:** 32 files, 24 KiB per file, flat namespace, whole-file rewrite on every write (so a file larger than half the free space
+cannot be appended to: `FS_ENOSPC`, documented and tested), 32 MiB maximum filesystem (RAM allocation map), single mount, no
+timestamps, no concurrency control (single CPU, callers are not preempted inside the filesystem), QEMU only.
+
+**Tests:** `tests/qemu/fs-tests.sh` (92 checks, in CI): three boots on one image (format + 57 in-kernel checks; then 21 each on mount without
+formatting incl. injected corruption), host-side proof that the bytes are in the image file, host-damaged images (flipped inode bit, wrong
+version, foreign content, flipped superblock bit) reported precisely with the image checksum unchanged, read-only disk, no disk.
+
+## Uncertain metadata updates (fail-safe recovery, review fix for PR #28)
+
+Every metadata change (create, delete, chmod, and the inode publication of a write) goes through one function, `commit_inode`, with three outcomes:
+
+| Outcome | Meaning | Filesystem state |
+|---|---|---|
+| `FS_OK` | inode sector written and flushed; cache updated | mounted |
+| definite error (`FS_EIO`, ...) | the block layer rejected the write before it reached the device (`blk_error_definite`), or a failure happened before any metadata was touched (data-block write, data flush) | mounted, cache still exact, retry allowed |
+| `FS_EUNCERTAIN` | the inode write was submitted and failed or timed out, or the flush after a submitted write failed: durability unknown | **unmounted**: every operation returns `FS_EMOUNT` until `fs_mount()` |
+
+Why: after an uncertain inode write the disk may hold the new inode while the in-memory table and allocation map still describe the old file, so a later write could be handed sectors the new inode references. Unmounting makes that impossible; the next mount rebuilds the inode table and the allocation map from the disk and validates them (checksums, ranges, no sector owned twice, no duplicate names). The operation that returned `FS_EUNCERTAIN` **may or may not have committed**; the mount shows which, and (under the documented assumptions: in-order device, flush honoured, 512-byte sector writes atomic) the result is exactly the old or exactly the new state. Nothing is repaired or formatted automatically. Not claimed: recovery from torn sectors, reordered writes, or real power loss.
+
+Tests (test-only injection in the block driver: reject / lost-with-error / landed-but-reported-as-error, for writes and flushes): inode write rejected, lost, landed; the dangerous follow-up (a second write after an uncertain commit is refused and the sectors of the new inode stay byte-for-byte untouched; after remount both files are exact and own disjoint sectors); inode-flush failure; data-block write failure; data-flush failure; the same three cases for create, delete and chmod. The new tests were run against the previous `commit_inode` first: 8 of them failed, including the sector-overwrite case.
+
+Driver audit: `blk_init` is now idempotent (no remap, no allocation on a second call) and frees its three pages on every failure path after resetting the device. Timeout recovery re-initialises the device and the request returns `BLK_ETIMEOUT` (an uncertain outcome for writes, which the filesystem treats as `FS_EUNCERTAIN` when it concerns an inode). Failure paths *during* queue setup are covered by code review only; they have no injection test.

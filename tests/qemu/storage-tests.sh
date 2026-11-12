@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_BLK_TESTS=13      # keep in sync with kernel/blktest.c (read/write disk)
+EXPECTED_BLK_TESTS=14      # keep in sync with kernel/blktest.c (read/write disk)
 EXPECTED_BLK_TESTS_RO=3    # identify x2 + the read-only check
 EXPECTED_PROC_TESTS=79
 
