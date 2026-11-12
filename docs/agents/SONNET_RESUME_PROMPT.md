@@ -21,6 +21,9 @@ checked in; do not rely on any earlier conversation.
 10. Commit, push, open or update the pull request (target `main`, note stacked dependencies), check CI, then
     update `AURORA_UI_HANDOFF.md` and `AURORA_UI_TASKS.md` with the new SHA, PR, CI link and next task.
 
-Never: touch a physical device (QEMU only), force-push, bypass review, merge or modify kernel PRs #28/#29,
-hide failing tests, or call the browser prototype a native OS feature. If something cannot proceed safely,
+Project model: one human owner, no external reviewer required. Merge only after a documented self-review, all CI jobs green,
+the PR mergeable and no GitHub-enforced block; kernel/security-sensitive changes also need deeper verification and negative tests.
+
+Never: touch a physical device (QEMU only), force-push, bypass GitHub-enforced protection, merge kernel PRs #28/#29 before their
+review findings are resolved, hide failing tests, or call the browser prototype a native OS feature. If something cannot proceed safely,
 commit what is done, record why in the handoff, and take the next independent task.

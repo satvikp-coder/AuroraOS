@@ -1,0 +1,50 @@
+/* aurora-glass/prototype/trail.css — layout for the Trail screen only. Component classes live in components.css. */
+
+#screen-trail { max-width: 1100px; }
+.trail-filters { display: grid; gap: var(--space-3); }
+.trail-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.trail-filter { min-height: var(--touch-target); padding: 0 var(--space-4); border-radius: var(--radius-pill); border: var(--border-width) solid var(--color-border); background: var(--color-surface-opaque); color: var(--color-ink); font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer; }
+.trail-filter:hover { background: var(--color-surface-hover); }
+.trail-filter[aria-pressed="true"] { background: var(--color-accent); color: var(--color-on-accent, #fff); border-color: var(--color-accent); }
+.trail-risk { max-width: 260px; }
+:root[data-contrast="high"] .trail-filter[aria-pressed="true"] { outline: 3px solid var(--color-ink); outline-offset: -3px; }
+
+.trail-layout { display: block; min-width: 0; }
+.trail-layout.is-wide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: var(--space-4); align-items: start; }
+.trail-main, .trail-days, .trail-day { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.trail-day-h { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-ink-muted); }
+.trail-panel { position: sticky; top: var(--space-4); min-width: 0; }
+
+.trail-group { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2); min-width: 0; }
+.trail-group-head { padding: var(--space-2) var(--space-3) 0; }
+.trail-group > .action-bar { padding: 0 var(--space-3) var(--space-2); }
+.trail-group-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-2) var(--space-3); }
+.trail-group-text { flex: 1 1 18ch; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.trail-group-text h3 { margin: 0; overflow-wrap: anywhere; }
+.trail-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; min-width: 0; }
+.trail-row { border-top: var(--border-width) solid var(--color-border); min-width: 0; }
+.trail-row:first-child { border-top: 0; }
+.trail-row.is-selected { background: var(--color-accent-soft); box-shadow: inset 3px 0 0 var(--color-accent); border-radius: var(--radius-control); }
+.trail-row-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.trail-row-main { flex: 1 1 22ch; min-width: 0; min-height: 60px; display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3) var(--space-2); background: transparent; border: 0; color: var(--color-ink); font: inherit; text-align: left; cursor: pointer; border-radius: var(--radius-control); }
+.trail-row-main:hover { background: var(--color-surface-hover); }
+.trail-row-main:focus-visible { outline-offset: -3px; }
+.trail-row-icon { display: inline-flex; margin-top: 2px; color: var(--color-ink-muted); }
+.trail-row .row-main { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1; }
+.trail-row .row-title { overflow-wrap: anywhere; }
+.trail-row-badges { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin-top: var(--space-1); }
+.trail-undo { margin-right: var(--space-2); }
+
+.trail-inline { padding: 0 var(--space-3) var(--space-3) var(--space-3); }
+.trail-detail-body { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.trail-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-1) var(--space-3); margin: 0; font-size: var(--text-sm); }
+.trail-facts dt { color: var(--color-ink-muted); font-weight: var(--weight-medium); }
+.trail-facts dd { margin: 0; overflow-wrap: anywhere; }
+.trail-why { margin: 0; display: flex; gap: var(--space-2); align-items: flex-start; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.trail-why.is-failed { color: var(--color-danger); font-weight: var(--weight-medium); }
+@media (max-width: 420px) { .trail-facts { grid-template-columns: minmax(0, 1fr); } .trail-facts dd { margin-bottom: var(--space-1); } }
+
+.trail-deleted-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.trail-deleted .row-title { overflow-wrap: anywhere; }
+.trail-none { margin: var(--space-2) 0 0; }
+.trail-footer { margin-top: var(--space-2); }

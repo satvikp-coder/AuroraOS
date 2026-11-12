@@ -22,8 +22,9 @@ service, and never claim hardware or production readiness.
 - **No physical devices.** QEMU only. The Samsung Galaxy F04 stays disconnected: no ADB, fastboot, flashing.
   Only disposable QEMU disk images; never a physical disk.
 - Never force-push or rewrite history. Never bypass review requirements, branch protection or tool permissions.
-- Never merge security-sensitive kernel changes without an independent review. Kernel PRs #28 and #29 are under
-  review: do not modify or merge them as part of UI work.
+- Security-sensitive kernel changes need deeper verification and negative tests plus a documented review before merge (the
+  owner is a solo maintainer; no external reviewer is required). Do not modify kernel PRs #28/#29 from UI branches; use a
+  separate worktree.
 - Never hide a failing test, weaken an assertion to get green, or report a result you did not run.
 - No credentials in the repo; do not disable secret scanning (Gitleaks runs in CI).
 - Do not touch the old workspace `C:\Users\satvi\Desktop\AuroraOS`. Work in `C:\Users\satvi\Desktop\AuroraOS-Claude`.

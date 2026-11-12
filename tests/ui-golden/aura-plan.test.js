@@ -68,7 +68,9 @@ test.describe("Aura plan: running, receipts and undo", () => {
     expect(await state(page)).toEqual({ space: "study", focus: true, timer: 1500, notes: "running", receipts: 4, settingsFocus: true });
     await expect(page.locator('#plan-receipt [data-status="done"]')).toHaveCount(4);
     await page.locator("#btn-plan-trail").click();
-    await expect(page.locator("#toast")).toContainText("Trail arrives in a later milestone");     // honest, not a dead end
+    await expect(page.locator("#screen-trail")).toBeVisible();                                    // Trail is a real screen now
+    await expect(page.locator("#screen-trail .trail-group")).toHaveCount(1);
+    await expect(page.locator("#screen-trail .trail-group .trail-row")).toHaveCount(4);
   });
 
   test("per-step Undo reverts only that step, once", async ({ page }) => {

@@ -59,12 +59,12 @@ test("3. a single 'open settings' command actually opens Settings; plan steps st
   await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });     // the Open Notes step did not pull us to Pages
 });
 
-test("4. a module can supply the screen of a reserved system app (Trail) and it becomes reachable", async ({ page }) => {
+test("4. a module can supply the screen of a reserved system app (Vault; Trail has its own screen now, Vault gets one in M4) and it becomes reachable", async ({ page }) => {
   await start(page);
-  expect(await ev(page, () => window.AuroraShell.openApp("trail"))).toEqual({ ok: false, reason: "not-available" });
-  await ev(page, () => { const s = window.AuroraShell.addScreen("screen-trail", "Trail"); s.textContent = "trail"; });
-  expect(await ev(page, () => window.AuroraShell.openApp("trail"))).toMatchObject({ ok: true, id: "trail" });
-  await expect(page.locator("#screen-trail")).toBeVisible();
+  expect(await ev(page, () => window.AuroraShell.openApp("vault"))).toEqual({ ok: false, reason: "not-available" });
+  await ev(page, () => { const s = window.AuroraShell.addScreen("screen-vault", "Vault"); s.textContent = "vault"; });
+  expect(await ev(page, () => window.AuroraShell.openApp("vault"))).toMatchObject({ ok: true, id: "vault" });
+  await expect(page.locator("#screen-vault")).toBeVisible();
   await page.locator("#glass-corner").click();
   await expect(page.locator("#btn-gc-trail")).toBeEnabled();                      // the Glass Corner notices
 });
