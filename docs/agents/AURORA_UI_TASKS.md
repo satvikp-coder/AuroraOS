@@ -360,7 +360,7 @@ without a prompt and Index says "Runs now". Either enforce a review in Ask mode 
 - Depends on: M1 (richer with M2 for blocked receipts). Both are merged.
 - Delivered notes: filters operate per receipt (a plan stays while any step matches and says "showing N matching"); the selection is dropped when a filter hides it; detail is inline below 1024 px and a side panel at 1024 px and up; Restore calls `System.undo` on the newest `file.delete` receipt that is still `available`; Passport-refused requests never ran and so are not listed.
 
-## M4. Vault — `not started` — branch `feature/aurora-vault` (from M3)
+## M4. Vault — `done, PR open` (vault.test.js 55, unit 15; 465 Playwright locally; layout matrix 28/28) — branch `feature/aurora-vault` (from main after M3)
 
 - Objective: file manager over the mock files, with every mutation through the broker.
 - Files: `vault.js`, `vault.css`, `tests/ui-golden/vault.test.js`, `tests/unit/vault.test.js` (sort/filter/
@@ -389,7 +389,8 @@ without a prompt and Index says "Runs now". Either enforce a review in Ask mode 
 - Tests: list/grid, search, each sort, Space filter, preview, single move + undo, multi move, delete with
   hold + undo, delete blocked, cancel, keyboard selection, 12-file cap, injection-safe file name rendering
   (add a mock file whose name contains markup in the test via `world.files`), layout matrix, screenshots.
-- Depends on: M1; Trail link needs M3.
+- Depends on: M1; Trail link needs M3. Both are merged.
+- Delivered notes: the `files` app now has `screen: "screen-vault"`; Index file results call `AuroraVault.preview(id)`; results (with Undo from the broker's receipts, and View in Trail) appear in a `#vault-result` callout; Move and Delete are disabled with a reason when Passport says Deny, and the trusted review still enforces the live policy.
 
 **R1 (Opus `aurora-quality-reviewer`)** after M2–M4: security and UX review of Passport, Trail and Vault;
 fix P0/P1 findings before the PRs are called ready.

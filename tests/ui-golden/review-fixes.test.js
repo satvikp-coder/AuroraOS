@@ -59,14 +59,20 @@ test("3. a single 'open settings' command actually opens Settings; plan steps st
   await expect(page.locator("#plan-receipt")).toBeVisible({ timeout: 8000 });     // the Open Notes step did not pull us to Pages
 });
 
-test("4. a module can supply the screen of a reserved system app (Vault; Trail has its own screen now, Vault gets one in M4) and it becomes reachable", async ({ page }) => {
+test("4. a system app whose screen is not supplied yet is 'not-available'; once a module supplies the screen it opens", async ({ page }) => {
+  // Uses a synthetic, test-only system app so the regression does not depend on which real apps (Passport, Trail, Vault...) exist.
   await start(page);
-  expect(await ev(page, () => window.AuroraShell.openApp("vault"))).toEqual({ ok: false, reason: "not-available" });
-  await ev(page, () => { const s = window.AuroraShell.addScreen("screen-vault", "Vault"); s.textContent = "vault"; });
-  expect(await ev(page, () => window.AuroraShell.openApp("vault"))).toMatchObject({ ok: true, id: "vault" });
-  await expect(page.locator("#screen-vault")).toBeVisible();
-  await page.locator("#glass-corner").click();
-  await expect(page.locator("#btn-gc-trail")).toBeEnabled();                      // the Glass Corner notices
+  expect(await ev(page, () => window.AuroraShell.registerApp({ id: "zz-test-sys", name: "Test System", system: true, screen: "screen-zz-test-sys", hue: 10 }))).toBe(true);
+  expect(await ev(page, () => window.AuroraShell.openApp("zz-test-sys"))).toEqual({ ok: false, reason: "not-available" });
+  await expect(page.locator("#screen-zz-test-sys")).toHaveCount(0);                       // nothing was shown, nothing leaked into the DOM
+  expect(await ev(page, () => window.AuroraShell.state.activeScreen)).toBe("screen-home");
+  await ev(page, () => { const s = window.AuroraShell.addScreen("screen-zz-test-sys", "Test System"); s.textContent = "synthetic screen"; });
+  expect(await ev(page, () => window.AuroraShell.openApp("zz-test-sys"))).toMatchObject({ ok: true, id: "zz-test-sys", created: false });
+  await expect(page.locator("#screen-zz-test-sys")).toBeVisible();
+  expect(await ev(page, () => window.AuroraShell.state.activeScreen)).toBe("screen-zz-test-sys");
+  await ev(page, () => window.AuroraShell.back());
+  expect(await ev(page, () => window.AuroraShell.state.activeScreen)).toBe("screen-home");
+  expect(await ev(page, () => window.AuroraShell.registerApp({ id: "zz-test-sys", name: "Again", system: true }))).toBe(false);   // ids stay unique
 });
 
 test("5. starting a second plan while one is running is refused; the receipt stays the running plan's", async ({ page }) => {

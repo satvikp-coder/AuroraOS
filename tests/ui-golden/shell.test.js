@@ -104,9 +104,10 @@ test.describe("Shell: apps", () => {
 
   test("openApp: a system surface with no screen yet says so and creates no Page", async ({ page }) => {
     const before = await shell(page, () => window.AuroraModels.pages.list().length);
-    const r = await shell(page, () => window.AuroraShell.openApp("vault"));
+    await shell(page, () => window.AuroraShell.registerApp({ id: "zz-later", name: "Zz Later App", system: true, screen: "screen-zz-later", hue: 20 }));   // synthetic: independent of shipped apps
+    const r = await shell(page, () => window.AuroraShell.openApp("zz-later"));
     expect(r).toEqual({ ok: false, reason: "not-available" });
-    await expect(page.locator("#toast")).toContainText("Vault arrives in a later milestone");
+    await expect(page.locator("#toast")).toContainText("Zz Later App arrives in a later milestone");
     expect(await shell(page, () => window.AuroraModels.pages.list().length)).toBe(before);
     await expect(page.locator("#screen-home")).toBeVisible();
   });

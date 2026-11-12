@@ -94,7 +94,7 @@ test.describe("Home: Continue mirrors the real Pages", () => {
 
   test("an entry opens its app", async ({ page }) => {
     await page.locator('#home-continue-list [data-page-id="page-files"]').click();
-    await expect(page.locator("#screen-pages")).toBeVisible();
+    await expect(page.locator("#screen-vault")).toBeVisible();                                     // Files opens Vault (M4)
     await ev(page, () => window.AuroraShell.showScreen("screen-home"));
     await page.locator('#home-continue-list [data-page-id="page-notes"]').click();
     await expect(page.locator("#screen-pages")).toBeVisible();
@@ -285,7 +285,7 @@ test.describe("Dock", () => {
     await expect(page.getByRole("button", { name: "Clock, paused" })).toBeVisible();
     await expect(page.locator("#dock-apps .dock-app")).toHaveCount(3);
     await page.getByRole("button", { name: "Files, paused" }).click();
-    await expect(page.locator("#screen-pages")).toBeVisible();
+    await expect(page.locator("#screen-vault")).toBeVisible();                                     // Files opens Vault (M4)
     await ev(page, () => window.AuroraModels.pages.close("page-files"));
     await expect(page.locator("#dock-apps .dock-app")).toHaveCount(2);
   });
