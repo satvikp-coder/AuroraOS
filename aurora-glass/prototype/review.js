@@ -161,7 +161,9 @@
     if (!ok) { UI.announce("Nothing was run."); return; }
     const a = T.approve(p.id, { digest: p.digest, confirmS3: p.preview.s3Indices });
     if (!a.ok) {
-      if (a.reason === "permission-changed" || a.reason === "preview-expired") { const r = T.refreshPreview(p.id); if (r.ok) plan.p = r.proposal; }
+      // A refusal caused by a permission or an expired preview means the screen is showing stale facts: re-preview so the
+      // blocked step and the disabled Confirm button are visible instead of letting the person repeat the same refusal.
+      if (/^(permission-|preview-expired)/.test(String(a.reason))) { const r = T.refreshPreview(p.id); if (r.ok) plan.p = r.proposal; }
       UI.toast(System.explain(a.reason), { tone: "error" }); render(); return;
     }
     plan.phase = "running"; plan.progress = {}; render();
