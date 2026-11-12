@@ -333,7 +333,7 @@ without a prompt and Index says "Runs now". Either enforce a review in Ask mode 
   see it blocked; layout matrix; screenshot pass.
 - Depends on: M1.
 
-## M3. Trail — `not started` — branch `feature/aurora-trail` (from M2 or M1)
+## M3. Trail — `done, PR open` (trail.test.js 35, unit 21; 410 Playwright locally) — branch `feature/aurora-trail` (from M2)
 
 - Objective: truthful action history and recovery.
 - Files: `trail.js`, `trail.css`, `tests/ui-golden/trail.test.js`, `tests/unit/trail.test.js` (filter/group
@@ -357,7 +357,8 @@ without a prompt and Index says "Runs now". Either enforce a review in Ask mode 
   deleted → `no-such-file`) shows "Undo failed" and the chip stays failed.
 - Tests: timeline after a plan; filters and search; failed and blocked receipts; partial success; undo
   success; undo failure path; restore deleted file; busy state; empty state; layout matrix; screenshots.
-- Depends on: M1 (richer with M2 for blocked receipts).
+- Depends on: M1 (richer with M2 for blocked receipts). Both are merged.
+- Delivered notes: filters operate per receipt (a plan stays while any step matches and says "showing N matching"); the selection is dropped when a filter hides it; detail is inline below 1024 px and a side panel at 1024 px and up; Restore calls `System.undo` on the newest `file.delete` receipt that is still `available`; Passport-refused requests never ran and so are not listed.
 
 ## M4. Vault — `not started` — branch `feature/aurora-vault` (from M3)
 

@@ -43,11 +43,12 @@ test.describe("Glass Corner: handle and popover", () => {
     await expect(panel(page).locator(".gc-item")).toHaveCount(0);
   });
 
-  test("Open Trail says honestly that Trail is not built yet", async ({ page }) => {
+  test("Open Trail is enabled and opens the Trail screen (no 'later milestone' note)", async ({ page }) => {
     await gc(page).click();
-    await expect(page.locator("#btn-gc-trail")).toBeDisabled();
-    await expect(page.locator("#gc-trail-note")).toHaveText("Trail arrives in a later milestone.");
-    await expect(page.locator("#btn-gc-trail")).toHaveAccessibleDescription("Trail arrives in a later milestone.");
+    await expect(page.locator("#btn-gc-trail")).toBeEnabled();
+    await expect(page.locator("#gc-trail-note")).toHaveCount(0);
+    await page.locator("#btn-gc-trail").click();
+    await expect(page.locator("#screen-trail h1")).toHaveText("Trail");
   });
 });
 

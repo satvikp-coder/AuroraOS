@@ -49,4 +49,22 @@ registerScreen({ id: "screen-passport-overview", label: "Passport (overview)", r
 registerScreen({ id: "screen-passport-apps", label: "Passport (apps)", root: "#screen-passport", open: (page) => ev(page, () => { window.AuroraShell.openApp("passport"); window.AuroraPassport.setTab("apps"); }) });
 registerScreen({ id: "screen-passport-activity", label: "Passport (activity)", root: "#screen-passport", open: (page) => ev(page, () => { window.AuroraShell.openApp("passport"); window.AuroraPassport.setTab("activity"); }) });
 
+registerScreen({ id: "screen-trail-empty", label: "Trail (empty)", root: "#screen-trail", open: (page) => ev(page, () => window.AuroraShell.openApp("trail")) });
+registerScreen({
+  id: "screen-trail-history", label: "Trail (history, plan, failure, deleted file)", root: "#screen-trail",
+  open: async (page) => {
+    await ev(page, async () => {
+      const S = window.AuroraSystem; S.dev.stepDelayMs = 0;
+      const go = async (payload, meta, finish) => { S.request(payload, meta); await new Promise((r) => setTimeout(r, 60)); finish(); await new Promise((r) => setTimeout(r, 60)); };
+      const approve = () => { const b = document.getElementById("btn-review-approve"); if (b) b.click(); };
+      const hold = () => { const a = document.querySelector(".hold-alt"); if (a) { a.click(); a.click(); } };
+      await go({ steps: [{ type: "file.move", arguments: { id: "timetable", destination: "work" } }, { type: "file.move", arguments: { id: "budget-q4", destination: "study" } }, { type: "focus.set", arguments: { enabled: true } }] }, { source: "Aura", requestText: "tidy my files for the exam week" }, approve);
+      S.dev.failNextType = "file.move";
+      await go({ type: "file.move", arguments: { id: "reading-list", destination: "work" } }, { source: "Vault" }, approve);
+      await go({ type: "file.delete", arguments: { id: "recipe-dal" } }, { source: "Vault" }, hold);
+      window.AuroraShell.openApp("trail");
+    });
+  },
+});
+
 module.exports = { SCREENS, registerScreen };

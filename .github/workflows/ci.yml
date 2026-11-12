@@ -27,6 +27,7 @@ jobs:
       - run: node tests/unit/settings.test.js
       - run: node tests/unit/system.test.js
       - run: node tests/unit/passport.test.js
+      - run: node tests/unit/trail.test.js
 
   ui-browser-tests:
     name: Browser interaction tests (Playwright)
