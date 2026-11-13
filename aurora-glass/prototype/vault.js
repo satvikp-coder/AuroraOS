@@ -289,6 +289,29 @@
     return true;
   }
 
+  // Context menu (right-click, Shift+F10 / Menu key, long-press). It only launches the same functions the buttons call: Move still opens its review,
+  // and Delete still opens the trusted hold-to-confirm dialog. Nothing here approves or skips either.
+  if (window.AuroraContextMenu) window.AuroraContextMenu.attach(screen, {
+    selector: ".vault-item",
+    label: (li) => { const f = byId(li.dataset.file); return "Actions for " + (f ? f.name : "file"); },
+    focusTarget: (li) => li.querySelector(".vault-open"),
+    items: (li) => {
+      const id = li.dataset.file, f = byId(id); if (!f) return [];
+      const group = ui.sel.size > 1 && ui.sel.has(id);                       // right-click inside a multi-selection acts on all of it; anywhere else on that one file
+      const ids = group ? visible().map((x) => x.id).filter((x) => ui.sel.has(x)) : [id];
+      const what = ids.length === 1 ? "file" : M.noun(ids.length);
+      const moveBlocked = editDenied() ? "Passport blocks moving files" : ui.busy ? "Busy with another change" : undefined;
+      const delBlocked = deleteDenied() ? "Passport blocks deleting files" : ui.busy ? "Busy with another change" : undefined;
+      return [
+        group ? null : { id: "preview", label: ui.previewId === id ? "Close preview" : "Preview", icon: "eye", action: () => { ui.previewId = ui.previewId === id ? null : id; ui.focusId = id; ui.anchor = id; render(); } },
+        { id: "select", label: ui.sel.has(id) ? "Deselect" : "Select", icon: "check", action: () => { toggle(id); ui.anchor = id; ui.focusId = id; if (!ui.select) { ui.select = true; ui.autoSelect = true; } render(); } },
+        { separator: true },
+        { id: "move", label: "Move " + what + "…", icon: "move", disabled: !!moveBlocked, reason: moveBlocked, hint: "You review it first", action: () => moveFiles(ids) },
+        { id: "delete", label: "Delete " + what + "…", icon: "trash", danger: true, disabled: !!delBlocked, reason: delBlocked, hint: "Asks you to review, then press and hold", action: () => deleteFiles(ids) },
+      ];
+    },
+  });
+
   const live = () => screen.classList.contains("active");
   ["files", "receipts", "permission"].forEach((evt) => System.on(evt, () => { if (live() && !ui.busy) render(); }));
   if (wide.addEventListener) wide.addEventListener("change", () => { if (live()) render(); });

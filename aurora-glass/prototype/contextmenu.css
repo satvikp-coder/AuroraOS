@@ -1,0 +1,19 @@
+/* aurora-glass/prototype/contextmenu.css - the shared context menu. Opaque, never glass: it holds actions, so it must stay legible. */
+.ctx-layer { position: fixed; inset: 0; z-index: var(--z-sheet, 200); background: transparent; }
+.ctx-menu { position: absolute; box-sizing: border-box; min-width: min(14rem, calc(100vw - 16px)); width: max-content; max-width: calc(100vw - 16px); display: flex; flex-direction: column; padding: var(--space-1);
+  background: var(--color-surface-opaque); color: var(--color-ink); border: var(--border-width) solid var(--color-border-strong); border-radius: var(--radius-control); box-shadow: var(--shadow-3); overflow-y: auto; overscroll-behavior: contain; }
+.ctx-item { display: flex; align-items: center; gap: var(--space-3); box-sizing: border-box; width: 100%; min-height: var(--touch-target); padding: var(--space-2) var(--space-3); text-align: start; font: inherit;
+  color: inherit; background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+.ctx-item:hover, .ctx-item:focus-visible { background: var(--color-accent-soft); color: var(--color-accent-ink); }
+.ctx-item:focus-visible { outline: 3px solid var(--color-focus); outline-offset: -3px; }
+.ctx-item.is-danger { color: var(--color-danger); }
+.ctx-item.is-danger:hover, .ctx-item.is-danger:focus-visible { color: var(--color-danger); }
+.ctx-item.is-disabled { cursor: not-allowed; color: var(--color-ink-muted); }
+.ctx-item.is-disabled:hover { background: transparent; }
+.ctx-icon-gap { width: 1.25rem; flex: none; }
+.ctx-text { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.ctx-note { font-size: var(--text-sm); color: var(--color-ink-muted); }
+.ctx-sep { height: 0; margin: var(--space-1) var(--space-2); border-top: var(--border-width) solid var(--color-border); }
+:root[data-contrast="high"] .ctx-menu { border-width: 2px; }
+/* rows that open a menu: no native callout on long-press, no text selection while pressing */
+.vault-item, .page-card { -webkit-touch-callout: none; }

@@ -124,4 +124,15 @@ registerScreen({
   close: async (page) => { await page.keyboard.press("Escape"); await page.locator("#shortcuts-dialog").waitFor({ state: "detached" }); },
 });
 
+// Context menu (overlay): opened on the last Vault file with the keyboard, so it is anchored where space is tightest and has to flip or clamp.
+registerScreen({
+  id: "menu-vault", label: "Vault actions menu", root: ".ctx-menu",
+  open: async (page) => {
+    await ev(page, () => window.AuroraShell.openApp("vault"));
+    const row = page.locator("#screen-vault .vault-open").last(); await row.scrollIntoViewIfNeeded(); await row.focus(); await page.keyboard.press("Shift+F10");
+    await page.locator("#ctx-menu").waitFor();
+  },
+  close: async (page) => { await page.keyboard.press("Escape"); await page.locator("#ctx-menu").waitFor({ state: "detached" }); },
+});
+
 module.exports = { SCREENS, registerScreen };

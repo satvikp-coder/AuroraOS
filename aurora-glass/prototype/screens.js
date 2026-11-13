@@ -33,6 +33,23 @@
   function btn(iconName, label, aria, fk, kind, onclick) {
     return el("button", { class: "btn " + kind, type: "button", "data-fk": fk, "aria-label": aria, onclick }, [UI.icon(iconName), el("span", { text: label })]);
   }
+  /** The one set of Page actions, used by the visible buttons and by the context menu so the two can never differ. */
+  function pageActions(p) {
+    const app = Shell.app(p.appId);
+    return {
+      app,
+      canOpen: !!(app && app.screen),
+      open() { if (app && app.screen) Shell.openApp(p.appId); else Shell.showToast(p.name + " has no screen in this prototype yet.", { tone: "info" }); },
+      pause() { pages.pause(p.id); Shell.announce(p.name + " paused"); },
+      resume() {
+        const r = pages.resume(p.id);
+        if (r.ok) Shell.announce(p.name + " resumed");
+        else { Shell.showToast("Not enough simulated memory to resume " + p.name, { tone: "warn" }); Shell.announce("Low memory. Cannot resume " + p.name + ". Save paused pages first."); }
+      },
+      save() { pages.save(p.id); Shell.announce(p.name + " saved"); },
+      close() { pages.close(p.id); Shell.announce(p.name + " closed"); },
+    };
+  }
   function renderPagesInner() {
     const list = document.getElementById("pages-list");
     list.replaceChildren();
@@ -40,25 +57,16 @@
     document.getElementById("pages-empty").classList.toggle("panel-hidden", items.length > 0);
 
     items.forEach((p) => {
-      const actions = [];
-      if (p.state === "running") {
-        actions.push(btn("pause", "Pause", "Pause " + p.name, p.id + ":primary", "outline", () => { pages.pause(p.id); Shell.announce(p.name + " paused"); }));
-      } else {
-        actions.push(btn("play", "Resume", "Resume " + p.name, p.id + ":primary", "outline", () => {
-          const r = pages.resume(p.id);
-          if (r.ok) Shell.announce(p.name + " resumed");
-          else { Shell.showToast("Not enough simulated memory to resume " + p.name, { tone: "warn" }); Shell.announce("Low memory. Cannot resume " + p.name + ". Save paused pages first."); }
-        }));
-      }
-      if (p.state === "paused") {
-        actions.push(btn("vault", "Save", "Save " + p.name + " and free memory", p.id + ":save", "outline", () => { pages.save(p.id); Shell.announce(p.name + " saved"); }));
-      }
-      actions.push(el("button", { class: "btn ghost btn-icon", type: "button", "data-fk": p.id + ":close", "aria-label": "Close " + p.name, title: "Close", onclick: () => { pages.close(p.id); Shell.announce(p.name + " closed"); } }, [UI.icon("close")]));
+      const actions = [], act = pageActions(p);
+      if (p.state === "running") actions.push(btn("pause", "Pause", "Pause " + p.name, p.id + ":primary", "outline", act.pause));
+      else actions.push(btn("play", "Resume", "Resume " + p.name, p.id + ":primary", "outline", act.resume));
+      if (p.state === "paused") actions.push(btn("vault", "Save", "Save " + p.name + " and free memory", p.id + ":save", "outline", act.save));
+      actions.push(el("button", { class: "btn ghost btn-icon", type: "button", "data-fk": p.id + ":close", "aria-label": "Close " + p.name, title: "Close", onclick: act.close }, [UI.icon("close")]));
 
-      const app = Shell.app(p.appId);
+      const app = act.app;
       const chip = UI.chip(STATE_LABEL[p.state], p.state === "running" ? "ok" : p.state === "paused" ? "warn" : "muted", p.state === "running" ? "play" : p.state === "paused" ? "pause" : "vault");
       chip.classList.add("state-badge", "state-" + p.state);
-      const open = () => { if (app && app.screen) Shell.openApp(p.appId); else Shell.showToast(p.name + " has no screen in this prototype yet.", { tone: "info" }); };
+      const open = act.open;
       list.appendChild(el("article", { class: "card opaque page-card", role: "listitem", "data-page": p.id, "data-state": p.state }, [
         el("div", { class: "page-head" }, [
           UI.appTile(app ? app.icon : "info", app ? app.hue : 215),
@@ -157,6 +165,22 @@
   // ---------------- Wiring ----------------
   function init() {
     pages.onChange(renderPages);
+    if (window.AuroraContextMenu) window.AuroraContextMenu.attach(document.getElementById("pages-list"), {
+      selector: ".page-card",
+      label: (card) => "Actions for " + ((pages.list().find((x) => x.id === card.dataset.page) || {}).name || "Page"),
+      focusTarget: (card) => card.querySelector(".page-open"),
+      items: (card) => {
+        const p = pages.list().find((x) => x.id === card.dataset.page); if (!p) return [];
+        const a = pageActions(p);
+        return [
+          { id: "open", label: "Open", icon: "pages", disabled: !a.canOpen, reason: a.canOpen ? undefined : "No screen in this prototype yet", action: a.open },
+          p.state === "running" ? { id: "pause", label: "Pause", icon: "pause", hint: "Keeps its place and memory", action: a.pause } : { id: "resume", label: "Resume", icon: "play", action: a.resume },
+          p.state === "paused" ? { id: "save", label: "Save and free memory", icon: "vault", action: a.save } : null,
+          { separator: true },
+          { id: "close", label: "Close Page", icon: "close", hint: "Removes this Page", action: a.close },
+        ];
+      },
+    });
     wireQuick();
     document.getElementById("btn-pages-free").addEventListener("click", () => {
       const r = pages.freeMemory();
