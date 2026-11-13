@@ -22,9 +22,9 @@ async function start(page) {
     window.AudioContext = function () { window.__audio++; }; window.webkitAudioContext = window.AudioContext;
   });
   await page.clock.install({ time: T0 });
+  await page.clock.pauseAt(new Date(T0.getTime() + 1000));           // paused BEFORE navigation: a slow page load can no longer overshoot the target ("Cannot fast-forward to the past")
   await page.goto(BASE_URL);
   await ev(page, () => { window.AuroraSystem.dev.stepDelayMs = 0; });
-  await page.clock.pauseAt(new Date(T0.getTime() + 1000));           // from here time moves only when a test moves it: exact, repeatable numbers
 }
 async function open(page, tab) {
   await ev(page, () => window.AuroraShell.openApp("clock"));

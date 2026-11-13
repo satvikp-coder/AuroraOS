@@ -117,4 +117,11 @@ registerScreen({
   close: async (page) => { await page.keyboard.press("Escape"); await page.locator("#welcome-dialog").waitFor({ state: "detached" }); },
 });
 
+// Keyboard shortcut sheet (dialog): opened from the Calculator so the "On this screen" group (the longest) comes first.
+registerScreen({
+  id: "dialog-shortcuts", label: "Keyboard shortcut sheet", root: ".dialog",
+  open: async (page) => { await ev(page, () => { window.AuroraShell.openApp("calculator"); window.AuroraShortcuts.show(); }); await page.locator("#shortcuts-dialog").waitFor(); },
+  close: async (page) => { await page.keyboard.press("Escape"); await page.locator("#shortcuts-dialog").waitFor({ state: "detached" }); },
+});
+
 module.exports = { SCREENS, registerScreen };
