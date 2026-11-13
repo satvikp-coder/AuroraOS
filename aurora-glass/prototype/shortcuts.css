@@ -1,0 +1,13 @@
+/* aurora-glass/prototype/shortcuts.css - the keyboard shortcut sheet only. Colours, radii, spacing and text sizes are tokens. */
+.kbd-sheet { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.kbd-groups { display: flex; flex-direction: column; gap: var(--space-4); }
+.kbd-group { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.kbd-group-title { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-ink-muted); overflow-wrap: anywhere; }
+.kbd-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.kbd-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); padding: var(--space-2) 0; border-top: var(--border-width) solid var(--color-border); min-width: 0; }
+.kbd-keys { flex: 0 1 auto; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
+.kbd { display: inline-block; min-width: 1.6em; padding: 2px var(--space-2); text-align: center; font: inherit; font-size: var(--text-sm); font-weight: var(--weight-bold); line-height: 1.4; color: var(--color-ink); background: var(--color-surface-sunken); border: var(--border-width) solid var(--color-border-strong); border-bottom-width: 3px; border-radius: var(--radius-sm); }
+.kbd-or, .kbd-plus { color: var(--color-ink-muted); font-size: var(--text-sm); }
+.kbd-does { flex: 1 1 14ch; min-width: 0; overflow-wrap: anywhere; }
+:root[data-contrast="high"] .kbd { border-width: 2px; border-bottom-width: 3px; }
+#shortcuts-dialog { width: min(100%, 640px); }
