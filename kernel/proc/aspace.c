@@ -91,7 +91,12 @@ int aspace_map(struct aspace *as, uint64_t va, int perm, const void *init, size_
     if (!pmm_is_allocated(pa) || pmm_is_reserved(pa)) return -6;   /* user memory only from allocator pages */
     const uint8_t *src = (const uint8_t *)init; volatile uint8_t *d = (volatile uint8_t *)(uintptr_t)pa;
     for (size_t i = 0; i < len; i++) d[i] = src[i];
-    if (perm == UPERM_RX) __asm__ volatile ("dc cvau, %0\n dsb ish\n ic iallu\n dsb ish\n isb" :: "r"(pa) : "memory");   /* code written as data must be visible to instruction fetch */
+    if (perm == UPERM_RX) {   /* code written as data must be visible to instruction fetch: clean EVERY data-cache line of the bytes, then invalidate the I-cache */
+        uint64_t ctr; __asm__ volatile ("mrs %0, ctr_el0" : "=r"(ctr));
+        uint64_t line = 4u << ((ctr >> 16) & 0xF);            /* smallest D-cache line, in bytes */
+        for (uint64_t a = pa & ~(line - 1); a < pa + len; a += line) __asm__ volatile ("dc cvau, %0" :: "r"(a) : "memory");
+        __asm__ volatile ("dsb ish\n ic iallu\n dsb ish\n isb" ::: "memory");
+    }
     *e3 = pa | attr | PTE_TABLE | PTE_VALID;
     __asm__ volatile ("dsb ishst" ::: "memory");
     if (pa_out) *pa_out = pa;

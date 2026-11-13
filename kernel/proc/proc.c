@@ -37,6 +37,13 @@ static void kzero(void *p, size_t n) { volatile uint8_t *b = (volatile uint8_t *
 
 int proc_create(int role, uint64_t arg1, const char *name)
 {
+    return proc_create_image(role, arg1, name, user_blob_start, (size_t)(user_blob_end - user_blob_start));
+}
+
+/* Create a process whose single code page is `image` (len <= one page, kernel-supplied bytes). The process is READY only after EVERY mapping
+ * succeeded; on any failure everything allocated so far is released and no slot stays in use. */
+int proc_create_image(int role, uint64_t arg1, const char *name, const void *image, size_t len)
+{
     int slot = -1;
     for (int i = 0; i < PROC_MAX; i++) if (table[i].state == PROC_UNUSED) { slot = i; break; }
     if (slot < 0) return -1;
@@ -48,9 +55,8 @@ int proc_create(int role, uint64_t arg1, const char *name)
     p->state = PROC_NEW;
     for (int i = 0; i < 15 && name && name[i]; i++) p->name[i] = name[i];
 
-    size_t blob = (size_t)(user_blob_end - user_blob_start);
     int rc = aspace_create(&p->as, (uint32_t)p->pid);
-    if (rc == 0) rc = aspace_map(&p->as, USER_CODE_VA, UPERM_RX, user_blob_start, blob, &p->code_pa);
+    if (rc == 0) rc = aspace_map(&p->as, USER_CODE_VA, UPERM_RX, image, len, &p->code_pa);
     if (rc == 0) rc = aspace_map(&p->as, USER_DATA_VA, UPERM_RW, 0, 0, &p->data_pa);
     if (rc == 0) rc = aspace_map(&p->as, USER_STACK_VA, UPERM_RW, 0, 0, &p->stack_pa);
     if (rc == 0) rc = aspace_map(&p->as, USER_STACK_VA + PAGE_SIZE, UPERM_RW, 0, 0, 0);

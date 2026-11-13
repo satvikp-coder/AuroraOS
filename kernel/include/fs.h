@@ -4,7 +4,7 @@
 
 /*
  * AuroraFS v1 — a deliberately small persistent filesystem on top of the kernel block interface (blk.h).
- * Flat namespace, 32 files, names of 1..31 characters, files up to 24 KiB. See docs/kernel/storage.md for the on-disk
+ * Flat namespace, 32 files (8 and 96 blocks per principal), names of 1..31 characters, files up to 24 KiB. See docs/kernel/storage.md for the on-disk
  * format, the write ordering, the authorization model and the limits.
  *
  * Principals: 0 is the KERNEL (may do anything; never assigned to a process). Any other value identifies an owner; milestone C
@@ -24,11 +24,17 @@
 #define FS_PERM_MASK    0xFu
 #define FS_PERM_DEFAULT (FS_PERM_OWNER_R | FS_PERM_OWNER_W)
 
+/* Per-principal quotas (charged to the file's OWNER). 8 files = a quarter of the table, so at least four principals can always coexist; 96 blocks
+ * (48 KiB) = two maximum-size files. Usage is derived from the inodes, never stored. See docs/kernel/storage.md. */
+#define FS_QUOTA_FILES  8u
+#define FS_QUOTA_BLOCKS 96u
+
 enum {
     FS_OK = 0, FS_EARG = -1, FS_ENOENT = -2, FS_EEXIST = -3, FS_ENOSPC = -4, FS_ENFILE = -5, FS_EFBIG = -6, FS_EACCES = -7,
     FS_EBADID = -8, FS_ECORRUPT = -9, FS_EVERSION = -10, FS_ENOFS = -11, FS_EIO = -12, FS_ENAME = -13, FS_EMOUNT = -14,
     FS_ENODEV = -15, FS_ERO = -16,
-    FS_EUNCERTAIN = -17   /* a metadata update failed in a way that leaves its durability UNKNOWN: the filesystem has been unmounted; remount to learn the outcome */
+    FS_EUNCERTAIN = -17,  /* a metadata update failed in a way that leaves its durability UNKNOWN: the filesystem has been unmounted; remount to learn the outcome */
+    FS_EQUOTA = -18       /* the owning principal's file-count or block quota would be exceeded; nothing was changed */
 };
 
 typedef uint64_t fs_id_t;      /* (generation << 8) | inode index: a stale or forged id never names a different, newer file */
@@ -47,6 +53,7 @@ int  fs_write(uint32_t principal, fs_id_t id, uint32_t off, const void *buf, uin
 int  fs_delete(uint32_t principal, fs_id_t id);
 int  fs_set_perm(uint32_t principal, fs_id_t id, uint32_t perm);                             /* owner or kernel only */
 int  fs_stat(uint32_t principal, fs_id_t id, struct fs_stat *st);
+int  fs_usage(uint32_t principal, uint32_t *files, uint32_t *blocks);                       /* kernel diagnostic (not a system call): files and logical blocks owned by principal */
 int  fs_list(uint32_t principal, struct fs_stat *out, int max);                             /* files the principal may read; count */
 
 uint32_t fs_free_blocks(void);

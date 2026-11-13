@@ -1,7 +1,8 @@
 # Storage: virtio block driver (issue #6, milestone A)
 
-Status: block I/O works in QEMU only. There is no filesystem yet (milestone B), no EL0 file access (C), no loader (D) and no
-settings registry (E). Nothing here has run on hardware.
+Status (current): block I/O (milestone A), the AuroraFS filesystem (B) and EL0 file access (C) are merged and tested in QEMU. The program
+loader (D) and the native settings registry (E) do not exist yet. Nothing here has run on hardware. (This file keeps the milestone A text
+below as written; later sections describe the filesystem and its hardening.)
 
 ## Device selection (verified, not assumed)
 
@@ -68,8 +69,9 @@ atomicity); nothing is claimed about crash consistency. QEMU only.
 
 # AuroraFS v1 (issue #6, milestone B)
 
-Kernel-internal filesystem over `blk_*` (`kernel/fs/afs.c`, `kernel/include/fs.h`). No EL0 access yet (milestone C): authorization
-is already enforced in the filesystem API per *principal* (0 = kernel, never given to a process; others identify owners).
+Kernel filesystem over `blk_*` (`kernel/fs/afs.c`, `kernel/include/fs.h`). EL0 programs reach it only through `SYS_FS` (milestone C,
+docs/kernel/userspace.md); authorization is enforced in the filesystem API per *principal* (0 = kernel, never given to a process; others
+identify owners).
 
 **On-disk format** (512-byte sectors, little-endian): sector 0 superblock (`AURORAFS`, version 1, geometry, CRC-32); sectors 1-16
 inode table, 32 inodes x 256 B (state, generation, owner, permission bits, size, block count, data CRC-32, name, 48 block
@@ -78,17 +80,14 @@ mount, so it cannot disagree with them. Flat namespace, names `[A-Za-z0-9._-]` o
 
 **Ids and authorization:** a file id is `(generation << 8) | slot`. Deleting keeps the slot's generation, so an old id never names
 a later file (the PID-reuse lesson applied again). Ids are *not* secrets: every operation checks permission bits (owner r/w, other
-r/w); owner-only files are hidden from `lookup` (indistinguishable from absent) and a principal that guesses the exact id still gets
-`FS_EACCES`. Only the owner or the kernel may delete or change permissions.
+r/w); a file the caller cannot discover is hidden from `lookup` (indistinguishable from absent) and, since the cycle-10 hardening below, from
+every id-taking operation too. Only the owner or the kernel may delete or change permissions.
 
 **Names are unique per owner.** Two principals may each own a file called `config`. `create` only refuses a name the SAME principal already
 owns (`FS_EEXIST`); a stranger's file of that name, hidden or not, neither blocks the create nor shows through its error code (an earlier
 design returned `FS_EEXIST` for any file, which let a principal probe whether a hidden name exists and squat on names). `lookup` returns the
-caller's own file of that name first, otherwise the first file it may see. **Known limits** (not solved here): (1) a caller that holds or
-guesses a file *id* gets `FS_EACCES` for a hidden file but `FS_EBADID` for a missing one, so ids are not an existence-proof-free channel
-(ids are 32 slots x a generation, not secrets, as stated above); (2) there are no quotas: one principal can use all 32 inodes and all free
-blocks (`FS_ENFILE` / `FS_ENOSPC` for everyone). Both must be addressed (per-principal quotas, and id checks that do not reveal
-existence) before milestone D runs mutually distrusting programs.
+caller's own file of that name first, otherwise the first file it may see. (The two limits this section used to list, the file-id existence
+difference and the missing quotas, are fixed: see "Hardening" below.)
 
 **Mount** validates and writes nothing: magic, version (`FS_EVERSION`), CRCs, geometry, per-inode sanity, block ranges, no sector used twice,
 no duplicate names *within one owner*, never-used slots all zero. Any failure leaves the filesystem unmounted. No automatic repair or format (`fs_format`
@@ -105,9 +104,40 @@ the corruption test.
 cannot be appended to: `FS_ENOSPC`, documented and tested), 32 MiB maximum filesystem (RAM allocation map), single mount, no
 timestamps, no concurrency control (single CPU, callers are not preempted inside the filesystem), QEMU only.
 
-**Tests:** `tests/qemu/fs-tests.sh` (107 checks, in CI, including the EL0 file-access scenarios of docs/kernel/userspace.md): three boots on one image (format + 57 in-kernel checks; then 21 each on mount without
+**Tests:** `tests/qemu/fs-tests.sh` (161 checks, in CI, including the EL0 file-access scenarios of docs/kernel/userspace.md): three boots on one image (format + 69 in-kernel checks and 26 EL0 checks; then 23 + 24 each on mount without
 formatting incl. injected corruption), host-side proof that the bytes are in the image file, host-damaged images (flipped inode bit, wrong
-version, foreign content, flipped superblock bit) reported precisely with the image checksum unchanged, read-only disk, no disk.
+version, foreign content, flipped superblock bit) reported precisely with the image checksum unchanged, read-only disk (2 + 1 checks), no disk (normal kernel, and a test kernel running the EL0 file calls).
+
+## Hardening (cycle 10): existence policy and per-principal quotas
+
+**Existence policy.** A file id is not a secret, so what a caller learns from an id must not depend on whether a file it may not discover sits
+behind it. `resolve_for(principal, id)` runs first in `read`, `write`, `stat`, `set_perm` and `delete`, and every argument check that does not
+depend on the file (NULL buffer, invalid permission bits, NULL stat pointer, mount state) is made *before* it, so no argument error can be used
+as a probe either:
+
+| Caller | File it can discover (owner, or has r or w permission) | File it cannot discover, or no such file |
+|---|---|---|
+| kernel (principal 0) | the true result | `FS_EBADID` only if there really is no such file |
+| owner / has r or w | operation allowed, else `FS_EACCES` | n/a |
+| anyone else | n/a | `FS_EBADID` (byte for byte what a nonexistent, stale-generation or deleted id returns) |
+
+An owner who cleared every permission bit on its own file still discovers it (it can `chmod`/`delete` it; `read`/`stat` are `FS_EACCES`). Revoking
+other-read on a file immediately turns it into `FS_EBADID` for others. Not claimed: any protection against *timing* or other side channels (not
+analyzed or tested). The aggregate-resource errors `FS_ENFILE` and `FS_ENOSPC` still reflect the usage of the whole filesystem by design (a low-bandwidth
+channel about total load); they name no file.
+
+**Quotas.** Per principal (the file's *owner*): at most `FS_QUOTA_FILES` = 8 files and `FS_QUOTA_BLOCKS` = 96 data blocks (48 KiB, two maximum-size
+files). Rationale: 8 is a quarter of the 32-slot table, so four principals can always coexist and no single one can exhaust the table; 96 blocks
+lets an application keep two full-size files while leaving a normal test disk (2031 data blocks) to others. Usage is **derived** from the inode
+table on demand (`usage_of`), never stored, so it cannot drift: it is exact after delete, overwrite, a failed write (nothing is written before the
+check), an uncertain commit (the cache is untouched or the filesystem unmounted, and the next mount recomputes from the disk), remount and reboot.
+Only growth is charged (`nb > nblocks`), so overwriting in place at the limit still works and nothing about quotas affects reads. Arithmetic is on
+counts of at most 32 x 48, with the comparison written as `nb > QUOTA - others` so it cannot wrap. The quota is charged to the owner whoever writes
+(a world-writable file spends its owner's quota, including a write by the kernel principal); this is deliberate and documented because the owner
+chose to expose the file. The temporary second copy that whole-file copy-on-write needs is physical space, not charged to quota. A disk written by
+an older kernel that already exceeds a quota still mounts (mount does not enforce quotas); such a principal simply cannot grow until it deletes.
+Over-quota is `FS_EQUOTA` (-18; `-118` from EL0). `fs_usage()` is a kernel diagnostic, not a system call. A generation-reused slot is an ordinary
+create and counts like any other file.
 
 ## Uncertain metadata updates (fail-safe recovery, review fix for PR #28)
 

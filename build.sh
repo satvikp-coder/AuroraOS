@@ -69,6 +69,12 @@ for s in boot/aarch64/start.S kernel/arch/aarch64/vectors.S kernel/arch/aarch64/
     OBJS="$OBJS $o"
 done
 
+if [ -n "$AURORA_FS_TEST" ]; then      # EL0 file-access boundary programs: test kernels only, never in a normal or production image
+    o="$BUILD_DIR/user_test_progs.o"
+    $AS -march=armv8-a $ASFLAGS -o "$o" kernel/proc/user_test_progs.S
+    OBJS="$OBJS $o"
+fi
+
 echo "[build] Compiling kernel..."
 for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/blktest.c kernel/fs/afs.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
          kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do

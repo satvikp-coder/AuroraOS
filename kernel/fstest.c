@@ -83,6 +83,22 @@ static int disk_blocks(uint32_t idx, uint32_t *bl, uint32_t *n)
     return 1;
 }
 
+/* Every id-taking operation: r[0..4] with VALID arguments, r[5..7] with arguments that are invalid independently of the file.
+ * DESTRUCTIVE if `who` may modify the file (write/chmod/delete really run): only probe with a principal that cannot discover it. */
+static void probe(uint32_t who, fs_id_t id, int r[8])
+{
+    uint8_t b[8]; struct fs_stat st; zero(b, 8);
+    r[0] = fs_read(who, id, 0, b, 8); r[1] = fs_write(who, id, 0, b, 4); r[2] = fs_stat(who, id, &st);
+    r[3] = fs_set_perm(who, id, 3); r[4] = fs_delete(who, id);
+    r[5] = fs_read(who, id, 0, 0, 5); r[6] = fs_set_perm(who, id, 0x10); r[7] = fs_stat(who, id, 0);
+}
+static void purge(uint32_t owner)           /* delete every file of one owner (as the kernel) */
+{
+    static struct fs_stat l[FS_MAX_FILES]; int n = fs_list(0, l, FS_MAX_FILES);
+    for (int i = 0; i < n; i++) if (l[i].owner == owner) fs_delete(0, l[i].id);
+}
+static int usage_is(uint32_t who, uint32_t files, uint32_t blocks) { uint32_t f = 99, b = 99; return fs_usage(who, &f, &b) == FS_OK && f == files && b == blocks; }
+
 static void phase_functional(void)
 {
     fs_id_t a, c;
@@ -115,8 +131,8 @@ static void phase_functional(void)
         check("another principal creating a name that owner 1 holds as a HIDDEN file succeeds with its own id: no 'file exists' oracle, no name squatting", c1);
         check("each principal's lookup of that name finds its OWN file; the hidden file is never returned to the stranger and the stranger's is never returned to the owner",
               fs_lookup(2, "a.txt", &x) == FS_OK && x == other && fs_lookup(1, "a.txt", &x) == FS_OK && x == a && fs_lookup(3, "a.txt", &c3) == FS_ENOENT);
-        check("the stranger cannot read or delete the owner's same-named file through its id, but can delete its own",
-              fs_read(2, a, 0, big2, 4) == FS_EACCES && fs_delete(2, a) == FS_EACCES && fs_delete(2, other) == FS_OK && fs_lookup(2, "a.txt", &x) == FS_ENOENT);
+        check("the stranger cannot read or delete the owner's same-named hidden file through its id (indistinguishable from a bad id: FS_EBADID), but can delete its own",
+              fs_read(2, a, 0, big2, 4) == FS_EBADID && fs_delete(2, a) == FS_EBADID && fs_delete(2, other) == FS_OK && fs_lookup(2, "a.txt", &x) == FS_ENOENT);
         fs_id_t w1, w2;
         int s1 = fs_create(1, "pub.txt", 3 | FS_PERM_OTHER_R, &w1) == FS_OK, s2 = fs_create(2, "pub.txt", 3, &w2) == FS_OK;
         check("a world-readable file and a hidden file of the same name from two owners: owner 2 gets its own, an unrelated principal gets the readable one, never the hidden one",
@@ -131,9 +147,9 @@ static void phase_functional(void)
             fs_id_t t; char nm[8] = { 's', (char)('a' + i), 0 };
             if (!put_file(1, nm, 3, big, sizes[i], &t)) ok = 0;
             struct fs_stat st; if (fs_stat(1, t, &st) || st.size != sizes[i]) ok = 0;
+            if (fs_delete(1, t) != FS_OK) ok = 0;                          /* a principal may own at most FS_QUOTA_FILES files */
         }
         check("sizes 0, 1, 511, 512, 513, 1023..1025, 4096, 10000 and the 24 KiB maximum all round-trip exactly", ok);
-        for (unsigned i = 0; i < sizeof sizes / sizeof *sizes; i++) { char nm[8] = { 's', (char)('a' + i), 0 }; fs_id_t t; if (fs_lookup(1, nm, &t) == FS_OK) fs_delete(1, t); }
     }
     fill(big, 3000, 1);
     fill(big2, 100, 99);
@@ -180,15 +196,15 @@ static void phase_functional(void)
         ok &= put_file(10, "public-ro", FS_PERM_OWNER_R | FS_PERM_OWNER_W | FS_PERM_OTHER_R, big, 300, &pub);
         ok &= put_file(10, "public-rw", FS_PERM_OWNER_R | FS_PERM_OWNER_W | FS_PERM_OTHER_R | FS_PERM_OTHER_W, big, 300, &ro);
         check("authorization setup: owner 10 creates three files with different permissions", ok);
-        check("owner-only file: another principal gets FS_EACCES for read, write, stat, set_perm and delete, and cannot find it by name (FS_ENOENT)",
-              fs_read(11, priv, 0, tmp, 64) == FS_EACCES && fs_write(11, priv, 0, tmp, 8) == FS_EACCES && fs_stat(11, priv, &(struct fs_stat){ 0 }) == FS_EACCES &&
-              fs_set_perm(11, priv, 0xF) == FS_EACCES && fs_delete(11, priv) == FS_EACCES && fs_lookup(11, "private", &c) == FS_ENOENT);
-        check("a principal that GUESSES the exact id (index and generation are not secret) is still refused by the permission check",
-              fs_read(11, (fs_id_t)((priv >> 8) << 8 | (priv & 0xFF)), 0, tmp, 8) == FS_EACCES);
+        check("owner-only file: another principal gets FS_EBADID (as for a nonexistent id) for read, write, stat, set_perm and delete, and cannot find it by name (FS_ENOENT)",
+              fs_read(11, priv, 0, tmp, 64) == FS_EBADID && fs_write(11, priv, 0, tmp, 8) == FS_EBADID && fs_stat(11, priv, &(struct fs_stat){ 0 }) == FS_EBADID &&
+              fs_set_perm(11, priv, 0xF) == FS_EBADID && fs_delete(11, priv) == FS_EBADID && fs_lookup(11, "private", &c) == FS_ENOENT);
+        check("a principal that GUESSES the exact id (index and generation are not secret) is refused and learns nothing: the result equals that of an id that never existed",
+              fs_read(11, (fs_id_t)((priv >> 8) << 8 | (priv & 0xFF)), 0, tmp, 8) == FS_EBADID && fs_read(11, priv, 0, tmp, 8) == fs_read(11, (31ULL | (77ULL << 8)), 0, tmp, 8));
         check("other-readable file: others can read, cannot write, cannot change permissions or delete",
               fs_read(11, pub, 0, tmp, 64) == 64 && fs_write(11, pub, 0, tmp, 8) == FS_EACCES && fs_set_perm(11, pub, 0xF) == FS_EACCES && fs_delete(11, pub) == FS_EACCES && file_is(10, "public-ro", big, 300));
         check("other-writable file: others can write it, but still not delete it or change its permissions", fs_write(11, ro, 0, tmp, 8) == 8 && fs_delete(11, ro) == FS_EACCES && fs_set_perm(11, ro, 0) == FS_EACCES);
-        check("the owner can change permissions: revoking other-read takes effect at once", fs_set_perm(10, pub, FS_PERM_OWNER_R | FS_PERM_OWNER_W) == FS_OK && fs_read(11, pub, 0, tmp, 8) == FS_EACCES && fs_set_perm(10, pub, 0x10) == FS_EARG);
+        check("the owner can change permissions: revoking other-read takes effect at once and the file becomes undiscoverable to others (FS_EBADID)", fs_set_perm(10, pub, FS_PERM_OWNER_R | FS_PERM_OWNER_W) == FS_OK && fs_read(11, pub, 0, tmp, 8) == FS_EBADID && fs_set_perm(10, pub, 0x10) == FS_EARG);
         check("owner without the owner-write bit cannot write (permissions bind owners too); the kernel principal can do anything",
               fs_set_perm(10, pub, FS_PERM_OWNER_R) == FS_OK && fs_write(10, pub, 0, tmp, 8) == FS_EACCES && fs_write(0, pub, 0, tmp, 8) == 8 && fs_read(10, pub, 0, tmp, 8) == 8);
         int n1 = fs_list(10, ls, FS_MAX_FILES), n2 = fs_list(11, ls, FS_MAX_FILES);
@@ -196,6 +212,81 @@ static void phase_functional(void)
         fs_delete(10, priv); fs_delete(10, pub); fs_delete(10, ro);
     }
     fs_delete(1, a);
+
+    /* ---- existence policy: a hidden file's id must be indistinguishable from an id that does not exist ---- */
+    {
+        fs_id_t hid, rd, wr, dead, np; uint8_t t[8]; struct fs_stat st; fill(big, 200, 5);
+        int ok = put_file(60, "hidden", FS_PERM_OWNER_R | FS_PERM_OWNER_W, big, 200, &hid);
+        ok &= put_file(60, "readable", 7, big, 200, &rd);
+        ok &= put_file(60, "writable", 0xB, big, 200, &wr);                                  /* owner rw, others write only */
+        ok &= put_file(60, "doomed", 3, big, 200, &dead) && fs_delete(60, dead) == FS_OK;
+        fs_id_t bogus[5] = { (hid & 0xFF) | (((hid >> 8) + 1) << 8), dead, 30 | (9ULL << 8), 200, hid | (1ULL << 45) };   /* stale generation, deleted, never-used slot, out of range, high bits */
+        int ref[8], r[8], same_all = 1;
+        probe(61, hid, ref);
+        int expected = ref[0] == FS_EBADID && ref[1] == FS_EBADID && ref[2] == FS_EBADID && ref[3] == FS_EBADID && ref[4] == FS_EBADID &&
+                       ref[5] == FS_EARG && ref[6] == FS_EARG && ref[7] == FS_EARG;
+        for (int k = 0; k < 5; k++) { probe(61, bogus[k], r); for (int j = 0; j < 8; j++) if (r[j] != ref[j]) same_all = 0; }
+        check("existence: a stranger probing a HIDDEN file with read, write, stat, chmod, delete and three file-independent bad arguments gets results identical to a stale generation, a deleted file, a never-used slot, an out-of-range index and stray high bits; the file is untouched",
+              ok && expected && same_all && file_is(60, "hidden", big, 200) && fs_stat(0, hid, &st) == FS_OK && st.perm == 3 && st.owner == 60);
+        check("existence: files the stranger CAN discover keep precise errors: other-readable = read/stat ok, write/chmod/delete FS_EACCES; other-writable = write ok, read FS_EACCES, stat ok, delete/chmod FS_EACCES",
+              fs_read(61, rd, 0, t, 8) == 8 && fs_stat(61, rd, &st) == FS_OK && fs_write(61, rd, 0, t, 4) == FS_EACCES && fs_set_perm(61, rd, 0) == FS_EACCES && fs_delete(61, rd) == FS_EACCES &&
+              fs_write(61, wr, 0, t, 4) == 4 && fs_read(61, wr, 0, t, 8) == FS_EACCES && fs_stat(61, wr, &st) == FS_OK && fs_delete(61, wr) == FS_EACCES && fs_set_perm(61, wr, 0) == FS_EACCES);
+        int zp = fs_create(60, "noperm", 0, &np) == FS_OK;
+        check("existence: an OWNER always discovers its own file, even with every permission bit cleared (read/stat FS_EACCES, but chmod and delete work); the kernel sees the truth for real files and FS_EBADID for bogus ids",
+              zp && fs_read(60, np, 0, t, 4) == FS_EACCES && fs_stat(60, np, &st) == FS_EACCES && fs_set_perm(60, np, 3) == FS_OK && fs_delete(60, np) == FS_OK &&
+              fs_read(0, hid, 0, t, 8) == 8 && fs_stat(0, hid, &st) == FS_OK && fs_read(0, dead, 0, t, 8) == FS_EBADID && fs_read(0, bogus[2], 0, t, 8) == FS_EBADID);
+        int rv = fs_set_perm(60, rd, 3) == FS_OK;
+        probe(61, rd, r);
+        int vanished = 1; for (int j = 0; j < 8; j++) if (r[j] != ref[j]) vanished = 0;
+        check("existence: when the owner revokes other-read the file immediately becomes indistinguishable from a bad id for the stranger, and a remount does not change that",
+              rv && vanished && fs_mount() == FS_OK && (probe(61, rd, r), r[0] == FS_EBADID && r[2] == FS_EBADID) && file_is(60, "readable", big, 200));
+        purge(60);
+    }
+
+    /* ---- per-principal quotas ---- */
+    {
+        fs_id_t qi[FS_QUOTA_FILES], x, y; char nm[4]; uint8_t t[4]; int ok = 1;
+        for (int k = 0; k < (int)FS_QUOTA_FILES; k++) { nm[0] = 'q'; nm[1] = (char)('a' + k); nm[2] = 0; if (fs_create(40, nm, 3, &qi[k]) != FS_OK) ok = 0; }
+        int ninth = fs_create(40, "q-extra", 3, &x);
+        fill(big, 100, 6);
+        int other = fs_create(41, "q-extra", 3, &x) == FS_OK && fs_write(41, x, 0, big, 100) == 100;
+        check("file quota: principal 40 creates 8 files and the 9th is FS_EQUOTA with nothing changed; principal 41 can still create and write; usage is 8 files / 0 blocks and 1 file / 1 block",
+              ok && ninth == FS_EQUOTA && other && usage_is(40, 8, 0) && usage_is(41, 1, 1) && fs_file_count() == 9);
+        int del = fs_delete(40, qi[3]) == FS_OK && usage_is(40, 7, 0);
+        int again = fs_create(40, "q-new", 3, &x) == FS_OK && (x & 0xFF) == (qi[3] & 0xFF) && x != qi[3];
+        check("file quota: deleting a file releases its quota; the new file reuses the slot with a NEW generation (the old id stays dead) and the limit is still 8, so a reused slot does not bypass it",
+              del && again && fs_read(40, qi[3], 0, t, 1) == FS_EBADID && fs_create(40, "q-extra", 3, &y) == FS_EQUOTA && usage_is(40, 8, 0));
+        check("file quota: the limit is rebuilt from the disk by a remount and still enforced (it is derived from the inodes, not stored); other principals are unaffected",
+              fs_mount() == FS_OK && usage_is(40, 8, 0) && fs_create(40, "q-extra", 3, &y) == FS_EQUOTA && fs_create(41, "q-more", 3, &y) == FS_OK);
+        purge(40); purge(41);
+    }
+    {
+        fs_id_t f1, f2, f3, f4; struct fs_stat st; fill(big, FS_MAX_FILE, 9);
+        int ok = put_file(42, "b1", 3, big, FS_MAX_FILE, &f1);                                /* 48 blocks */
+        ok &= fs_create(42, "b2", 3, &f2) == FS_OK && fs_write(42, f2, 0, big, 40 * 512) == 40 * 512;   /* 40 blocks: 88 */
+        ok &= fs_create(42, "b3", 3, &f3) == FS_OK;
+        int grow = fs_write(42, f2, 40 * 512, big, 8 * 512) == 8 * 512 && usage_is(42, 3, 96);   /* exactly the 96-block limit is allowed */
+        uint32_t free0 = fs_free_blocks();
+        int refused = fs_write(42, f3, 0, big, 1) == FS_EQUOTA;
+        check("block quota: files of 48 + 48 blocks reach exactly the 96-block limit; one more byte in a third file is FS_EQUOTA and the failed write consumed nothing (usage, free blocks and the target's size unchanged)",
+              ok && grow && refused && usage_is(42, 3, 96) && fs_free_blocks() == free0 && fs_stat(42, f3, &st) == FS_OK && st.size == 0);
+        int inplace = fs_write(42, f1, 100, big, 50) == 50 && usage_is(42, 3, 96);
+        int efbig = fs_write(42, f3, 0, big, 0xFFFFFFFFu) == FS_EFBIG && fs_write(42, f3, FS_MAX_FILE, big, 0xFFFFFFFFu) == FS_EARG;
+        int p43 = put_file(43, "b43", 3, big, FS_MAX_FILE, &f4) && usage_is(43, 1, 48);
+        check("block quota: an overwrite in place at the limit still works; absurd lengths are FS_EFBIG/FS_EARG (no overflow in the quota arithmetic); principal 43 can still write a full-size file",
+              inplace && efbig && p43);
+        int kq = fs_write(0, f3, 0, big, 1) == FS_EQUOTA;
+        int s1 = fs_write(43, f3, 0, big, 1) == FS_EBADID && fs_delete(43, f3) == FS_EBADID && fs_delete(43, f1) == FS_EBADID && fs_set_perm(43, f1, 0xF) == FS_EBADID;
+        check("quota policy: it is charged to the file's OWNER whoever writes (the kernel principal gets FS_EQUOTA too); a stranger cannot reach, delete or re-permission a hidden file to change its owner's accounting",
+              kq && s1 && usage_is(42, 3, 96) && usage_is(43, 1, 48));
+        int rel = fs_delete(42, f1) == FS_OK && usage_is(42, 2, 48);
+        int use = fs_write(42, f3, 0, big, 1) == 1 && usage_is(42, 2, 49);
+        int rm = fs_mount() == FS_OK && usage_is(42, 2, 49);
+        int fill_up = fs_write(42, f3, 0, big, FS_MAX_FILE) == FS_MAX_FILE && usage_is(42, 2, 96);
+        fs_id_t f5; int lim = fs_create(42, "b5", 3, &f5) == FS_OK && fs_write(42, f5, 0, big, 1) == FS_EQUOTA && fs_mount() == FS_OK && fs_write(42, f5, 0, big, 1) == FS_EQUOTA && usage_is(42, 3, 96);
+        check("block quota: deleting a file releases its blocks, a write then fits, usage survives a remount, and the limit is enforced again afterwards", rel && use && rm && fill_up && lim);
+        purge(42); purge(43);
+    }
 
     /* ---- repeated create / write / read / delete, no leaks ---- */
     {
@@ -213,10 +304,14 @@ static void phase_functional(void)
 
     /* ---- inode exhaustion ---- */
     {
+        /* one principal is limited to FS_QUOTA_FILES, so the table is filled by four of them */
         int made = 0, last = 0; fs_id_t ids[FS_MAX_FILES + 2]; char nm[8];
-        for (int i = 0; i < FS_MAX_FILES + 1; i++) { nm[0] = 'i'; nm[1] = (char)('a' + i / 26); nm[2] = (char)('a' + i % 26); nm[3] = 0; last = fs_create(5, nm, 3, &ids[i]); if (last == FS_OK) made++; else break; }
-        check("32 files fit; the 33rd is FS_ENFILE and nothing is damaged", made == FS_MAX_FILES && last == FS_ENFILE && fs_file_count() == FS_MAX_FILES);
-        for (int i = 0; i < made; i++) fs_delete(5, ids[i]);
+        for (int i = 0; i < FS_MAX_FILES; i++) { nm[0] = 'i'; nm[1] = (char)('a' + i / 26); nm[2] = (char)('a' + i % 26); nm[3] = 0; last = fs_create(51 + (uint32_t)(i / (int)FS_QUOTA_FILES), nm, 3, &ids[i]); if (last == FS_OK) made++; else break; }
+        fs_id_t extra;
+        int over_q = fs_create(51, "overquota", 3, &extra), over_t = fs_create(55, "overtable", 3, &extra);
+        check("four principals fill all 32 slots; a 33rd file is FS_EQUOTA for a principal at its quota and FS_ENFILE for a fresh principal when the table is full; nothing is damaged",
+              made == FS_MAX_FILES && over_q == FS_EQUOTA && over_t == FS_ENFILE && fs_file_count() == FS_MAX_FILES);
+        for (int i = 0; i < made; i++) fs_delete(51 + (uint32_t)(i / (int)FS_QUOTA_FILES), ids[i]);
         check("deleting them all frees every slot again", fs_file_count() == 0 && fs_create(5, "again", 3, &ids[0]) == FS_OK && fs_delete(5, ids[0]) == FS_OK);
     }
 
@@ -229,7 +324,7 @@ static void phase_functional(void)
         fs_create(6, "f1", 3, &f1);
         int e1 = fs_write(6, f1, 0, big, FS_MAX_FILE);                                /* needs 48, only 35 free */
         struct fs_stat st; fs_stat(6, f1, &st);
-        check("full disk: a write that does not fit is FS_ENOSPC, the target file is still empty and the other file is intact", fm && w0 && e1 == FS_ENOSPC && st.size == 0 && file_is(6, "f0", big, FS_MAX_FILE) && fs_free_blocks() == 35);
+        check("full disk: a write that does not fit is FS_ENOSPC (the quota allows it, the disk does not), the target file is still empty, the other file is intact and the failed write consumed no quota", fm && w0 && e1 == FS_ENOSPC && st.size == 0 && file_is(6, "f0", big, FS_MAX_FILE) && fs_free_blocks() == 35 && usage_is(6, 2, 48));
         fill(big2, 35 * 512, 8);
         int w1 = fs_write(6, f1, 0, big2, 35 * 512);
         check("full disk: a write that fits exactly fills the last free block (free = 0)", w1 == 35 * 512 && fs_free_blocks() == 0);
@@ -266,6 +361,7 @@ static void phase_functional(void)
             if (k >= W && !isnew) ok = 0;                                           /* everything landed: the new file */
             if (prev_new && !isnew) mono = 0;
             prev_new = isnew; sawold |= isold; sawnew |= isnew;
+            if (lr == FS_OK) fs_delete(7, id2);                                    /* keep the principal under its file quota */
         }
         check("crash injection (write k of the update is the last to reach the disk, for every k): after remount the file is exactly the OLD or exactly the NEW content, never a mix; old up to the inode write, new from then on",
               ok && mono && sawold && sawnew && W >= 2);
@@ -276,12 +372,14 @@ static void phase_functional(void)
             blk_test_drop_writes_after(k); fs_create(7, nm, 3, &id); blk_test_drop_writes_after(-1);
             int mr = fs_mount(); fs_id_t x; int present = mr == FS_OK && fs_lookup(7, nm, &x) == FS_OK;
             if (mr != FS_OK || present != (k >= 1)) c_ok = 0;
+            if (present) fs_delete(7, x);
         }
         for (int k = 0; k < 3; k++) {
             char nm[8] = { 'd', (char)('a' + k), 0 }; fs_id_t id; put_file(7, nm, 3, oldc, 1000, &id);
             blk_test_drop_writes_after(k); fs_delete(7, id); blk_test_drop_writes_after(-1);
             int mr = fs_mount(); fs_id_t x; int present = mr == FS_OK && fs_lookup(7, nm, &x) == FS_OK;
             if (mr != FS_OK || present != (k == 0)) c_ok = 0;
+            if (present) fs_delete(7, x);
         }
         check("crash injection for create and delete: the file exists afterwards exactly when its inode sector reached the disk; the filesystem always mounts", c_ok);
     }
@@ -402,6 +500,18 @@ static void phase_functional(void)
             if (!(ok && rc == FS_EUNCERTAIN && all_refused() && fs_mount() == FS_OK && fs_stat(3, g_ia, &st) == FS_OK && st.perm == 0xF)) p_ok = 0;
             check("inject chmod: rejected = unchanged and mounted; lost = uncertain, old permissions after remount; landed = uncertain, new permissions after remount", p_ok);
         }
+
+        /* 11. quota accounting is derived from the inodes, so it follows whatever the disk actually holds after an uncertain commit */
+        {
+            int q_ok = 1; uint32_t uf, ub;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_FAIL_UNSENT, 3); rc = fs_write(3, g_ia, 0, A1, 1500);      /* growth 2 -> 3 blocks, lost */
+            if (!(ok && rc == FS_EUNCERTAIN && fs_usage(3, &uf, &ub) == FS_EMOUNT && fs_mount() == FS_OK && usage_is(3, 2, 4))) q_ok = 0;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_FAIL_SENT, 3); rc = fs_write(3, g_ia, 0, A1, 1500);        /* landed although reported as failed */
+            if (!(ok && rc == FS_EUNCERTAIN && fs_mount() == FS_OK && usage_is(3, 2, 5))) q_ok = 0;
+            ok = inj_setup(); blk_test_inject_write(BLK_INJ_REJECT, 1); rc = fs_write(3, g_ia, 0, A1, 1500);          /* definite data failure */
+            if (!(ok && rc < 0 && rc != FS_EUNCERTAIN && fs_mounted() && usage_is(3, 2, 4))) q_ok = 0;
+            check("inject quota: usage is exactly 4 blocks after a lost metadata update, 5 after one that landed despite the error (visible only after remount), and unchanged after a definite data-write failure", q_ok);
+        }
         blk_test_inject_clear();
     }
 
@@ -432,8 +542,8 @@ static void phase_persistent(void)
     check("shared.txt: 700 bytes identical, owner 7, permissions preserved", file_is(7, "shared.txt", big, 700));
     struct fs_stat st; fs_stat(7, p, &st);
     check("metadata survived: owner 7, permission owner-rw only, size 3023, name persist.txt", st.owner == 7 && st.perm == 3 && st.size == cn && st.name[0] == 'p');
-    check("authorization after the restart: a stranger cannot read or find persist.txt, can read shared.txt but not write it",
-          fs_read(9, p, 0, tmp, 16) == FS_EACCES && fs_lookup(9, "persist.txt", &p) == FS_ENOENT && fs_lookup(9, "shared.txt", &s) == FS_OK && fs_read(9, s, 0, tmp, 16) == 16 && fs_write(9, s, 0, tmp, 4) == FS_EACCES);
+    check("authorization after the restart: a stranger cannot read or find persist.txt (FS_EBADID, same as a bad id), can read shared.txt but not write it (FS_EACCES)",
+          fs_read(9, p, 0, tmp, 16) == FS_EBADID && fs_read(9, p, 0, tmp, 16) == fs_read(9, (p & 0xFF) | (((p >> 8) + 5) << 8), 0, tmp, 16) && fs_lookup(9, "persist.txt", &p) == FS_ENOENT && fs_lookup(9, "shared.txt", &s) == FS_OK && fs_read(9, s, 0, tmp, 16) == 16 && fs_write(9, s, 0, tmp, 4) == FS_EACCES);
     uint8_t cb[4]; int r = fs_read(7, bt, 0, cb, 4); uint32_t boots = r == 4 ? get32(cb) : 0;
     put32(cb, boots + 1);
     int w = fs_write(7, bt, 0, cb, 4);
@@ -441,6 +551,25 @@ static void phase_persistent(void)
     console_puts("[fs-test] info: boot counter was "); console_dec(boots); console_puts(", now "); console_dec(boots + 1); console_puts("\n");
     check("boot counter: read the value left by the previous boot, wrote value+1, read it back (state changes persist across runs)", r == 4 && boots >= 1 && w == 4 && r2 == 4 && get32(cb2) == boots + 1);
     check("a file keeps its id across remount (generation and slot are on the disk)", ({ fs_id_t q; fs_mount() == FS_OK && fs_lookup(7, "persist.txt", &q) == FS_OK && q == p; }));
+
+    {
+        /* Quota usage is rebuilt from the inodes the previous boots left on the disk. Principal 7 owns exactly persist.txt (6 blocks), shared.txt (2) and boots (1). */
+        fs_id_t qa[8], x; char nm[4]; int ok2 = 1; int k;
+        int u0 = usage_is(7, 3, 9);
+        check("quota after the RESTART: usage of principal 7 is recomputed from the disk (3 files, 9 blocks)", u0);
+        for (k = 0; k < (int)FS_QUOTA_FILES - 3; k++) { nm[0] = 'z'; nm[1] = (char)('a' + k); nm[2] = 0; if (fs_create(7, nm, 3, &qa[k]) != FS_OK) ok2 = 0; }
+        int ninth = fs_create(7, "zz", 3, &x);
+        int other = fs_create(8, "zz", 3, &x) == FS_OK && fs_delete(8, x) == FS_OK;
+        fill(big, FS_MAX_FILE, 3);
+        int w1 = fs_write(7, qa[0], 0, big, FS_MAX_FILE) == FS_MAX_FILE;                    /* 9 + 48 = 57 blocks */
+        int w2 = fs_write(7, qa[1], 0, big, FS_MAX_FILE) == FS_EQUOTA;                      /* 105 > 96 */
+        int w3 = fs_write(7, qa[1], 0, big, 39 * 512) == 39 * 512;                          /* exactly 96 */
+        int w4 = fs_write(7, qa[2], 0, big, 1) == FS_EQUOTA;
+        int rm = fs_mount() == FS_OK && usage_is(7, 8, 96) && fs_create(7, "zz", 3, &x) == FS_EQUOTA && fs_write(7, qa[2], 0, big, 1) == FS_EQUOTA;
+        for (k = 0; k < (int)FS_QUOTA_FILES - 3; k++) fs_delete(7, qa[k]);
+        check("quota after the RESTART: the 8-file and 96-block limits of a principal that owns files from an earlier boot are enforced, another principal is unaffected, and after cleanup usage is back to 3 files / 9 blocks",
+              ok2 && ninth == FS_EQUOTA && other && w1 && w2 && w3 && w4 && rm && usage_is(7, 3, 9) && file_is(7, "persist.txt", content, cn));
+    }
 
     /* ---- corruption suite: damage a sector, expect a precise refusal, restore, expect a clean mount ---- */
     static uint8_t sb[BLK_SECTOR], sb0[BLK_SECTOR], in[BLK_SECTOR], in0[BLK_SECTOR];
@@ -509,8 +638,8 @@ static void phase_persistent(void)
 
     {
         static uint8_t j[BLK_SECTOR], j0[BLK_SECTOR];
-        sector_rw(5, j0, 0); copy(j, j0, BLK_SECTOR); j[5] = 0x77;                           /* sector 5 = inodes 8 and 9: never used */
-        sector_rw(5, j, 1); e = fs_mount(); sector_rw(5, j0, 1);
+        sector_rw(16, j0, 0); copy(j, j0, BLK_SECTOR); j[5] = 0x77;                          /* sector 16 = inodes 30 and 31: never used (slots are allocated lowest first) */
+        sector_rw(16, j, 1); e = fs_mount(); sector_rw(16, j0, 1);
         check("junk in a never-used inode slot is rejected (free slots must be all zero)", e == FS_ECORRUPT);
     }
 
