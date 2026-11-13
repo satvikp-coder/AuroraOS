@@ -110,4 +110,11 @@ registerScreen({ id: "screen-clock-stopwatch", label: "Clock (stopwatch, laps)",
 registerScreen({ id: "screen-clock-timer", label: "Clock (timer, 24 hours running)", root: "#screen-clock", open: async (page) => { await clockOpen(page, "timer"); await ev(page, () => { [["timer-h", "24"], ["timer-m", "0"], ["timer-s", "0"]].forEach(([id, v]) => { const n = document.getElementById(id); n.value = v; n.dispatchEvent(new Event("input", { bubbles: true })); }); document.getElementById("btn-timer-start").click(); }); await resetTop(page); } });
 registerScreen({ id: "screen-clock-timer-error", label: "Clock (timer, invalid length)", root: "#screen-clock", open: async (page) => { await clockOpen(page, "timer"); await ev(page, () => { ["timer-h", "timer-m", "timer-s"].forEach((id) => { const n = document.getElementById(id); n.value = id === "timer-m" ? "abc" : "0"; n.dispatchEvent(new Event("input", { bubbles: true })); }); }); await resetTop(page); } });
 
+// Welcome tour (dialog): the last step has the most content (three points + the prototype note).
+registerScreen({
+  id: "dialog-welcome", label: "Welcome tour (last step)", root: ".dialog",
+  open: async (page) => { await ev(page, () => { window.AuroraWelcome.show(); }); await page.locator("#welcome-dialog").waitFor(); await page.locator("#btn-welcome-next").click(); await page.locator("#btn-welcome-next").click(); },
+  close: async (page) => { await page.keyboard.press("Escape"); await page.locator("#welcome-dialog").waitFor({ state: "detached" }); },
+});
+
 module.exports = { SCREENS, registerScreen };

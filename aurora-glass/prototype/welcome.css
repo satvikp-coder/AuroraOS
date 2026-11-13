@@ -1,0 +1,16 @@
+/* aurora-glass/prototype/welcome.css - the first-run welcome dialog only. Colours, radii, spacing and text sizes are tokens. */
+.welcome { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.welcome-progress { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.welcome-step-label { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--color-ink-muted); }
+.welcome-dots { display: inline-flex; gap: var(--space-1); }
+.welcome-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-surface-sunken); border: var(--border-width) solid var(--color-border-strong); }
+.welcome-dot.is-current { background: var(--color-accent-fill); border-color: var(--color-accent-fill); }
+.welcome-dot.is-done { background: var(--color-accent-soft); border-color: var(--color-accent); }
+:root[data-contrast="high"] .welcome-dot.is-current { outline: 2px solid var(--color-ink); outline-offset: 1px; }
+.welcome-heading { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.welcome-body { margin: 0; overflow-wrap: anywhere; }
+.welcome-points { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); overflow-wrap: anywhere; }
+.welcome-note { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--color-surface-sunken); border: var(--border-width) solid var(--color-border); font-size: var(--text-sm); color: var(--color-ink-muted); overflow-wrap: anywhere; }
+.welcome-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: space-between; align-items: center; }
+.welcome-actions .btn { flex: 0 1 auto; }
+.welcome-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-left: auto; }

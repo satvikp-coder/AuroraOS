@@ -330,6 +330,7 @@
         if (i < 0) f[0].focus(); else f[(i + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus();
       }
       document.addEventListener("keydown", onKey, true);
+      if (o.onOpen) o.onOpen({ close, panel });                              // lets a dialog with its own buttons (the welcome tour) resolve itself
       scrim.addEventListener("pointerdown", (e) => { if (e.target === scrim && !o.sticky) close(o.dismissValue === undefined ? null : o.dismissValue); });
       (document.getElementById("app") || document.body).appendChild(scrim);
       // Focus the SAFE choice first (first non-danger, non-hold button), never the destructive one.
