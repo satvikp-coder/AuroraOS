@@ -10,16 +10,16 @@ Project model: one human owner (solo maintainer). No external reviewer is requir
 
 | | |
 |---|---|
-| `main` | `9d4afab61cc7705522537db981f62dcca1116903`. Main CI 6/6: https://github.com/satvikp-coder/AuroraOS/actions/runs/43284806714 |
-| Merged (all with merge commits, after a documented self-review and 6/6 CI on the exact head) | #30 M1 shell, #31 M2 Passport, #32 M3 Trail, #33 M4 Vault (`1d5e2dc` / earlier), #28 AuroraFS (`aa37c17`), #29 EL0 file access (`4e5cae6`) |
+| `main` | `32d35dd` (plus the docs/test PR that adds `tests/qemu/e2e-tests.sh`). Main CI (all jobs green): #35 hardening https://github.com/satvikp-coder/AuroraOS/actions/runs/43355882400, #36 ELF validator .../43357637045, #37 loader .../43359635149, #38 settings .../43360577602 |
+| Merged (all with merge commits, after a documented self-review and 6/6 CI on the exact head) | #30 M1 shell, #31 M2 Passport, #32 M3 Trail, #33 M4 Vault, #28 AuroraFS, #29 EL0 file access, **#35 kernel hardening, #36 ELF validator, #37 program loader, #38 settings registry** |
 | Open PRs | none |
-| Kernel | milestones B (AuroraFS) and C (EL0 file access) are on main with the review fixes (per-owner names, exhausted-slot skip, real PID-reuse test). Issue #6 stays OPEN: init, program loader (D) and the native settings registry (E) are not built. Status comment posted on the issue. Kernel worktree: `..\AuroraOS-Claude-kernel` (use an LF copy inside WSL to run QEMU tests; see the dev-environment memory). The sibling `Desktop\AuroraOS` holds the user's uncommitted kernel work: never touch it |
+| Kernel | Issue #6 scope is implemented on main and tested in QEMU only: virtio-blk, AuroraFS (per-owner names, file-id existence hiding, per-principal quotas of 8 files / 96 blocks, uncertain-write handling), EL0 file access with real EL0 boundary tests, the program loader and trusted launch (docs/kernel/loader.md), and the native settings registry (docs/kernel/settings.md). Suites: fs 161, process 154, loader 72, settings 74, storage 53, mm 128, irq 93, e2e 50, host 89+27+77. Kernel worktree: `..\AuroraOS-Claude-kernel` (run QEMU tests through an LF copy inside WSL, see the dev-environment memory; branches are not checked out twice). The sibling checkout `C:\Users\satvi\Desktop\AuroraOS` holds the owner's uncommitted kernel work and must not be touched. |
 
 | Task | Status |
 |---|---|
 | F0, M1 shell, M2 Passport, M3 Trail, M4 Vault | **merged to main** (unit 8/8 suites; Playwright 465 passed, 22 skipped, 0 failed; layout matrix 28/28) |
 | M5 Notes, M6 Calculator, M7 Clock, M8 polish | not started |
-| Kernel D program loader, E settings registry | not started |
+| Kernel D program loader, E settings registry, hardening | **merged to main** (see the Kernel row) |
 
 M4 visual review: actually looked at Vault at 390 dark (select mode, two selected), 390 light (preview), 1280 dark (grid + side preview), 1280 light (list + preview). Not looked at by eye: 360, 412, 768, 1024, 1440, Clear mode, high contrast, 200% text, reduced motion (covered by assertions in vault.test.js and the layout matrix only).
 Defects found and fixed in review: selected rows showed two check marks (redundant mark removed; the filled checkbox plus aria-checked remain); after a move or delete on a scrolled page the result with Undo / View in Trail was off-screen (now scrolled into view); the Glass Corner covered the sticky selection bar, the preview's top-right Close and the search field when scrolled (bar no longer sticky, Close moved into the action row, search reserves room for the corner below 1024 px); the Vault Space chips reused the Spaces screen's focus keys (renamed).
@@ -46,7 +46,7 @@ Test side effect: normal runs no longer modify tracked files (CI asserts a clean
 ## Exact next task
 
 1. **M5 Notes** on `feature/aurora-notes` from `main` (see `AURORA_UI_TASKS.md` M5: DOM-free notes model, versioned `localStorage` envelope with validation and corrupt-data handling, autosave, undo-delete, two-pane layout). Then M6 Calculator, M7 Clock, M8 polish (including a shell-level fix for the Glass Corner floating over scrolled content).
-2. **Kernel** in the separate worktree: first close the known limits listed in `docs/kernel/userspace.md` (per-principal quotas, id-based existence leak, the missing EL0 negative tests), then milestone D (program loader: validated executable format, run a file loaded from persistent storage at real EL0) and E (typed, authorized, persistent settings registry). Do not close issue #6 until all of its acceptance criteria are verified in QEMU.
+2. **Kernel** (issue #6 scope is done; nothing is open there). Candidates, none started: an installer service and signed or manifest-based application authorisation (today an executable is authorised by installer ownership of its file, and AuroraFS has CRC-32 only); an init process and a launch request service for EL0; arguments and exit-status delivery for loaded programs; a native Settings UI that reads the registry through `SYS_SETTINGS`. Read `docs/kernel/loader.md` and `docs/kernel/settings.md` limits first.
 
 ```bash
 cd C:/Users/satvi/Desktop/AuroraOS-Claude
