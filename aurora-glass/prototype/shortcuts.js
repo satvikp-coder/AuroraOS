@@ -55,6 +55,12 @@
       { keys: [["Delete"]], does: "Review deleting the selected files (nothing is deleted until you confirm)." },
       { keys: [["Esc"]], does: "Clear the selection, or close the preview." },
     ] },
+    { id: "menu", title: "Actions menu (Vault files, Pages)", screens: ["screen-vault", "screen-pages"], rows: [
+      { keys: [["Shift", "F10"], ["Menu"]], does: "Open the actions menu for the focused file or Page. Right-click or a long press does the same." },
+      { keys: [["↑"], ["↓"], ["Home"], ["End"]], does: "Move through the menu; typing a letter jumps to a matching action." },
+      { keys: [["Enter"], ["Space"]], does: "Run the action. Risky ones (Move, Delete) still open their review first." },
+      { keys: [["Esc"]], does: "Close the menu and return to the item." },
+    ] },
     { id: "tabs", title: "Tabs (Clock, Passport)", screens: ["screen-clock", "screen-passport"], rows: [
       { keys: [["←"], ["→"]], does: "Switch to the previous or next tab." },
       { keys: [["Home"], ["End"]], does: "Jump to the first or last tab." },

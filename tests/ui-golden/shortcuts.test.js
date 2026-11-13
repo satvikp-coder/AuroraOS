@@ -111,7 +111,7 @@ test.describe("Shortcut sheet: content", () => {
     await start(page);
     expect(await ev(page, () => window.AuroraShortcuts.groups())).toEqual([
       { id: "everywhere", title: "Everywhere", rows: 3 }, { id: "index", title: "Index", rows: 3 }, { id: "dialogs", title: "Dialogs", rows: 3 }, { id: "notes", title: "Notes", rows: 5 },
-      { id: "calculator", title: "Calculator", rows: 8 }, { id: "vault", title: "Vault (Files)", rows: 5 }, { id: "tabs", title: "Tabs (Clock, Passport)", rows: 2 }]);
+      { id: "calculator", title: "Calculator", rows: 8 }, { id: "vault", title: "Vault (Files)", rows: 5 }, { id: "menu", title: "Actions menu (Vault files, Pages)", rows: 4 }, { id: "tabs", title: "Tabs (Clock, Passport)", rows: 2 }]);
   });
   test("Windows/Linux shows Ctrl and never Cmd", async ({ page }) => {
     await page.addInitScript(() => { Object.defineProperty(navigator, "platform", { get: () => "Win32" }); });

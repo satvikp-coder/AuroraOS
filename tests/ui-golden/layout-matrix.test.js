@@ -20,7 +20,7 @@ const VIEWPORTS = [
 const MODES = ["default", "150%", "a11y"];
 
 /** Runs in the page. Returns a list of problems for the region `root`. */
-function inspect({ root, isDialog }) {
+function inspect({ root, isDialog, isOverlay }) {
   const out = [];
   const vw = document.documentElement.clientWidth, vh = window.innerHeight;
   const region = document.querySelector(root);
@@ -37,7 +37,7 @@ function inspect({ root, isDialog }) {
     if (n.closest("[hidden]")) return;
     if (r.left < -1 || r.right > vw + 1) out.push("clipped horizontally: " + name(n) + " [" + Math.round(r.left) + "," + Math.round(r.right) + "] of " + vw);
     if (n.tagName !== "INPUT" || n.type !== "range") { if (Math.min(r.width, r.height) < 44) out.push("target < 44px: " + name(n) + " " + Math.round(r.width) + "x" + Math.round(r.height)); }
-    if (!isDialog && gcr && r.left < gcr.right && r.right > gcr.left && r.top < gcr.bottom && r.bottom > gcr.top && n !== gc) out.push("overlaps the Glass Corner: " + name(n));
+    if (!isDialog && !isOverlay && gcr && r.left < gcr.right && r.right > gcr.left && r.top < gcr.bottom && r.bottom > gcr.top && n !== gc) out.push("overlaps the Glass Corner: " + name(n));
   });
 
   region.querySelectorAll("h1, h2, h3, .row-title, .index-title, .page-open, .space-card-item h3, .step-title, .dialog-title").forEach((n) => {
@@ -52,6 +52,10 @@ function inspect({ root, isDialog }) {
     dock.querySelectorAll(".dock-btn").forEach((b) => { const r = b.getBoundingClientRect(); if (r.left < -1 || r.right > vw + 1) out.push("dock button clipped: " + b.id); if (Math.min(r.width, r.height) < 44) out.push("dock target < 44px: " + b.id); });
   }
 
+  if (isOverlay) {                                                  // a popup menu: wholly inside the viewport, above the Glass Corner like a dialog
+    const m = region.getBoundingClientRect();
+    if (m.left < -1 || m.right > vw + 1 || m.top < -1 || m.bottom > vh + 1) out.push("menu outside the viewport");
+  }
   if (isDialog) {
     const d = region.getBoundingClientRect();
     if (d.left < -1 || d.right > vw + 1) out.push("dialog clipped horizontally");
@@ -89,7 +93,7 @@ for (const vp of VIEWPORTS) {
           for (const scr of SCREENS) {
             await scr.open(page);
             await page.waitForTimeout(40);
-            const problems = await page.evaluate(inspect, { root: scr.root, isDialog: scr.root === ".dialog" });
+            const problems = await page.evaluate(inspect, { root: scr.root, isDialog: scr.root === ".dialog", isOverlay: scr.root === ".ctx-menu" });
             expect(problems, `${scr.label} | ${vp.name} ${theme} ${tier} | ${mode}`).toEqual([]);
             if (mode === "default" && theme === "light" && tier === "soft" && (vp.name === "390" || vp.name === "desktop-1280")) {
               await page.screenshot({ path: shotPath(testInfo, `matrix-${scr.id}-${vp.name}.png`) });
