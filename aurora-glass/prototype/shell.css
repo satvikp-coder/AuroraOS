@@ -181,6 +181,13 @@ body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-in
 .gc-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--color-aura); }
 .gc-badge { position: absolute; top: -6px; right: -6px; border: 2px solid var(--color-canvas); }
 @media (max-width: 412px) { .glass-corner { top: var(--space-2); right: var(--space-2); } }
+/* Shell-level answer to "the fixed corner can sit over scrolled content": once .content has scrolled, an opaque app-bar band occupies the corner's row, so
+   content scrolls UNDER the band (hidden), never under the corner. At scroll top there is no band and no layout change. scroll-padding keeps a focused
+   or scrolled-into-view control out from behind the band. One rule for every screen: no per-screen margins. */
+.shell { --corner-band: calc(var(--space-4) * 2 + var(--touch-target)); }
+@media (max-width: 412px) { .shell { --corner-band: calc(var(--space-2) * 2 + var(--touch-target)); } }
+.content { scroll-padding-top: var(--corner-band); }
+.shell.is-scrolled::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: var(--corner-band); z-index: calc(var(--z-corner, 60) - 1); background: var(--color-canvas); border-bottom: var(--border-width) solid var(--color-border); }   /* blocks input like any app bar: nothing hidden beneath it can be tapped */
 .gc-panel { position: fixed; top: calc(var(--space-4) + var(--touch-target) + var(--space-2)); right: var(--space-4); z-index: var(--z-sheet, 200); width: min(380px, calc(100vw - var(--space-4) * 2)); max-height: 70vh; overflow-y: auto; box-sizing: border-box; padding: var(--space-4);
   background: var(--color-surface-opaque); color: var(--color-ink); border: var(--border-width) solid var(--color-border-strong); border-radius: var(--radius-card); box-shadow: var(--shadow-3); display: flex; flex-direction: column; gap: var(--space-3); }
 .gc-panel[hidden] { display: none; }
