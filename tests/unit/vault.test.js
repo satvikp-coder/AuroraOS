@@ -126,5 +126,13 @@ test("hostile file names stay plain strings (no markup interpretation happens in
   assert.strictEqual(typeof r.text, "string");
 });
 
+test("the shared collator orders exactly like the old per-call localeCompare (accents, case, digits, equal names broken by id)", () => {
+  const names = ["b", "B", "a", "á", "A", "File 10", "File 2", "file 1", "File 02", "Z", "z", "éclair", "eclair", "10", "9", "", "same", "same", "Same"];
+  const files = names.map((name, i) => ({ id: "id" + String(i).padStart(2, "0"), name, size: 1, modified: 1 }));
+  const old = (a, bb) => String(a.name).localeCompare(String(bb.name), undefined, { numeric: true, sensitivity: "base" }) || String(a.id).localeCompare(String(bb.id));
+  assert.strictEqual(ids(M.sortFiles(files, "name", "asc")), files.slice().sort(old).map((f) => f.id).join(","));
+  assert.strictEqual(ids(M.sortFiles(files, "name", "desc")), files.slice().sort((x, y) => -old(x, y)).map((f) => f.id).join(","));
+});
+
 console.log(`\nVault model: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
