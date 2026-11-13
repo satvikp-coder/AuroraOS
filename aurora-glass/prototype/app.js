@@ -423,7 +423,7 @@
       emptyBox.replaceChildren(); emptyBox.hidden = items.length > 0;
       if (!items.length) {
         const row = el("div", { class: "index-suggest-row" }, SUGGESTIONS.slice(0, 3).map((t) => el("button", { type: "button", class: "btn outline btn-small", text: t, onclick: () => openIndex(t) })));
-        emptyBox.appendChild(UI.emptyState("search", "No results", "Nothing matches \u201c" + q.trim() + "\u201d. Try asking:", row));
+        emptyBox.appendChild(UI.emptyState("search", window.AuroraStrings.t("index.noResults"), "Nothing matches \u201c" + q.trim() + "\u201d. Try asking:", row));
       }
     }
     box.hidden = items.length === 0;
@@ -432,7 +432,7 @@
     setActive(IM.defaultActive(items));                              // a typo suggestion is never the default: with only those, nothing is highlighted
     clearTimeout(idxAnnounce);
     const onlyGuesses = items.length > 0 && idx.active < 0;
-    idxAnnounce = setTimeout(() => announce(onlyGuesses ? "No exact match. " + items.length + (items.length === 1 ? " suggestion" : " suggestions") + ". Use the arrow keys to choose one." : items.length ? items.length + (items.length === 1 ? " result" : " results") : "No results"), 250);
+    idxAnnounce = setTimeout(() => announce(onlyGuesses ? "No exact match. " + items.length + (items.length === 1 ? " suggestion" : " suggestions") + ". Use the arrow keys to choose one." : items.length ? window.AuroraStrings.tn("index.results", items.length) : window.AuroraStrings.t("index.noResults")), 250);
   }
 
   function setActive(i, scroll) {

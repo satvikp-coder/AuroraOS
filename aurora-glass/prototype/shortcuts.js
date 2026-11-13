@@ -10,6 +10,7 @@
   const UI = window.AuroraUI, Shell = window.AuroraShell;
   if (!UI || !Shell) return;
   const { el, icon } = UI;
+  const S = window.AuroraStrings, t = (k, p) => S.t(k, p);
 
   const isMac = () => /Mac|iPhone|iPad|iPod/i.test((navigator.platform || "") + " " + (navigator.userAgent || ""));
   const MOD = () => (isMac() ? "Cmd" : "Ctrl");
@@ -91,7 +92,7 @@
     if (isOpen || document.querySelector(".scrim")) return false;
     isOpen = true;
     const here = new Set(orderedGroups().filter((g) => g.screens && g.screens.includes(Shell.state.activeScreen)).map((g) => g.id));
-    const filter = el("input", { type: "search", class: "field", id: "shortcuts-filter", placeholder: "Filter shortcuts", "aria-label": "Filter shortcuts", autocomplete: "off" });
+    const filter = el("input", { type: "search", class: "field", id: "shortcuts-filter", placeholder: t("shortcuts.filter"), "aria-label": t("shortcuts.filter"), autocomplete: "off" });
     const list = el("div", { class: "kbd-groups", id: "shortcuts-list" });
     const none = el("p", { class: "row-meta", id: "shortcuts-none", role: "status", hidden: true });
     function render() {
@@ -102,22 +103,22 @@
         const rows = g.rows.filter((r) => !q || (g.title + " " + r.does + " " + keysText(r.keys)).toLowerCase().indexOf(q) !== -1);
         if (!rows.length) return;
         shown += rows.length;
-        const title = (here.has(g.id) ? "On this screen: " : "") + g.title;
+        const title = here.has(g.id) ? t("shortcuts.onThisScreen", { group: g.title }) : g.title;
         list.appendChild(el("section", { class: "kbd-group", "data-group": g.id, "aria-label": title }, [
           el("h3", { class: "kbd-group-title", text: title }),
           el("ul", { class: "kbd-rows" }, rows.map((r) => el("li", { class: "kbd-row", "aria-label": keysText(r.keys) + ": " + r.does }, [keysNode(r.keys), el("span", { class: "kbd-does", text: r.does })]))),
         ]));
       });
       none.hidden = shown > 0;
-      none.textContent = shown ? "" : "No shortcut matches “" + filter.value.trim() + "”.";
+      none.textContent = shown ? "" : t("shortcuts.none", { query: filter.value.trim() });
     }
     filter.addEventListener("input", render);
     render();
     const body = el("div", { class: "kbd-sheet" }, [
-      el("p", { class: "row-meta", text: "Only shortcuts this prototype really has. On a Mac, Cmd is used where Windows shows Ctrl." }),
+      el("p", { class: "row-meta", text: t("shortcuts.intro") }),
       el("div", { class: "search-field" }, [icon("search"), filter]), none, list,
     ]);
-    UI.dialog({ id: "shortcuts-dialog", title: "Keyboard shortcuts", icon: "keyboard", body, actions: [{ label: "Close", kind: "accent", value: true, id: "btn-shortcuts-close" }], initialFocus: "#shortcuts-filter" })
+    UI.dialog({ id: "shortcuts-dialog", title: t("shortcuts.title"), icon: "keyboard", body, actions: [{ label: t("shortcuts.close"), kind: "accent", value: true, id: "btn-shortcuts-close" }], initialFocus: "#shortcuts-filter" })
       .then(() => { isOpen = false; });
     return true;
   }
