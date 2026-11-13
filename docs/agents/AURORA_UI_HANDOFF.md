@@ -21,7 +21,7 @@ Project model: one human owner (solo maintainer). No external reviewer is requir
 | M6 Calculator | **merged (#41)**: unit 122, Playwright 25 specs, full suite 490 passed locally (22 skipped as before), layout matrix 28/28 |
 | M5 Notes | **merged (#43)**: unit 43, Playwright 56, 4 layout-matrix states |
 | M7 Clock | **merged (#44)**: unit 33, Playwright 38 using `page.clock`, 4 layout-matrix states |
-| M8 polish | **in progress**: A (Glass Corner shell fix) done on `fix/glass-corner-shell`; B-I not started (see `AURORA_UI_TASKS.md`) |
+| M8 polish | **in progress**: A (Glass Corner, #45) merged; B (desktop window card) in PR `feature/aurora-desktop-window`; C-I not started (see `AURORA_UI_TASKS.md`) |
 | Kernel D program loader, E settings registry, init, hardening | **merged to main** (see the Kernel row) |
 
 M4 visual review: actually looked at Vault at 390 dark (select mode, two selected), 390 light (preview), 1280 dark (grid + side preview), 1280 light (list + preview). Not looked at by eye: 360, 412, 768, 1024, 1440, Clear mode, high contrast, 200% text, reduced motion (covered by assertions in vault.test.js and the layout matrix only).

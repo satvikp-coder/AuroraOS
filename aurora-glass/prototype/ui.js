@@ -115,6 +115,24 @@
     return el("span", { class: "app-tile" + (size ? " app-tile-" + size : ""), style: { "--h": hue === undefined ? 215 : hue }, "aria-hidden": "true" }, [icon(iconName)]);
   }
 
+  /** windowBar({id, label, iconName, hue, onClose}) -> {node, update(name, iconName, hue)}. The title bar of a desktop window card (>= 1024px, see
+   *  shell.css). One shared bar: Close is on the LEFT (clear of the Glass Corner) and calls onClose (the shell passes back()). Not a window manager. */
+  function windowBar(o) {
+    const tile = el("span", { class: "window-tile" });
+    const title = el("span", { class: "window-title", id: (o.id || "window-bar") + "-title" });
+    const close = el("button", { type: "button", class: "btn btn-icon ghost window-close", id: (o.id || "window-bar") + "-close", onclick: () => o.onClose() }, [icon("close")]);
+    const node = el("div", { class: "window-bar", id: o.id || "window-bar", role: "group" }, [close, tile, title]);
+    function update(name, iconName, hue) {
+      node.setAttribute("aria-label", name + " window");
+      close.setAttribute("aria-label", "Close " + name); close.title = "Close " + name;
+      title.textContent = name;
+      UI_clear(tile); tile.appendChild(appTile(iconName || "info", hue, "sm"));
+    }
+    const UI_clear = clear;
+    update(o.label || "App", o.iconName, o.hue);
+    return { node, update };
+  }
+
   // ------------------------------------------------------------------
   // Live region + toast
   // ------------------------------------------------------------------
@@ -363,5 +381,5 @@
     return new Date(ts).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
   }
 
-  window.AuroraUI = { el, clear, icon, ICONS: Object.keys(ICONS), appTile, announce, toast, button, riskBadge, RISK_TEXT, chip, emptyState, segmented, keepFocus, holdButton, dialog, confirm, prompt, timeAgo };
+  window.AuroraUI = { el, clear, icon, windowBar, ICONS: Object.keys(ICONS), appTile, announce, toast, button, riskBadge, RISK_TEXT, chip, emptyState, segmented, keepFocus, holdButton, dialog, confirm, prompt, timeAgo };
 })();

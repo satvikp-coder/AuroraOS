@@ -263,3 +263,20 @@ body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-in
 .setting-value { color: var(--color-ink-muted); overflow-wrap: anywhere; text-align: right; }
 .settings-json { max-width: 100%; margin: var(--space-3) 0 0; padding: var(--space-3); overflow: auto; font-size: var(--text-xs); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface-sunken); color: var(--color-ink); }
 .settings-highlight { outline: 3px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-control); }
+
+/* ---------- Desktop window card (M8-B) ---------- *
+ * >= 1024 px only: an app screen (one that belongs to a registered app) is presented as a centred window: one shared title bar (#window-bar, built by
+ * AuroraUI.windowBar, Close on the left and = back()) joined to the screen, which becomes the window body. No dragging or resizing, no second navigation
+ * stack. Phones and tablets keep the edge-to-edge screens untouched (the bar is display:none there, so it is also absent from the accessibility tree). */
+.window-bar { display: none; }
+@media (min-width: 1024px) {
+  .content.has-window > .window-bar:not([hidden]) { display: flex; align-items: center; gap: var(--space-3); box-sizing: border-box; width: 100%; max-width: var(--window-w, var(--content-max)); margin: 0 auto calc(-1 * var(--space-4)); padding: var(--space-1) var(--space-3);
+    background: var(--color-surface-opaque); border: var(--border-width) solid var(--color-border); border-bottom-color: var(--color-border); border-radius: var(--radius-window) var(--radius-window) 0 0; box-shadow: var(--shadow-2); position: relative; z-index: 1; }
+  .content.has-window > .screen.is-window { flex: none; box-sizing: border-box; background: var(--color-surface-opaque); border: var(--border-width) solid var(--color-border); border-top: 0; border-radius: 0 0 var(--radius-window) var(--radius-window); box-shadow: var(--shadow-2);
+    padding: var(--space-4) var(--space-5) var(--space-5); min-height: 20rem; }
+  .window-tile { display: inline-flex; flex: none; }
+  .window-title { min-width: 0; flex: 1 1 auto; font-weight: var(--weight-bold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .window-close:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
+  :root[data-contrast="high"] .content.has-window > .window-bar:not([hidden]), :root[data-contrast="high"] .content.has-window > .screen.is-window { border-width: 2px; }
+  .content.has-window > .screen.is-window .eyebrow { display: none; }                      /* the title bar already names the app */
+}
