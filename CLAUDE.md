@@ -28,7 +28,7 @@ service, and never claim hardware or production readiness.
 - Never hide a failing test, weaken an assertion to get green, or report a result you did not run.
 - No credentials in the repo; do not disable secret scanning (Gitleaks runs in CI).
 - Do not touch the old workspace `C:\Users\satvi\Desktop\AuroraOS`. Work in `C:\Users\satvi\Desktop\AuroraOS-Claude`.
-- Issue #6 stays open until EL0 file access, program loading and native settings persistence are all verified.
+- Issue #6 (filesystem and storage) covers virtio-blk, AuroraFS, EL0 file access, the program loader and the native settings registry; all are implemented and tested in QEMU only (see docs/kernel/). Any change to them needs the same deeper verification and a documented self-review.
 
 ## Design source precedence
 

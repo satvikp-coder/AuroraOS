@@ -151,6 +151,7 @@ void kernel_main(uint64_t dtb)
         if (loadtest_summary()) { console_puts("LOADER SELFTEST FAILED\n"); halt_forever(); }
         settingstest_run();
         if (settingstest_summary()) { console_puts("SETTINGS SELFTEST FAILED\n"); halt_forever(); }
+        init_run();
     } else {
         console_puts("Interrupt tests skipped: no device tree (dev mode)\n");
     }

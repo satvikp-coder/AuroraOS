@@ -134,6 +134,10 @@ jobs:
         run: |
           chmod +x tests/qemu/settings-tests.sh
           ./tests/qemu/settings-tests.sh
+      - name: Run the issue #6 end-to-end test (loader + storage + settings together on one disk, three QEMU runs)
+        run: |
+          chmod +x tests/qemu/e2e-tests.sh
+          ./tests/qemu/e2e-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:
