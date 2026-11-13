@@ -479,6 +479,8 @@ Original plan:
 
 **M8-A done: Glass Corner overlap fixed at shell level** (see handoff; `shell-scroll.test.js`).
 
+**M8-B done: desktop window card** (`AuroraUI.windowBar` + `syncWindow` in app.js + shell.css; `desktop-window.test.js` 25 specs). At >= 1024 px every app screen (a screen that belongs to a registered app) gets one shared title bar (tile, name, Close on the LEFT so it can never meet the Glass Corner; Close = `back()`) and the screen becomes the window body. Shell screens (Home, Spaces, Pages, Quick, Aura) are not windows; phones/tablets unchanged (bar display:none, absent from the a11y tree). Files and Vault share a screen: the bar names the app last opened. No drag, no resize, Pages model untouched. The in-screen Back arrow stays (tests and phone layouts use it), so desktop shows both; accepted.
+
 
 1. Desktop window feel: at >= 1024 an app screen renders in a centred "window" card with a title bar (app
    tile, name, close = `back()`); no free dragging yet.

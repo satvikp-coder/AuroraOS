@@ -78,8 +78,23 @@
     content.scrollTop = 0;
     window.scrollTo(0, 0);
     syncDock();
+    syncWindow(id);
     screenListeners.slice().forEach((fn) => fn(id));
     return id;
+  }
+
+  // -- Desktop window card (>= 1024 px, CSS only decides whether it is shown): app screens get one shared title bar above them. Close = back().
+  let windowBar = null, lastOpenedApp = null;
+  function syncWindow(id) {
+    const a = appList.find((x) => x.id === lastOpenedApp && x.screen === id) || appList.find((x) => x.screen === id);   // Files and Vault share a screen: name the one that was opened
+    content.classList.toggle("has-window", !!a);
+    document.querySelectorAll("#app .screen").forEach((n) => n.classList.toggle("is-window", !!a && n.id === id));
+    if (!a) { if (windowBar) windowBar.node.hidden = true; return; }
+    if (!windowBar) { windowBar = UI.windowBar({ id: "window-bar", label: a.name, iconName: a.icon, hue: a.hue, onClose: () => back() }); content.insertBefore(windowBar.node, content.firstChild); }
+    windowBar.update(a.name, a.icon, a.hue);
+    windowBar.node.hidden = false;
+    const s = screenEl(id), mw = s ? getComputedStyle(s).maxWidth : "none";
+    content.style.setProperty("--window-w", mw && mw !== "none" ? mw : "var(--content-max)");
   }
 
   /** Go to the previous screen (Home when there is none). Returns the screen shown. */
@@ -113,7 +128,7 @@
     if (a.system) {
       // System surfaces (Passport, Trail, Vault) are screens, not Pages. Until their screen exists they say so.
       if (!a.screen || !screenEl(a.screen)) { showToast(a.name + " arrives in a later milestone", { tone: "warn" }); return { ok: false, reason: "not-available" }; }
-      if (!o.background) showScreen(a.screen);
+      if (!o.background) { lastOpenedApp = a.id; showScreen(a.screen); }
       return { ok: true, id: a.id, created: false };
     }
     if (!m) return { ok: false, reason: "not-ready" };
@@ -128,6 +143,7 @@
       return { ok: false, reason: r.reason || "cannot-open" };
     }
     if (!o.background) {
+      lastOpenedApp = a.id;
       if (a.screen && screenEl(a.screen)) showScreen(a.screen); else showScreen("screen-pages");
       announce(a.name + " is open (simulated page)");
     }
