@@ -446,7 +446,11 @@ Original plan:
   results), layout matrix, screenshots.
 - Depends on: M1.
 
-## M7. Clock — `not started` — branch `feature/aurora-clock` (from M1)
+## M7. Clock — `done, PR open` (clock.test.js unit 33; clock.test.js Playwright 38 specs with page.clock; layout matrix with 4 new states) — branch `feature/aurora-clock` (from main)
+
+**Record.** `clock-model.js` (stopwatch + timer from an injected monotonic `now()`, never from counting ticks; the clock source can never go backwards), `clock.js`, `clock.css`, registered as the app's `screen`. Tabs follow the ARIA tab pattern. Timer: presets 1/5/10/25 min set the length, h/m/s fields validated 1 s .. 24 h, Start/Pause/Resume/Reset, determinate progress bar (no animation under reduced motion), finish = `alertdialog` + announce + Horizon "Timer finished". A tab that slept recomputes from the clock at the next look; finish fires once. **Broker link:** `AuroraSystem.world.timer` is only the broker's record; the Clock owns the one ticking timer. An Aura `timer.start` is mirrored into it (remaining time from the record's `startedAt`, chip "Started by Aura"); Undo of that receipt cancels it only while the Clock still shows that timer (a timer the user started or reset in the meantime is left alone); a second Aura timer replaces the first and undoing it restores the first with its true remaining time. The Clock's own timers do not write the broker record or Trail. **Not done on purpose:** no sound and no browser Notification (never prompted), no persistence, nothing survives closing the page, no alarms. Visual review by eye at 360 (200% text), 390, 412 (alert), 768, 1024, 1280, 1440: it found and fixed the Stopwatch tab label wrapping inside a pill at 200% text and an empty-looking left-aligned Clock card on desktop.
+
+Original plan:
 
 - Files: `clock-model.js` (DOM-free, clock injected), `clock.js`, `clock.css`, `tests/unit/clock.test.js`,
   `tests/ui-golden/clock.test.js`.
