@@ -79,4 +79,17 @@ registerScreen({
   close: async (page) => { await page.keyboard.press("Escape"); await page.locator(".dialog").waitFor({ state: "detached" }); },
 });
 
+const resetTop = (page) => ev(page, () => { window.scrollTo(0, 0); document.querySelectorAll(".screen, .content, #app").forEach((el) => { el.scrollTop = 0; }); });
+registerScreen({ id: "screen-calculator-empty", label: "Calculator (empty)", root: "#screen-calculator", open: async (page) => { await ev(page, () => { window.AuroraShell.openApp("calculator"); window.AuroraCalculator.reset(); }); await resetTop(page); } });
+registerScreen({
+  id: "screen-calculator-busy", label: "Calculator (history, exponent result)", root: "#screen-calculator",
+  open: async (page) => {
+    await ev(page, () => { window.AuroraShell.openApp("calculator"); const C = window.AuroraCalculator; C.reset();
+      const keys = (seq) => { for (const ch of seq) { if (ch >= "0" && ch <= "9") C.press("digit", ch); else if (ch === ".") C.press("dot"); else if (ch === "=") C.press("equals"); else if (ch === "C") C.press("clear"); else C.press("op", ch); } };
+      keys("2+3="); keys("C6*7="); keys("C100/8="); keys("C123456789012*999999999999="); });
+    await resetTop(page);
+  },
+});
+registerScreen({ id: "screen-calculator-error", label: "Calculator (error)", root: "#screen-calculator", open: async (page) => { await ev(page, () => { window.AuroraShell.openApp("calculator"); const C = window.AuroraCalculator; C.reset(); C.press("digit", "7"); C.press("op", "/"); C.press("digit", "0"); C.press("equals"); }); await resetTop(page); } });
+
 module.exports = { SCREENS, registerScreen };

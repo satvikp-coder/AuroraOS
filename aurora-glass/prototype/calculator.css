@@ -1,0 +1,45 @@
+/* aurora-glass/prototype/calculator.css - layout for the Calculator screen only. Colours, radii, spacing and text sizes are tokens. */
+
+#screen-calculator { max-width: 980px; }
+#screen-calculator .screen-title { font-size: clamp(var(--text-lg), 9vw, var(--text-2xl)); }   /* "Calculator" is one long word: never break it mid-word at 360px and 200% text */
+.calc-layout { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 768px) { .calc-layout { grid-template-columns: minmax(320px, 440px) minmax(0, 1fr); } }
+.calc-main { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+
+.calc-display { display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-end; gap: var(--space-1); padding: var(--space-3) var(--space-4); overflow: hidden; }
+/* fixed line box too: an expression appearing must not move the keypad. It is decorative (aria-hidden); the History list carries the full text. */
+.calc-expr { box-sizing: border-box; width: 100%; margin: 0; height: calc(var(--text-sm) * 1.5); font-size: var(--text-sm); line-height: calc(var(--text-sm) * 1.5); color: var(--color-ink-muted); overflow: hidden; text-overflow: ellipsis; text-align: right; white-space: nowrap; }
+/* the line box is fixed (height and line-height from the display size), so a shrinking font never changes the display height and the keypad below never moves */
+.calc-result { display: block; box-sizing: border-box; width: 100%; max-width: 100%; margin: 0; height: calc(var(--text-display) * 1.25); font-size: var(--text-display); font-weight: var(--weight-bold); line-height: calc(var(--text-display) * 1.25); text-align: right; font-variant-numeric: tabular-nums; overflow-x: auto; overflow-y: hidden; white-space: nowrap; scrollbar-width: thin; }
+.calc-result.len-m { font-size: calc(var(--text-display) * 0.75); }
+.calc-result.len-s { font-size: calc(var(--text-display) * 0.5); }
+.calc-result.len-xs { font-size: calc(var(--text-display) * 0.38); }
+.calc-result.len-xxs { font-size: calc(var(--text-display) * 0.3); }
+.calc-result.is-error { font-size: var(--text-lg); line-height: 1.2; color: var(--color-danger); white-space: normal; overflow-wrap: anywhere; overflow-y: auto; display: flex; align-items: center; justify-content: flex-end; }
+.calc-result:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+.calc-pad { display: grid; gap: var(--space-2); }
+.calc-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
+.calc-key { min-height: 56px; min-width: 0; padding: var(--space-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface-opaque); color: var(--color-ink); font: inherit; font-size: var(--text-xl); font-weight: var(--weight-medium); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.calc-key:hover { background: var(--color-surface-hover); }
+.calc-key:active { transform: scale(0.97); }
+.calc-key:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
+.calc-key.calc-o { background: var(--color-accent-soft); color: var(--color-accent-ink); font-weight: var(--weight-bold); }
+.calc-key.calc-f { color: var(--color-ink-muted); }
+.calc-key.calc-e { background: var(--color-accent-fill); border-color: var(--color-accent-fill); color: var(--color-on-accent); font-weight: var(--weight-bold); }
+.calc-key.calc-e:hover { background: color-mix(in srgb, var(--color-accent-fill) 88%, var(--color-ink)); }
+:root[data-contrast="high"] .calc-key { border-width: 2px; }
+@media (prefers-reduced-motion: reduce) { .calc-key:active { transform: none; } }
+
+.calc-history { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.calc-history-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.calc-history-title { margin: 0; font-size: var(--text-lg); }
+.calc-history-head .btn { margin-left: auto; }
+.calc-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; min-width: 0; }
+.calc-history-list li + li { border-top: var(--border-width) solid var(--color-border); }
+.calc-hist-item { width: 100%; min-height: var(--touch-target); display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-1); background: transparent; border: 0; color: var(--color-ink); font: inherit; text-align: left; cursor: pointer; border-radius: var(--radius-sm); }
+.calc-hist-item:hover { background: var(--color-surface-hover); }
+.calc-hist-item:focus-visible { outline: 3px solid var(--color-accent); outline-offset: -2px; }
+.calc-hist-expr { color: var(--color-ink-muted); overflow-wrap: anywhere; }
+.calc-hist-result { font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.calc-hist-empty { padding: var(--space-3) 0; }

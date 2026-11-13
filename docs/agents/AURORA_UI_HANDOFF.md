@@ -18,7 +18,8 @@ Project model: one human owner (solo maintainer). No external reviewer is requir
 | Task | Status |
 |---|---|
 | F0, M1 shell, M2 Passport, M3 Trail, M4 Vault | **merged to main** (unit 8/8 suites; Playwright 465 passed, 22 skipped, 0 failed; layout matrix 28/28) |
-| M5 Notes, M6 Calculator, M7 Clock, M8 polish | not started |
+| M6 Calculator | **done, PR open** (branch `feature/aurora-calculator`; unit 122, Playwright 25, layout matrix 28/28) |
+| M5 Notes, M7 Clock, M8 polish | not started |
 | Kernel D program loader, E settings registry | not started |
 
 M4 visual review: actually looked at Vault at 390 dark (select mode, two selected), 390 light (preview), 1280 dark (grid + side preview), 1280 light (list + preview). Not looked at by eye: 360, 412, 768, 1024, 1440, Clear mode, high contrast, 200% text, reduced motion (covered by assertions in vault.test.js and the layout matrix only).
