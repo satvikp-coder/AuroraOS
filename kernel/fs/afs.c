@@ -312,6 +312,18 @@ int fs_lookup(uint32_t principal, const char *name, fs_id_t *id)
     return FS_OK;
 }
 
+/* Kernel-only: the file called `name` that is owned by EXACTLY `owner`; no fallback to anyone else's file. The program launcher uses this so
+ * an application can never shadow an installed executable by creating a file of the same name under its own identity. */
+int fs_lookup_owner(uint32_t owner, const char *name, fs_id_t *id)
+{
+    if (!F.mounted) return FS_EMOUNT;
+    if (!id || owner == 0) return FS_EARG;
+    int rc = fs_validate_name(name); if (rc) return rc;
+    for (uint32_t i = 0; i < FS_MAX_FILES; i++)
+        if (F.t.ino[i].state == ST_USED && F.t.ino[i].owner == owner && streq(F.t.ino[i].name, name)) { *id = make_id(&F.t.ino[i], i); return FS_OK; }
+    return FS_ENOENT;
+}
+
 /* load a file's whole content into scratch and verify its CRC */
 static int load(const struct inode *n)
 {

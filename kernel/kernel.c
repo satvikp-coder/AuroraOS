@@ -18,6 +18,7 @@
 #include <gic.h>
 #include <irq.h>
 #include <irqtest.h>
+#include <launch.h>
 #include <proctest.h>
 #include <timer.h>
 #include <mm.h>
@@ -145,6 +146,8 @@ void kernel_main(uint64_t dtb)
         console_puts("Userspace OK\n");
         fsproc_run();
         if (fsproc_summary()) { console_puts("FILE ACCESS SELFTEST FAILED\n"); halt_forever(); }
+        loadtest_run();
+        if (loadtest_summary()) { console_puts("LOADER SELFTEST FAILED\n"); halt_forever(); }
     } else {
         console_puts("Interrupt tests skipped: no device tree (dev mode)\n");
     }
