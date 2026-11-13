@@ -395,7 +395,7 @@ without a prompt and Index says "Runs now". Either enforce a review in Ask mode 
 **R1 (Opus `aurora-quality-reviewer`)** after M2–M4: security and UX review of Passport, Trail and Vault;
 fix P0/P1 findings before the PRs are called ready.
 
-## M5. Notes — `done, PR open` (notes.test.js unit 43; notes.test.js Playwright 56 specs; layout matrix 28/28 with 4 new states) — branch `feature/aurora-notes` (from main)
+## M5. Notes — `merged (#43)` (notes.test.js unit 43; notes.test.js Playwright 56 specs; layout matrix 28/28 with 4 new states) — branch `feature/aurora-notes` (from main)
 
 **Record.** `notes-model.js` (DOM-free store with injected storage/clock/id; never throws), `notes.js`, `notes.css`, registered as the app's `screen`. Unreadable stored data (bad JSON, unknown/newer version) starts empty, shows a banner and is copied to `aurora-glass.notes.v1.unreadable` instead of being overwritten; individual invalid notes are dropped and counted. A failed write keeps all text in memory and the editor, shows "Not saved: <reason>" with a working Try again; over-limit text (title 120 / body 20,000) is never written, is never truncated, and blocks switching notes so it cannot be lost. The save status sits above the text so it is never below the fold on phones. A new note reuses an untouched empty one. Extra hooks `AuroraNotes.reload()/open()/flush()/state()` exist for the layout matrix and tests. Not done: multi-tab conflict handling (last write wins), Index search over notes. Visual review by eye at 360 (200% text), 390 light/dark/Clear, 412, 768, 1024, 1280, 1440; it found and fixed the hidden save status on phones. Not eyeballed: high contrast and Soft/Clear differences beyond the shots above (matrix assertions cover them).
 
@@ -446,7 +446,7 @@ Original plan:
   results), layout matrix, screenshots.
 - Depends on: M1.
 
-## M7. Clock — `done, PR open` (clock.test.js unit 33; clock.test.js Playwright 38 specs with page.clock; layout matrix with 4 new states) — branch `feature/aurora-clock` (from main)
+## M7. Clock — `merged (#44)` (clock.test.js unit 33; clock.test.js Playwright 38 specs with page.clock; layout matrix with 4 new states) — branch `feature/aurora-clock` (from main)
 
 **Record.** `clock-model.js` (stopwatch + timer from an injected monotonic `now()`, never from counting ticks; the clock source can never go backwards), `clock.js`, `clock.css`, registered as the app's `screen`. Tabs follow the ARIA tab pattern. Timer: presets 1/5/10/25 min set the length, h/m/s fields validated 1 s .. 24 h, Start/Pause/Resume/Reset, determinate progress bar (no animation under reduced motion), finish = `alertdialog` + announce + Horizon "Timer finished". A tab that slept recomputes from the clock at the next look; finish fires once. **Broker link:** `AuroraSystem.world.timer` is only the broker's record; the Clock owns the one ticking timer. An Aura `timer.start` is mirrored into it (remaining time from the record's `startedAt`, chip "Started by Aura"); Undo of that receipt cancels it only while the Clock still shows that timer (a timer the user started or reset in the meantime is left alone); a second Aura timer replaces the first and undoing it restores the first with its true remaining time. The Clock's own timers do not write the broker record or Trail. **Not done on purpose:** no sound and no browser Notification (never prompted), no persistence, nothing survives closing the page, no alarms. Visual review by eye at 360 (200% text), 390, 412 (alert), 768, 1024, 1280, 1440: it found and fixed the Stopwatch tab label wrapping inside a pill at 200% text and an empty-looking left-aligned Clock card on desktop.
 
@@ -475,7 +475,10 @@ Original plan:
 
 **R2 (Opus `aurora-visual-director`)** after M5–M7: cross-app consistency review with screenshots.
 
-## M8. Polish backlog — `not started` (pick in this order, each its own small PR)
+## M8. Polish backlog — `in progress` (pick in this order, each its own small PR)
+
+**M8-A done: Glass Corner overlap fixed at shell level** (see handoff; `shell-scroll.test.js`).
+
 
 1. Desktop window feel: at >= 1024 an app screen renders in a centred "window" card with a title bar (app
    tile, name, close = `back()`); no free dragging yet.

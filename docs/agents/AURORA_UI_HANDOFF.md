@@ -10,25 +10,25 @@ Project model: one human owner (solo maintainer). No external reviewer is requir
 
 | | |
 |---|---|
-| `main` | `45e1e79` (M6 Calculator merged on top of the kernel work). Main CI per merge, all green: #35 43355882400, #36 43357637045, #37 43359635149, #38 43360577602, #39 43362106069, #40 43364589107 (the last one covers the whole kernel scope). **Issue #6 is CLOSED** with an evidence comment (https://github.com/satvikp-coder/AuroraOS/issues/6#issuecomment-6844019392). |
+| `main` | `914f59d` (M5 Notes #43 `deffeab` and M7 Clock #44 `914f59d` merged; main CI green for each: 43392182150 and the run for `914f59d`). Earlier cycle-10 merges are listed in the git history (#35-#42); issue #6 is CLOSED. |
 | Merged (all with merge commits, after a documented self-review and 6/6 CI on the exact head) | #30 M1 shell, #31 M2 Passport, #32 M3 Trail, #33 M4 Vault, #28 AuroraFS, #29 EL0 file access, **#35 kernel hardening, #36 ELF validator, #37 program loader, #38 settings registry** |
-| Open PRs | none (this docs PR only) |
+| Open PRs | the Glass Corner shell fix (branch `fix/glass-corner-shell`) until merged |
 | Kernel | Issue #6 scope is implemented on main and tested in QEMU only: virtio-blk, AuroraFS (per-owner names, file-id existence hiding, per-principal quotas of 8 files / 96 blocks, uncertain-write handling), EL0 file access with real EL0 boundary tests, the program loader, trusted launch and a boot-time init (docs/kernel/loader.md), and the native settings registry (docs/kernel/settings.md). Suites: fs 161, process 154, loader 72, settings 74, storage 53, mm 128, irq 93, e2e 50, host 89+27+77. Kernel worktree: `..\AuroraOS-Claude-kernel` (run QEMU tests through an LF copy inside WSL, see the dev-environment memory; branches are not checked out twice). The sibling checkout `C:\Users\satvi\Desktop\AuroraOS` holds the owner's uncommitted kernel work and must not be touched. |
 
 | Task | Status |
 |---|---|
 | F0, M1 shell, M2 Passport, M3 Trail, M4 Vault | **merged to main** (unit 8/8 suites; Playwright 465 passed, 22 skipped, 0 failed; layout matrix 28/28) |
 | M6 Calculator | **merged (#41)**: unit 122, Playwright 25 specs, full suite 490 passed locally (22 skipped as before), layout matrix 28/28 |
-| M5 Notes | **done, PR open** (branch `feature/aurora-notes`; unit 43, Playwright 56, layout matrix 28/28 incl. 4 Notes states; full suite 544 passed + 2 obsolete "Notes unbuilt" specs updated, 22 skipped as before) |
-| M7 Clock | **done, PR open** (branch `feature/aurora-clock`; unit 33, Playwright 38 using `page.clock`, layout matrix incl. 4 Clock states) |
-| M8 polish | **not started** (see `AURORA_UI_TASKS.md`) |
+| M5 Notes | **merged (#43)**: unit 43, Playwright 56, 4 layout-matrix states |
+| M7 Clock | **merged (#44)**: unit 33, Playwright 38 using `page.clock`, 4 layout-matrix states |
+| M8 polish | **in progress**: A (Glass Corner shell fix) done on `fix/glass-corner-shell`; B-I not started (see `AURORA_UI_TASKS.md`) |
 | Kernel D program loader, E settings registry, init, hardening | **merged to main** (see the Kernel row) |
 
 M4 visual review: actually looked at Vault at 390 dark (select mode, two selected), 390 light (preview), 1280 dark (grid + side preview), 1280 light (list + preview). Not looked at by eye: 360, 412, 768, 1024, 1440, Clear mode, high contrast, 200% text, reduced motion (covered by assertions in vault.test.js and the layout matrix only).
 Defects found and fixed in review: selected rows showed two check marks (redundant mark removed; the filled checkbox plus aria-checked remain); after a move or delete on a scrolled page the result with Undo / View in Trail was off-screen (now scrolled into view); the Glass Corner covered the sticky selection bar, the preview's top-right Close and the search field when scrolled (bar no longer sticky, Close moved into the action row, search reserves room for the corner below 1024 px); the Vault Space chips reused the Spaces screen's focus keys (renamed).
 Behaviour changes that older tests had hard-coded: Files (Home Continue, Dock, Index, openApp) now opens Vault instead of the Pages screen; Index file results open Vault with that file previewed. Those assertions were updated, not removed. Tests that used Vault (or Trail) as "an app that is not built yet" now use a synthetic system app, so they no longer depend on which real apps exist.
 
-Shell-wide limitation found in M4 (not fixed here): the Glass Corner is a fixed circle at the top right of the viewport, so on ANY long screen, once the page has scrolled, a full-width control that reaches the top edge can sit under it. Vault reserves room beside its search field below 1024 px and moves its preview Close button away from the corner, and the layout-matrix entries reset the scroll to the top (the scroll position Playwright leaves after a click depended on font metrics and differed between local runs and CI, which is how PR #33 first failed CI). A shell-level fix (for example a reserved gutter in `.content`) belongs in M8.
+**Glass Corner overlap: FIXED at shell level (M8-A).** Once `.content` has scrolled, `.shell.is-scrolled::before` draws an opaque band in the corner row (`--corner-band`), so content scrolls under the band, never under the corner; `scroll-padding-top` keeps focus clear of it; no band and no layout change at scroll top. Guarded by `tests/ui-golden/shell-scroll.test.js` (every registry screen, 360@200% / 390 / 1280, four scroll offsets). Per-screen workarounds in Vault (search room, Close button) are now redundant but harmless.
 
 Known limits of Vault: it lists the sample files only (not AuroraFS) and shows nothing persistent. Moves skip files already in the destination and say so. More than 12 files are split into several reviews (the broker limit), each with its own approval; cancelling one stops the rest. A request Passport refuses never runs, so Trail has no receipt for it. Undo comes from the broker's receipts; if the broker rejects it (for example the file was deleted afterwards) Vault says "Undo failed" and the file is unchanged.
 
@@ -48,7 +48,7 @@ Test side effect: normal runs no longer modify tracked files (CI asserts a clean
 
 ## Exact next task
 
-1. **M5 Notes**, **M7 Clock**, **M8 polish** (in that order of independence; all depend only on M1). Start each on a branch from `main` as written in `AURORA_UI_TASKS.md`. Conventions learned from M6: DOM-free model + screen + css + unit table + Playwright spec; register the screen in `tests/ui-golden/screen-registry.js` and the unit file in `.github/workflows/ci.yml` (CI lists unit files explicitly, a new suite is silently skipped otherwise); set the app's `screen:` in `app.js`; look at screenshots by eye (M6's review found a layout shift and a clipped result that assertions had not); when an app ships, update the Index specs that used it as an 'unbuilt' app (they now fall back to the synthetic `zz-later` app pattern).
+1. **M8 polish** B-I from `AURORA_UI_TASKS.md` (A is done): desktop window card, welcome, shortcut sheet, context menu primitive, Index relevance, language readiness, performance. Conventions: DOM-free model + screen + css + unit table + Playwright spec; register screens in `tests/ui-golden/screen-registry.js` and unit files in `.github/workflows/ci.yml`; look at screenshots by eye; CI fonts are wider than local ones (a 360px/200% state that fits locally can overflow in CI, so make rows wrap instead of fixing widths); `page.clock.install` before `goto` and `pauseAt` for exact timer tests.
 2. **Kernel** (issue #6 scope is done; nothing is open there). Candidates, none started: an installer service and signed or manifest-based application authorisation (today an executable is authorised by installer ownership of its file, and AuroraFS has CRC-32 only); an init process and a launch request service for EL0; arguments and exit-status delivery for loaded programs; a native Settings UI that reads the registry through `SYS_SETTINGS`. Read `docs/kernel/loader.md` and `docs/kernel/settings.md` limits first.
 
 ```bash

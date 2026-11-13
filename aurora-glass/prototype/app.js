@@ -707,6 +707,15 @@
   }
 
   // ---------- Wiring ----------
+  /** Marks the shell as scrolled so CSS can show the corner band (see shell.css). Passive, no layout work in the handler. */
+  function wireScrollState() {
+    const shell = content.closest(".shell") || document.body;
+    const sync = () => shell.classList.toggle("is-scrolled", content.scrollTop > 2);
+    content.addEventListener("scroll", sync, { passive: true });
+    window.addEventListener("resize", sync);
+    sync();
+  }
+
   function wireNav() {
     const go = (btnId, target) => { const b = document.getElementById(btnId); if (b) b.addEventListener("click", () => showScreen(target)); };
     const goBack = (btnId) => { const b = document.getElementById(btnId); if (b) b.addEventListener("click", () => back()); };
@@ -782,6 +791,7 @@
 
   function init() {
     wireNav();
+    wireScrollState();
     wireKeyboard();
     applyTheme();
     startHome();
