@@ -30,6 +30,7 @@ jobs:
       - run: node tests/unit/trail.test.js
       - run: node tests/unit/vault.test.js
       - run: node tests/unit/calc.test.js
+      - run: node tests/unit/notes.test.js
 
   ui-browser-tests:
     name: Browser interaction tests (Playwright)

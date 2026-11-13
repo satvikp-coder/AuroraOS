@@ -97,7 +97,7 @@ test.describe("Home: Continue mirrors the real Pages", () => {
     await expect(page.locator("#screen-vault")).toBeVisible();                                     // Files opens Vault (M4)
     await ev(page, () => window.AuroraShell.showScreen("screen-home"));
     await page.locator('#home-continue-list [data-page-id="page-notes"]').click();
-    await expect(page.locator("#screen-pages")).toBeVisible();
+    await expect(page.locator("#screen-notes")).toBeVisible();                                      // Notes opens its screen (M5)
   });
 
   test("View all opens Pages", async ({ page }) => {
