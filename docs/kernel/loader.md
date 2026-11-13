@@ -67,6 +67,16 @@ There is **no system call that starts a program**, names an executable or choose
 * **PID reuse:** the identity belongs to the registry entry, not the pid. `beta` started in the pid slot `alpha` just vacated is identity 102 and
   cannot see 101's data (tested).
 
+## init: the first user process
+
+After the boot self-checks, `init_run()` (`kernel/proc/launch.c`) looks for an **installer-owned `init.elf`** on the mounted filesystem. If there is none, nothing
+happens and nothing is printed (a kernel on a disk without init, or with no disk, boots exactly as before). If there is one, the kernel registers it as
+application `init` under the fixed identity `PRINCIPAL_INIT` (1), launches it through the same trusted path as any program (installer ownership, not
+other-writable, checksum, ELF validation, registry-chosen identity), lets it run for a bounded time and reports its exit code. There is still no system call that
+starts a program, so init cannot start others: today init is the first and only boot-time user program, and its permissions are those of identity 1 and nothing
+more. The same code runs in a production build (tested: a kernel built with `AURORA_PRODUCTION=1` starts `init.elf` from the same disk and none of the test
+suites run). The test init (`tests/programs/init.c`) prints a banner, keeps a boot counter in its own private file `init.log` and exits 0.
+
 ## Provisioning in the tests
 
 `tests/tools/mkafs.c` links the **real** `kernel/fs/afs.c` over a plain file (a block-layer shim in `tests/tools/shim/`) and writes the host-compiled
@@ -90,6 +100,8 @@ any other (8 files, 96 blocks), which is why one `fault.elf` serves five fault k
 Host fuzzing of the validator (`tests/kernel-host/elf_test.c`, ASan + UBSan): 61 negative cases, 300,000 mutation-fuzz iterations.
 
 ## Not done / limits
+
+* init is only the first boot-time program: no supervision, restart policy, service manager or way for init to launch further programs.
 
 * QEMU only; the single CPU runs one process at a time; no hardware.
 * No relocation, shared objects, dynamic linking, arguments beyond one kernel-chosen number, environment, `argv`, or exit-status delivery to a parent.

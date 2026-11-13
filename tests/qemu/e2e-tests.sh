@@ -52,8 +52,8 @@ KERNEL="$OUT/kernel/kernel.bin"
 CC="${CROSS_COMPILE:-aarch64-linux-gnu-}gcc"
 PF="-O1 -ffreestanding -fno-builtin -nostdlib -static -no-pie -fno-pic -fno-pie -mgeneral-regs-only -fno-stack-protector -Wall -Wextra -Werror -Wl,-T,tests/programs/user.ld -Wl,-z,noexecstack -Wl,-z,max-page-size=4096 -Wl,--build-id=none"
 P="$OUT/programs"; mkdir -p "$P"
-$CC $PF -DAPP_ALPHA -o "$P/alpha.elf" tests/programs/app.c && $CC $PF -DAPP_BETA -o "$P/beta.elf" tests/programs/app.c && $CC $PF -o "$P/fault.elf" tests/programs/fault.c && $CC $PF -o "$P/setapp.elf" tests/programs/setapp.c \
-    && ok "programs compiled (alpha, beta, fault, setapp)" || { bad "programs failed to compile"; echo "e2e-tests: $PASSES passed, $FAILS failed"; exit 1; }
+$CC $PF -DAPP_ALPHA -o "$P/alpha.elf" tests/programs/app.c && $CC $PF -DAPP_BETA -o "$P/beta.elf" tests/programs/app.c && $CC $PF -o "$P/fault.elf" tests/programs/fault.c && $CC $PF -o "$P/setapp.elf" tests/programs/setapp.c && $CC $PF -o "$P/init.elf" tests/programs/init.c \
+    && ok "programs compiled (alpha, beta, fault, setapp, init)" || { bad "programs failed to compile"; echo "e2e-tests: $PASSES passed, $FAILS failed"; exit 1; }
 cc -std=c11 -Wall -Wextra -O1 -I tests/tools/shim -I kernel/include -o "$OUT/mkafs" tests/tools/mkafs.c kernel/fs/afs.c && ok "mkafs compiled" || { bad "mkafs failed to compile"; echo "e2e-tests: $PASSES passed, $FAILS failed"; exit 1; }
 head -c 700 /dev/zero | tr '\0' 'x' > "$P/corrupt.bin"; printf 'CORRUPT-ME-MARKER' | dd of="$P/corrupt.bin" conv=notrunc 2>/dev/null
 printf 'THIS IS TEXT, NOT AN EXECUTABLE. It has a valid AuroraFS checksum but no ELF header at all, so the loader must refuse it.\n' > "$P/bad.bin"
@@ -61,9 +61,9 @@ if grep -aq "AURORA-PROGRAM-\|SETAPP" "$KERNEL" "$OUT/kernel/kernel.elf"; then b
 
 img="$OUT/disk.img"
 "$OUT/mkafs" "$img" 4096 \
-    installer 0x7 alpha.elf "$P/alpha.elf"   installer 0x7 beta.elf "$P/beta.elf"   installer 0x7 fault.elf "$P/fault.elf"   installer 0x7 setapp.elf "$P/setapp.elf" \
+    installer 0x7 alpha.elf "$P/alpha.elf"   installer 0x7 beta.elf "$P/beta.elf"   installer 0x7 fault.elf "$P/fault.elf"   installer 0x7 setapp.elf "$P/setapp.elf"   installer 0x7 init.elf "$P/init.elf" \
     installer 0xF loose.elf "$P/alpha.elf"   installer 0x7 corrupt.elf "$P/corrupt.bin"   installer 0x7 bad.elf "$P/bad.bin" \
-    105 0x7 shadow.elf "$P/alpha.elf" > "$OUT/mkafs.log" 2>&1 && ok "image provisioned: 7 installer-owned files + 1 application-owned look-alike" || { bad "mkafs failed"; cat "$OUT/mkafs.log"; }
+    105 0x7 shadow.elf "$P/alpha.elf" > "$OUT/mkafs.log" 2>&1 && ok "image provisioned: 8 installer-owned files (incl. init.elf) + 1 application-owned look-alike" || { bad "mkafs failed"; cat "$OUT/mkafs.log"; }
 off="$(grep -abo "CORRUPT-ME-MARKER" "$img" | head -1 | cut -d: -f1)"
 if [ -n "$off" ]; then printf '\377' | dd of="$img" bs=1 seek=$((off + 100)) conv=notrunc 2>/dev/null; ok "host damaged one data byte of corrupt.elf"; else bad "could not find corrupt.elf in the image"; fi
 
@@ -78,6 +78,10 @@ for n in 1 2 3; do
     expect_not "$log" "\[(load|set)-test\].*: FAIL" "boot$n: no failing loader or settings check"
     expect "$log" "\[load\] alpha exit code 0, beta exit code 0" "boot$n: alpha.elf and beta.elf, loaded from the disk, ran concurrently and exited 0"
     expect "$log" "\[user p[0-9]\] SETAPP writer done" "boot$n: the settings client, loaded from the same disk, saved settings through SYS_SETTINGS"
+    expect "$log" "\[init\] started init.elf as pid [0-9]+, identity 1" "boot$n: the kernel started the installed init.elf as the first user process (identity 1)"
+    expect "$log" "\[user p[0-9]\] AURORA-INIT started by the kernel" "boot$n: init, loaded from the disk, ran at EL0"
+    expect "$log" "\[user p[0-9]\] INIT boot count $n" "boot$n: init kept its boot counter in its own file ($n)"
+    expect "$log" "\[init\] init exited with code 0" "boot$n: init exited 0 and the boot went on"
     next=$((prev + 10))
     expect "$log" "\[set\] final saved text_scale=$next" "boot$n: settings state $next left on the disk"
     if [ "$n" -gt 1 ]; then expect "$log" "\[set\] boot: status=0 \(loaded from disk\) theme=2 text_scale=$prev reduced_motion=1 focus=2 aura=2 notifications=1" "boot$n: a new QEMU process loaded the settings saved by the previous one, with program files on the same disk"; fi
@@ -86,9 +90,17 @@ done
 expect "$OUT/boot1.log" "alpha counter before=0 after=1 beta counter before=0 after=1" "boot1: program-written counter files created (0 -> 1)"
 expect "$OUT/boot2.log" "alpha counter before=3 after=4 beta counter before=2 after=3" "boot2: program-written counters survived the restart and advanced"
 expect "$OUT/boot3.log" "alpha counter before=6 after=7 beta counter before=4 after=5" "boot3: and again"
-expect "$OUT/boot3.log" "\[fs\] mount: AuroraFS v1 mounted.*12 files" "after boots 1-2 the image holds 12 files: 8 provisioned, alpha.dat, beta.dat, the clone's alpha.dat, settings.v1"
+expect "$OUT/boot3.log" "\[fs\] mount: AuroraFS v1 mounted.*14 files" "after boots 1-2 the image holds 14 files: 9 provisioned, alpha.dat, beta.dat, the clone's alpha.dat, settings.v1, init.log"
+echo "== a PRODUCTION kernel (no test code) on the same image starts init too =="
+AURORA_PRODUCTION=1 BUILD_DIR="$OUT/prod" ./build.sh >/dev/null 2>&1 && ok "production kernel built" || bad "production kernel build failed"
+log="$OUT/prod.log"; run_qemu "$OUT/prod/kernel.bin" "$log" $(disk_args "$img"); finished prod "$log"
+expect "$log" "\[init\] started init.elf as pid [0-9]+, identity 1" "production: the kernel started init.elf from the disk"
+expect "$log" "\[user p[0-9]\] INIT boot count 4" "production: init's counter file written by the three earlier test boots read back and advanced (3 -> 4)"
+expect "$log" "\[init\] init exited with code 0" "production: init exited 0"
+expect "$log" "Boot complete" "production: the boot finished"
+expect_not "$log" "\[(load|set|fs|fsproc)-test\]|AURORA-(LOAD|SET|FS)" "production: no loader, settings or filesystem test code ran"
 # host-side proof of every layer
-for s in "AURORAFS" "AURORA-PROGRAM-ALPHA" "AURORA-PROGRAM-BETA" "ASET" "ALPHA" "BETA"; do
+for s in "AURORAFS" "AURORA-PROGRAM-ALPHA" "AURORA-PROGRAM-BETA" "ASET" "ALPHA" "BETA" "INIT"; do
     if grep -aq "$s" "$img"; then ok "host: '$s' is physically inside the image file"; else bad "host: '$s' not found in the image"; fi
 done
 

@@ -2,6 +2,7 @@
  * kernel/proc/launch.c — the trusted launch path: registry -> installer-owned executable -> validation -> process with the REGISTERED identity.
  * The policy and its reasons are written down in kernel/include/launch.h and docs/kernel/loader.md.
  */
+#include <console.h>
 #include <elf.h>
 #include <fs.h>
 #include <launch.h>
@@ -35,6 +36,24 @@ int launch_register(const char *app, const char *file, uint32_t principal, uint6
     apps[slot].used = 1; apps[slot].principal = principal; apps[slot].arg = arg;
     scopy(apps[slot].name, app); scopy(apps[slot].file, file);
     return LAUNCH_OK;
+}
+
+void init_run(void)
+{
+    if (!fs_mounted()) return;
+    fs_id_t id;
+    if (fs_lookup_owner(PRINCIPAL_INSTALLER, "init.elf", &id) != FS_OK) return;                  /* no installed init: boot continues without userspace */
+    int rc = launch_register("init", "init.elf", PRINCIPAL_INIT, 0);
+    if (rc != LAUNCH_OK && rc != LAUNCH_EREG) return;                                             /* EREG: already registered earlier in this boot */
+    int pid = 0, detail = 0;
+    rc = launch_app("init", &pid, &detail);
+    if (rc != LAUNCH_OK) { console_puts("[init] could not start init.elf: "); console_puts(launch_strerror(rc)); console_puts(" ("); console_dec((uint64_t)(detail < 0 ? -detail : detail)); console_puts(")\n"); return; }
+    console_puts("[init] started init.elf as pid "); console_dec((uint64_t)pid); console_puts(", identity "); console_dec(PRINCIPAL_INIT); console_puts("\n");
+    uint64_t r = sched_run(20000);
+    struct proc *p = proc_get(pid);
+    console_puts("[init] init "); console_puts(r == SCHED_ALL_DONE && p && p->state == PROC_TERMINATED ? "exited with code " : "did not exit normally, state ");
+    console_dec((uint64_t)(p ? (p->state == PROC_TERMINATED ? p->exit_code : (int)p->state) : -1)); console_puts("\n");
+    if (p && p->state != PROC_RUNNING) proc_destroy(pid);
 }
 
 const char *launch_strerror(int rc)

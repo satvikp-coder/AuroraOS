@@ -40,6 +40,12 @@ void launch_reset(void);                                                        
 int  launch_app(const char *app, int *pid, int *detail);                         /* LAUNCH_OK and *pid, or LAUNCH_E* (*detail = FS_E* / ELF_E*) */
 const char *launch_strerror(int rc);
 
+/* init: after the boot self-checks, if the filesystem is mounted and holds an INSTALLER-owned "init.elf", the kernel starts it as the first user process
+ * under the fixed application identity PRINCIPAL_INIT and lets it run (bounded) before the boot finishes. No init.elf => nothing happens and nothing is
+ * printed. There is no system call that starts programs, so init cannot start others; today it is the first and only boot-time user program. */
+#define PRINCIPAL_INIT 1u
+void init_run(void);
+
 void loadtest_run(void);        /* AURORA_LOAD_TEST kernels only */
 int  loadtest_summary(void);
 #endif
