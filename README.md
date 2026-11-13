@@ -15,7 +15,7 @@ An independent, open-source ARM64 operating system with the **Aurora Glass** UI 
 | Storage and filesystem | **Working on QEMU, tested in CI**: virtio-blk driver; AuroraFS with per-owner names, file-id existence hiding, per-principal quotas, crash and uncertain-write handling; EL0 file access | `kernel/drivers/`, `kernel/fs/`, `docs/kernel/storage.md` |
 | Program loader and init | **Working on QEMU, tested in CI**: a narrow static AArch64 ELF subset is loaded from AuroraFS into an isolated EL0 process under an identity chosen by the kernel; the kernel starts an installed `init.elf` as the first user process | `kernel/proc/elf.c`, `kernel/proc/launch.c`, `docs/kernel/loader.md` |
 | Native settings registry | **Working on QEMU, tested in CI**: six typed preferences, capability-checked, persistent on AuroraFS (stored preferences; no hardware is driven) | `kernel/settings.c`, `docs/kernel/settings.md` |
-| Native graphics and native Aurora Glass UI | Not started | issues #7, #8 |
+| Native graphics and native Aurora Glass UI | **Not started: no code.** A research and plan document exists (stage G1) | issues #7, #8; `docs/kernel/native-graphics-plan.md` |
 | Aurora Glass **browser prototype** | **Prototype only** (runs in a host browser, controls nothing real) | `aurora-glass/prototype/` |
 | Aura Action Broker | **Mock only**: a tested contract for typed, approved actions. The browser prototype's Aura, Vault, Passport, Trail and Clock go through it, but it is JavaScript in one browser context: not an OS service and not a security boundary | `aurora-glass/prototype/broker.js` |
 | Offline language model, speech | Not started | issues #12, #13 |
@@ -75,6 +75,7 @@ Always boot `build/kernel.bin` (the ELF gets no device tree). On Windows, run th
 
 - `DESIGN.md`: Aurora Glass visual contract. `AuroraOS_Final_Blueprint_OpenDesign.md`: architecture and plan.
 - `docs/kernel/mmu-configuration.md`: reviewed MMU settings, mapping policy and known limits.
+- `docs/kernel/native-graphics-plan.md`: research and plan for native graphics on QEMU (issue #7, stage G1): what the kernel has, what QEMU offers (verified on QEMU 11.1.0), the options compared, a recommendation and the risks. Research only; nothing is drawn yet.
 - `docs/kernel/userspace.md`, `storage.md`, `loader.md`, `settings.md`: processes and syscalls, the filesystem, the program loader and launch policy, the settings registry (each lists its limits).
 - `aurora-glass/open-design-handoff/native-compositor-mapping.md`: what a native compositor and UI toolkit must provide, component by component (a requirements reference: no native graphics exists yet). Its names, colours and numbers are checked against the prototype by `tests/unit/handoff-docs.test.js`.
 - `docs/agents/AURORA_UI_HANDOFF.md` (current state and next steps), `AURORA_UI_TASKS.md` (milestone log), `AURORA_TESTING.md` (how to test), `AURORA_UI_PERF.md` (measured prototype performance and its limits).
