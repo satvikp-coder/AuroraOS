@@ -21,7 +21,7 @@ Project model: one human owner (solo maintainer). No external reviewer is requir
 | M6 Calculator | **merged (#41)**: unit 122, Playwright 25 specs, full suite 490 passed locally (22 skipped as before), layout matrix 28/28 |
 | M5 Notes | **merged (#43)**: unit 43, Playwright 56, 4 layout-matrix states |
 | M7 Clock | **merged (#44)**: unit 33, Playwright 38 using `page.clock`, 4 layout-matrix states |
-| M8 polish | **in progress**: A (#45), B (#46), C (#47), D (#48) merged; E (#49) merged; F (#50) merged; G (#51) merged; H (performance) in PR `feature/aurora-perf`; I not started (see `AURORA_UI_TASKS.md`) |
+| M8 polish | **in progress**: A (#45), B (#46), C (#47), D (#48) merged; E (#49) merged; F (#50) merged; G (#51) merged; H (#52) merged; I (documentation and the native compositor mapping) in PR `docs/aurora-m8-handoff`; the final UI review is next (see `AURORA_UI_TASKS.md`) |
 | Kernel D program loader, E settings registry, init, hardening | **merged to main** (see the Kernel row) |
 
 M4 visual review: actually looked at Vault at 390 dark (select mode, two selected), 390 light (preview), 1280 dark (grid + side preview), 1280 light (list + preview). Not looked at by eye: 360, 412, 768, 1024, 1440, Clear mode, high contrast, 200% text, reduced motion (covered by assertions in vault.test.js and the layout matrix only).
@@ -48,7 +48,7 @@ Test side effect: normal runs no longer modify tracked files (CI asserts a clean
 
 ## Exact next task
 
-1. **M8 polish** B-I from `AURORA_UI_TASKS.md` (A is done): desktop window card, welcome, shortcut sheet, context menu primitive, Index relevance, language readiness, performance. Conventions: DOM-free model + screen + css + unit table + Playwright spec; register screens in `tests/ui-golden/screen-registry.js` and unit files in `.github/workflows/ci.yml`; look at screenshots by eye; CI fonts are wider than local ones (a 360px/200% state that fits locally can overflow in CI, so make rows wrap instead of fixing widths); `page.clock.install` before `goto` and `pauseAt` for exact timer tests.
+1. **Final M8 UI review**, once I is merged: a full local Playwright run (needs free memory; stop other servers first and never run it alongside a QEMU suite), the full layout matrix, and screenshots looked at by eye at 360, 390, 412, 768, 1024, 1280 and 1440 (say which were really inspected). M8 itself (A to I) is otherwise done; see `AURORA_UI_TASKS.md` for each part and its limits (Notes and Trail have no context menus yet; only the dock, welcome, shortcut chrome and Index count are translatable; Vault selection and search still rebuild the whole list).
 2. **Kernel** (issue #6 scope is done; nothing is open there). Candidates, none started: an installer service and signed or manifest-based application authorisation (today an executable is authorised by installer ownership of its file, and AuroraFS has CRC-32 only); an init process and a launch request service for EL0; arguments and exit-status delivery for loaded programs; a native Settings UI that reads the registry through `SYS_SETTINGS`. Read `docs/kernel/loader.md` and `docs/kernel/settings.md` limits first.
 
 ```bash

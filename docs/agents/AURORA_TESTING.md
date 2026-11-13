@@ -19,6 +19,16 @@ node tests/unit/core.test.js           # Pages + quick-settings models
 node tests/unit/broker.test.js         # Action Broker contract (security)
 node tests/unit/settings.test.js       # settings registry
 node tests/unit/system.test.js         # system.js in a vm: permission policy, describe/explain, trusted surface, mock files
+node tests/unit/passport.test.js       # Passport model
+node tests/unit/trail.test.js          # Trail model
+node tests/unit/vault.test.js          # Vault model (sorting, filtering, selection, batching)
+node tests/unit/calc.test.js           # Calculator engine
+node tests/unit/notes.test.js          # Notes model (storage, limits, corrupt data)
+node tests/unit/clock.test.js          # Clock model with a fake monotonic clock
+node tests/unit/contextmenu.test.js    # context menu placement, keyboard and long-press logic
+node tests/unit/index.test.js          # Index relevance: tiers, recency, typo suggestions
+node tests/unit/strings.test.js        # strings model, catalog honesty rules, source scan for missing/unused keys
+node tests/unit/handoff-docs.test.js   # the native compositor mapping only names things the prototype has (classes, ids, tokens, colours, numbers)
 # all of them:
 for f in tests/unit/*.test.js; do node "$f" || break; done
 ```
@@ -82,6 +92,17 @@ AURORA_SHOTS=1 npx playwright test --workers=1 tests/ui-golden/aurora-glass-brow
 | `aura-plan.test.js` | Plan review/approval/undo/stop/failure, permissions, S3 hold, unsupported actions, Aura off |
 | `layout-matrix.test.js` | Layout across 7 viewports x themes x tiers x modes x all registered screens |
 | `pages-quick.test.js`, `settings.test.js`, `aurora-glass-browser.test.js` | Earlier specs; they guard ids, roles and data-* attributes the restyled screens must keep |
+| `passport.test.js`, `trail.test.js`, `vault.test.js` | Passport, Trail and Vault driven through the real trusted review and hold-to-confirm; nothing is approved by calling the broker |
+| `vault-large.test.js` | Long Vault lists (over 60 files skip off-screen rows); a 10-file Vault is untouched; keyboard, selection, search and natural sort still work |
+| `calculator.test.js`, `notes.test.js`, `clock.test.js` | The three browser apps over their DOM-free models; Clock uses Playwright's controlled browser time |
+| `shell-scroll.test.js` | The Glass Corner band: nothing scrolls under the corner on any registered screen |
+| `desktop-window.test.js` | The desktop window card at 1024 px and wider, and its absence on phones and tablets |
+| `welcome.test.js`, `shortcuts.test.js` | First-run tour and the keyboard shortcut sheet (a drift guard fails if the table and the real handlers disagree) |
+| `contextmenu.test.js` | Right-click, Shift+F10 / Menu key and long-press menus: placement, keyboard, never authorises, never over a dialog |
+| `index-relevance.test.js` | Index ranking, recency and typo suggestions (a suggestion never runs on Enter) |
+| `strings.test.js` | Languages: English default, placeholder locales show English, long-string layout stress with the test-only pseudo-locale |
+| `review-fixes.test.js` | Regression tests for defects found by the independent M1 review |
+| `curated-shots.test.js` | Regenerates the curated reference screenshots; skipped unless `AURORA_SHOTS=1` |
 
 Looking at screenshots is part of the work: open the PNGs (the Read tool renders them) and check composition,
 spacing, hierarchy, clipping and contrast. Automated checks do not replace this, and a report must say which
@@ -99,6 +120,14 @@ const { chromium } = require("playwright");
   await p.screenshot({ path: "spaces-390-dark.png", fullPage: true }); await b.close();
 })();
 ```
+
+## Performance profile (a measurement, not a test)
+
+```bash
+node tests/perf/profile.js --runs 7 --tier clear --out result.json
+```
+
+Starts its own static server and one headless Chromium, and prints medians (with min and max) for asset size, cold load, per-app open, an Index keystroke, a Vault at 10, 200 and 1000 files, a context menu, and frame intervals in Clear vs Soft. It is **not** in CI and has no pass/fail. The numbers are headless software-rendering numbers on one machine and drift by tens of percent between runs, so compare before/after on the same machine and trust only multi-x differences. Results, method and limits: `docs/agents/AURORA_UI_PERF.md`.
 
 ## Manual keyboard pass (do it for every new screen)
 
