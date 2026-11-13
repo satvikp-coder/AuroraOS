@@ -128,7 +128,7 @@
     if (a.system) {
       // System surfaces (Passport, Trail, Vault) are screens, not Pages. Until their screen exists they say so.
       if (!a.screen || !screenEl(a.screen)) { showToast(a.name + " arrives in a later milestone", { tone: "warn" }); return { ok: false, reason: "not-available" }; }
-      if (!o.background) { lastOpenedApp = a.id; showScreen(a.screen); }
+      if (!o.background) { lastOpenedApp = a.id; touchRecent("app:" + a.id); showScreen(a.screen); }
       return { ok: true, id: a.id, created: false };
     }
     if (!m) return { ok: false, reason: "not-ready" };
@@ -143,7 +143,7 @@
       return { ok: false, reason: r.reason || "cannot-open" };
     }
     if (!o.background) {
-      lastOpenedApp = a.id;
+      lastOpenedApp = a.id; touchRecent("app:" + a.id);
       if (a.screen && screenEl(a.screen)) showScreen(a.screen); else showScreen("screen-pages");
       announce(a.name + " is open (simulated page)");
     }
@@ -283,25 +283,24 @@
   const MAX_PER_GROUP = 6, MAX_TOTAL = 20;
   const idx = { items: [], active: -1, navigated: false };
   let idxAnnounce = null;
+  const IM = window.AuroraIndexModel;
+  let recent = [];                                                   // keys of what was opened lately, newest first. In memory only: nothing is stored.
+  function touchRecent(key) { recent = IM.pushRecent(recent, key); }
 
-  /** 0 label prefix, 1 word prefix, 2 substring, 3 keyword; -1 no match. */
-  function rankOf(q, label, keywords) {
-    if (!q) return 0;
-    const l = String(label).toLowerCase();
-    if (l.startsWith(q)) return 0;
-    if (l.split(/[\s\-_.·]+/).some((w) => w.startsWith(q))) return 1;
-    if (l.includes(q)) return 2;
-    if ((keywords || []).some((k) => String(k).toLowerCase().includes(q))) return 3;
-    return -1;
-  }
+  /** Match tier (AuroraIndexModel.TIER: exact, prefix, word prefix, substring, keyword); -1 no match. Typo tolerance is separate and apps-only. */
+  function rankOf(q, label, keywords) { return IM.matchTier(q, label, keywords); }
 
   function appItems(q) {
     const out = [];
     appList.forEach((a) => {
       const r = rankOf(q, a.name, a.keywords);
-      if (r < 0) return;
       const later = a.system && !(a.screen && screenEl(a.screen));
-      out.push({ group: "apps", kind: "App", label: a.name, meta: later ? "Arrives in a later milestone" : "Open " + a.name, tile: a, rank: r, muted: later, action: () => openApp(a.id) });
+      if (r < 0) {
+        // A near miss on the NAME only (never keywords): offered as a suggestion, ranked last, and never the default result.
+        if (q && IM.fuzzyMatch(q, a.name).ok) out.push({ group: "apps", kind: "App", label: a.name, meta: "Did you mean " + a.name + "? Choose it to open", tile: a, rank: IM.TIER.FUZZY, fuzzy: true, muted: later, key: "app:" + a.id, action: () => openApp(a.id) });
+        return;
+      }
+      out.push({ group: "apps", kind: "App", label: a.name, meta: later ? "Arrives in a later milestone" : "Open " + a.name, tile: a, rank: r, muted: later, key: "app:" + a.id, action: () => openApp(a.id) });
     });
     return out;
   }
@@ -313,7 +312,7 @@
       const sp = spaceName(f.space);
       const r = rankOf(q, f.name, [f.kind, sp]);
       if (r < 0) return;
-      out.push({ group: "files", kind: "File", label: f.name, meta: sp + " · " + Math.max(1, Math.round(f.size / 1024)) + " KB · mock file", icon: f.kind === "image" ? "image" : "file", rank: r, action: () => { openApp("vault"); if (window.AuroraVault) window.AuroraVault.preview(f.id); } });
+      out.push({ group: "files", kind: "File", label: f.name, meta: sp + " · " + Math.max(1, Math.round(f.size / 1024)) + " KB · mock file", icon: f.kind === "image" ? "image" : "file", rank: r, key: "file:" + f.id, action: () => { openApp("vault"); if (window.AuroraVault) window.AuroraVault.preview(f.id); } });
     });
     return out;
   }
@@ -323,7 +322,7 @@
     SYSTEM_ACTIONS.forEach((a) => {
       const r = rankOf(q, a.label, a.keywords.concat([a.meta]));
       if (r < 0 || !q) return;
-      out.push({ group: "actions", kind: "Action", label: a.label, meta: a.meta, icon: a.icon, rank: r, action: () => showScreen(a.go) });
+      out.push({ group: "actions", kind: "Action", label: a.label, meta: a.meta, icon: a.icon, rank: r, key: "action:" + a.label, action: () => showScreen(a.go) });
     });
     return out;
   }
@@ -337,7 +336,7 @@
       try { list = fn(q) || []; } catch (e) { list = []; }
       list.forEach((it) => {
         const r = rankOf(q.toLowerCase(), it.label, []);
-        out.push({ group: KIND_GROUP[it.kind] || "actions", kind: it.kind, label: it.label, meta: it.meta, icon: it.icon || "settings", rank: r < 0 ? 4 : r, action: it.action });
+        out.push({ group: KIND_GROUP[it.kind] || "actions", kind: it.kind, label: it.label, meta: it.meta, icon: it.icon || "settings", rank: r < 0 ? IM.TIER.KEYWORD : r, key: (it.kind || "Item") + ":" + it.label, action: it.action });
       });
     });
     return out;
@@ -389,7 +388,7 @@
   function groupAndLimit(items, perGroup) {
     const out = [];
     INDEX_GROUPS.forEach(([g]) => {
-      const mine = items.filter((i) => i.group === g).map((i, n) => Object.assign({ n }, i)).sort((x, y) => x.rank - y.rank || x.n - y.n).slice(0, perGroup);
+      const mine = IM.order(items.filter((i) => i.group === g).map((i, n) => Object.assign({ n }, i)), recent).slice(0, perGroup);
       mine.forEach((i) => { if (out.length < MAX_TOTAL) out.push(i); });
     });
     return out;
@@ -430,9 +429,10 @@
     box.hidden = items.length === 0;
     const clear = $("btn-index-clear"); if (clear) clear.hidden = !q;
     input.setAttribute("aria-expanded", items.length ? "true" : "false");
-    setActive(items.length ? 0 : -1);
+    setActive(IM.defaultActive(items));                              // a typo suggestion is never the default: with only those, nothing is highlighted
     clearTimeout(idxAnnounce);
-    idxAnnounce = setTimeout(() => announce(items.length ? items.length + (items.length === 1 ? " result" : " results") : "No results"), 250);
+    const onlyGuesses = items.length > 0 && idx.active < 0;
+    idxAnnounce = setTimeout(() => announce(onlyGuesses ? "No exact match. " + items.length + (items.length === 1 ? " suggestion" : " suggestions") + ". Use the arrow keys to choose one." : items.length ? items.length + (items.length === 1 ? " result" : " results") : "No results"), 250);
   }
 
   function setActive(i, scroll) {
@@ -447,6 +447,7 @@
     const it = idx.items[i];
     if (!it || typeof it.action !== "function") return;
     announce("Opening " + it.label);
+    if (it.key) touchRecent(it.key);
     it.action();
   }
 
@@ -455,12 +456,12 @@
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       if (!n) return;
       e.preventDefault(); idx.navigated = true;
-      setActive(e.key === "ArrowDown" ? (idx.active + 1) % n : (idx.active - 1 + n) % n, true);
+      setActive(e.key === "ArrowDown" ? (idx.active + 1) % n : idx.active < 0 ? n - 1 : (idx.active - 1 + n) % n, true);
     } else if ((e.key === "Home" || e.key === "End") && idx.navigated && n) {
       e.preventDefault(); setActive(e.key === "Home" ? 0 : n - 1, true);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (n) activateIndex(idx.active >= 0 ? idx.active : 0);
+      if (n && idx.active >= 0) activateIndex(idx.active);          // never falls back to the first result: a typo suggestion must be chosen on purpose
     }
   }
 

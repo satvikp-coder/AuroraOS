@@ -33,6 +33,7 @@ jobs:
       - run: node tests/unit/notes.test.js
       - run: node tests/unit/clock.test.js
       - run: node tests/unit/contextmenu.test.js
+      - run: node tests/unit/index.test.js
 
   ui-browser-tests:
     name: Browser interaction tests (Playwright)
