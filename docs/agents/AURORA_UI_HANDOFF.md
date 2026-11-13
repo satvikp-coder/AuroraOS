@@ -20,7 +20,8 @@ Project model: one human owner (solo maintainer). No external reviewer is requir
 | F0, M1 shell, M2 Passport, M3 Trail, M4 Vault | **merged to main** (unit 8/8 suites; Playwright 465 passed, 22 skipped, 0 failed; layout matrix 28/28) |
 | M6 Calculator | **merged (#41)**: unit 122, Playwright 25 specs, full suite 490 passed locally (22 skipped as before), layout matrix 28/28 |
 | M5 Notes | **done, PR open** (branch `feature/aurora-notes`; unit 43, Playwright 56, layout matrix 28/28 incl. 4 Notes states; full suite 544 passed + 2 obsolete "Notes unbuilt" specs updated, 22 skipped as before) |
-| M7 Clock, M8 polish | **not started** (see `AURORA_UI_TASKS.md`) |
+| M7 Clock | **done, PR open** (branch `feature/aurora-clock`; unit 33, Playwright 38 using `page.clock`, layout matrix incl. 4 Clock states) |
+| M8 polish | **not started** (see `AURORA_UI_TASKS.md`) |
 | Kernel D program loader, E settings registry, init, hardening | **merged to main** (see the Kernel row) |
 
 M4 visual review: actually looked at Vault at 390 dark (select mode, two selected), 390 light (preview), 1280 dark (grid + side preview), 1280 light (list + preview). Not looked at by eye: 360, 412, 768, 1024, 1440, Clear mode, high contrast, 200% text, reduced motion (covered by assertions in vault.test.js and the layout matrix only).

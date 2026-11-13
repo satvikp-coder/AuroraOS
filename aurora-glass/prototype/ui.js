@@ -284,7 +284,7 @@
       const bodyId = titleId + "-body";
       const actions = el("div", { class: "dialog-actions" });
       const body = typeof o.body === "string" ? el("p", { text: o.body }) : (o.body || el("p", {}));
-      const panel = el("div", { class: "dialog" + (o.tone ? " dialog-" + o.tone : ""), role: o.tone === "danger" ? "alertdialog" : "dialog", "aria-modal": "true", "aria-labelledby": titleId, "aria-describedby": bodyId, id: o.id }, [
+      const panel = el("div", { class: "dialog" + (o.tone ? " dialog-" + o.tone : ""), role: o.role || (o.tone === "danger" ? "alertdialog" : "dialog"), "aria-modal": "true", "aria-labelledby": titleId, "aria-describedby": bodyId, id: o.id }, [
         el("div", { class: "dialog-head" }, [o.icon ? el("span", { class: "dialog-icon" }, [icon(o.icon)]) : null, el("h2", { class: "dialog-title", id: titleId, text: o.title || "" })]),
         el("div", { class: "dialog-body", id: bodyId }, [body]),
         actions,

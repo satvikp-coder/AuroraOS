@@ -103,4 +103,11 @@ registerScreen({ id: "screen-notes-list", label: "Notes (list, pinned, long titl
 registerScreen({ id: "screen-notes-editor", label: "Notes (editor, long title and text)", root: "#screen-notes", open: async (page) => { await seedNotes(page, BUSY, "p"); await resetTop(page); } });
 registerScreen({ id: "screen-notes-corrupt", label: "Notes (unreadable data notice)", root: "#screen-notes", open: async (page) => { await seedNotes(page, "{broken"); await resetTop(page); } });
 
+// Clock: each state starts from AuroraClock.reset() so the shared matrix page never carries a timer from one state into the next.
+const clockOpen = (page, tab, extra) => ev(page, ([t, x]) => { window.AuroraShell.openApp("clock"); window.AuroraClock.reset(); window.AuroraClock.selectTab(t, false); if (x) x.split(",").forEach((id) => { const n = document.getElementById(id); if (n) n.click(); }); }, [tab, extra || ""]);
+registerScreen({ id: "screen-clock-clock", label: "Clock (time)", root: "#screen-clock", open: async (page) => { await clockOpen(page, "clock"); await resetTop(page); } });
+registerScreen({ id: "screen-clock-stopwatch", label: "Clock (stopwatch, laps)", root: "#screen-clock", open: async (page) => { await clockOpen(page, "stopwatch", "btn-sw-start,btn-sw-lap,btn-sw-lap,btn-sw-start"); await resetTop(page); } });
+registerScreen({ id: "screen-clock-timer", label: "Clock (timer, 24 hours running)", root: "#screen-clock", open: async (page) => { await clockOpen(page, "timer"); await ev(page, () => { [["timer-h", "24"], ["timer-m", "0"], ["timer-s", "0"]].forEach(([id, v]) => { const n = document.getElementById(id); n.value = v; n.dispatchEvent(new Event("input", { bubbles: true })); }); document.getElementById("btn-timer-start").click(); }); await resetTop(page); } });
+registerScreen({ id: "screen-clock-timer-error", label: "Clock (timer, invalid length)", root: "#screen-clock", open: async (page) => { await clockOpen(page, "timer"); await ev(page, () => { ["timer-h", "timer-m", "timer-s"].forEach((id) => { const n = document.getElementById(id); n.value = id === "timer-m" ? "abc" : "0"; n.dispatchEvent(new Event("input", { bubbles: true })); }); }); await resetTop(page); } });
+
 module.exports = { SCREENS, registerScreen };
