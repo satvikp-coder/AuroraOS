@@ -37,9 +37,15 @@ test.describe("Pages", () => {
   });
 
   test("the title opens the app when it has a screen, and says so honestly when it does not", async ({ page }) => {
-    await page.getByRole("button", { name: "Open Notes" }).click();
-    await expect(page.locator("#toast")).toContainText("Notes has no screen in this prototype yet");
+    // a synthetic app without a screen keeps this contract independent of which real apps have shipped
+    await ev(page, () => { window.AuroraShell.registerApp({ id: "zz-plain", name: "Zz Plain", hue: 20 }); window.AuroraShell.openApp("zz-plain"); window.AuroraShell.showScreen("screen-pages"); });
+    await page.getByRole("button", { name: "Open Zz Plain" }).click();
+    await expect(page.locator("#toast")).toContainText("Zz Plain has no screen in this prototype yet");
     await expect(page.locator("#screen-pages")).toBeVisible();
+    await ev(page, () => window.AuroraShell.showScreen("screen-pages"));
+    await page.getByRole("button", { name: "Open Notes" }).click();                                 // Notes has a screen since M5
+    await expect(page.locator("#screen-notes")).toBeVisible();
+    await ev(page, () => window.AuroraShell.showScreen("screen-pages"));
     await ev(page, () => window.AuroraShell.openApp("settings"));
     await ev(page, () => window.AuroraShell.showScreen("screen-pages"));
     await page.getByRole("button", { name: "Open Settings" }).click();

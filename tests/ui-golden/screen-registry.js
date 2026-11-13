@@ -92,4 +92,15 @@ registerScreen({
 });
 registerScreen({ id: "screen-calculator-error", label: "Calculator (error)", root: "#screen-calculator", open: async (page) => { await ev(page, () => { window.AuroraShell.openApp("calculator"); const C = window.AuroraCalculator; C.reset(); C.press("digit", "7"); C.press("op", "/"); C.press("digit", "0"); C.press("equals"); }); await resetTop(page); } });
 
+// Notes: the stored data is replaced from outside and the screen re-reads it (AuroraNotes.reload), so each state is fully deterministic.
+const LONG = "A very long note title that has to wrap or be cut cleanly without breaking the layout at any width ".repeat(2).slice(0, 120);
+const notesData = (notes) => JSON.stringify({ v: 1, notes });
+const nn = (id, o) => Object.assign({ id, title: "Note " + id, body: "Body of " + id, pinned: false, space: "study", created: 1700000000000, updated: 1700000000000 }, o);
+const seedNotes = (page, raw, openId) => ev(page, ([r, id]) => { localStorage.removeItem("aurora-glass.notes.v1.unreadable"); if (r === null) localStorage.removeItem("aurora-glass.notes.v1"); else localStorage.setItem("aurora-glass.notes.v1", r); window.AuroraShell.openApp("notes"); window.AuroraNotes.reload(); if (id) window.AuroraNotes.open(id); }, [raw, openId || null]);
+const BUSY = notesData([nn("p", { title: LONG, body: "Pinned with a long title. " + "word ".repeat(60), pinned: true }), nn("a", { title: "Groceries", body: "milk eggs bread" }), nn("b", { title: "", body: "An untitled note with only a body that is long enough to be clamped to two lines in the list view." }), nn("c", { title: "Unbroken", body: "x".repeat(300), space: "work" }), nn("d", { title: "Idea <b>not bold</b>", body: "markup & ampersand", space: "personal" })]);
+registerScreen({ id: "screen-notes-empty", label: "Notes (empty)", root: "#screen-notes", open: async (page) => { await seedNotes(page, null); await resetTop(page); } });
+registerScreen({ id: "screen-notes-list", label: "Notes (list, pinned, long titles)", root: "#screen-notes", open: async (page) => { await seedNotes(page, BUSY); await resetTop(page); } });
+registerScreen({ id: "screen-notes-editor", label: "Notes (editor, long title and text)", root: "#screen-notes", open: async (page) => { await seedNotes(page, BUSY, "p"); await resetTop(page); } });
+registerScreen({ id: "screen-notes-corrupt", label: "Notes (unreadable data notice)", root: "#screen-notes", open: async (page) => { await seedNotes(page, "{broken"); await resetTop(page); } });
+
 module.exports = { SCREENS, registerScreen };

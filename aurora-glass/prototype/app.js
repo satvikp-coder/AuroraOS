@@ -769,7 +769,7 @@
 
   // Built-in apps. Hues follow docs/agents/AURORA_UI_TASKS.md S2.
   [
-    { id: "notes", name: "Notes", hue: 42, memMB: 180, keywords: ["write", "text", "memo"] },
+    { id: "notes", name: "Notes", hue: 42, memMB: 180, screen: "screen-notes", keywords: ["write", "text", "memo"] },
     { id: "files", name: "Files", hue: 212, memMB: 240, screen: "screen-vault", keywords: ["documents", "folder", "vault"] },
     { id: "calculator", name: "Calculator", hue: 228, memMB: 60, screen: "screen-calculator", keywords: ["math", "numbers"] },
     { id: "clock", name: "Clock", hue: 262, memMB: 90, keywords: ["timer", "stopwatch", "alarm"] },

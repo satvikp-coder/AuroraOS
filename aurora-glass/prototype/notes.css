@@ -1,0 +1,52 @@
+/* aurora-glass/prototype/notes.css - layout for the Notes screen only. Colours, radii, spacing and text sizes are tokens. */
+
+#screen-notes { max-width: 1100px; }
+.notes-banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.notes-banner[hidden] { display: none; }
+.notes-banner > span { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+.notes-scope { margin-top: 0; }
+
+.notes-layout { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 1fr); align-items: start; margin-top: var(--space-3); }
+@media (min-width: 768px) { .notes-layout { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); } }
+/* Phone: one pane at a time (list, or editor with Back). From 768: both. */
+@media (max-width: 767px) {
+  .notes-layout[data-view="list"] .notes-editor { display: none; }
+  .notes-layout[data-view="editor"] .notes-listcard { display: none; }
+}
+@media (min-width: 768px) { .notes-back { display: none; } }
+
+.notes-listcard, .notes-editor { min-width: 0; }
+.notes-listpane { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.notes-listtools { display: flex; flex-direction: column; gap: var(--space-2); }
+.notes-listtools .btn { align-self: stretch; justify-content: center; }
+.notes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; min-width: 0; }
+.notes-list li + li { border-top: var(--border-width) solid var(--color-border); }
+@media (min-width: 768px) { .notes-list { max-height: 60vh; overflow-y: auto; } }
+
+.note-item { width: 100%; min-height: var(--touch-target); display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: var(--space-2); background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--color-ink); font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.note-item:hover { background: var(--color-surface-hover); }
+.note-item.is-selected { background: var(--color-accent-soft); }
+.note-item:focus-visible { outline: 3px solid var(--color-accent); outline-offset: -3px; }
+.note-item-title { display: flex; align-items: center; gap: var(--space-1); max-width: 100%; font-weight: var(--weight-bold); }
+.note-item-title .icon { width: 16px; height: 16px; flex: none; color: var(--color-accent-ink); }
+.note-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.note-item-name.is-untitled { font-style: italic; font-weight: var(--weight-medium); color: var(--color-ink-muted); }
+.note-item-snippet { max-width: 100%; color: var(--color-ink-muted); font-size: var(--text-sm); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.note-item-meta { color: var(--color-ink-muted); font-size: var(--text-xs); }
+
+.notes-form { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.notes-form[hidden], .notes-hint[hidden], #notes-empty[hidden] { display: none; }
+.notes-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.notes-spacepick { margin-right: auto; display: flex; align-items: center; gap: var(--space-2); }
+.notes-spacepick select { min-width: 0; max-width: 11rem; }
+.notes-pin.is-on { background: var(--color-accent-soft); color: var(--color-accent-ink); border-color: var(--color-accent); }
+.notes-title { font-size: var(--text-lg); font-weight: var(--weight-bold); min-width: 0; width: 100%; text-overflow: ellipsis; }
+#notes-title-count:empty { display: none; }
+.notes-body { width: 100%; min-width: 0; box-sizing: border-box; height: clamp(14rem, 48vh, 30rem); resize: vertical; line-height: 1.5; overflow-wrap: anywhere; }
+.notes-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); }
+.notes-status { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--color-ink-muted); min-width: 0; overflow-wrap: anywhere; }
+.notes-status[data-tone="error"] { color: var(--color-danger); font-weight: var(--weight-bold); }
+.notes-count { margin: 0 0 0 auto; text-align: right; }
+.notes-count.is-warn { color: var(--color-danger); font-weight: var(--weight-bold); }
+.notes-hint { padding: var(--space-4) 0; }
+:root[data-contrast="high"] .note-item.is-selected { outline: 2px solid var(--color-ink); outline-offset: -2px; }
