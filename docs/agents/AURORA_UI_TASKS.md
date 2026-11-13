@@ -479,6 +479,8 @@ Original plan:
 
 **M8-A done: Glass Corner overlap fixed at shell level** (see handoff; `shell-scroll.test.js`).
 
+**M8-C done: first-run welcome** (`welcome.js`/`welcome.css`, `welcome.test.js` 24 specs, matrix dialog state `dialog-welcome`). Three skippable steps (Spaces; Apps, Pages and navigation; Aura/Passport/Trail review), progress dots + "Step n of 3" + live-region announcement, Back/Next/Skip/Finish, Escape = skip, outside click does not dismiss, never opens over another dialog (waits up to ~10 s, then gives up). Session-only: sessionStorage flag, nothing permanent. **Automation rule:** it does not auto-start under `navigator.webdriver` so the other 600+ specs stay deterministic; `?welcome=1` forces it, `?welcome=auto` applies real-visitor rules, `?welcome=off` disables. Every sentence is a claim about the prototype and the note says nothing real (cellular, audio, camera, location) is used. No UI entry to re-open it yet (`AuroraWelcome.show()`); a Settings entry is a possible later addition.
+
 **M8-B done: desktop window card** (`AuroraUI.windowBar` + `syncWindow` in app.js + shell.css; `desktop-window.test.js` 25 specs). At >= 1024 px every app screen (a screen that belongs to a registered app) gets one shared title bar (tile, name, Close on the LEFT so it can never meet the Glass Corner; Close = `back()`) and the screen becomes the window body. Shell screens (Home, Spaces, Pages, Quick, Aura) are not windows; phones/tablets unchanged (bar display:none, absent from the a11y tree). Files and Vault share a screen: the bar names the app last opened. No drag, no resize, Pages model untouched. The in-screen Back arrow stays (tests and phone layouts use it), so desktop shows both; accepted.
 
 
