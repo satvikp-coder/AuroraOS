@@ -10,16 +10,16 @@ Project model: one human owner (solo maintainer). No external reviewer is requir
 
 | | |
 |---|---|
-| `main` | `32d35dd` (plus the docs/test PR that adds `tests/qemu/e2e-tests.sh`). Main CI (all jobs green): #35 hardening https://github.com/satvikp-coder/AuroraOS/actions/runs/43355882400, #36 ELF validator .../43357637045, #37 loader .../43359635149, #38 settings .../43360577602 |
+| `main` | `45e1e79` (M6 Calculator merged on top of the kernel work). Main CI per merge, all green: #35 43355882400, #36 43357637045, #37 43359635149, #38 43360577602, #39 43362106069, #40 43364589107 (the last one covers the whole kernel scope). **Issue #6 is CLOSED** with an evidence comment (https://github.com/satvikp-coder/AuroraOS/issues/6#issuecomment-6844019392). |
 | Merged (all with merge commits, after a documented self-review and 6/6 CI on the exact head) | #30 M1 shell, #31 M2 Passport, #32 M3 Trail, #33 M4 Vault, #28 AuroraFS, #29 EL0 file access, **#35 kernel hardening, #36 ELF validator, #37 program loader, #38 settings registry** |
-| Open PRs | none |
+| Open PRs | none (this docs PR only) |
 | Kernel | Issue #6 scope is implemented on main and tested in QEMU only: virtio-blk, AuroraFS (per-owner names, file-id existence hiding, per-principal quotas of 8 files / 96 blocks, uncertain-write handling), EL0 file access with real EL0 boundary tests, the program loader, trusted launch and a boot-time init (docs/kernel/loader.md), and the native settings registry (docs/kernel/settings.md). Suites: fs 161, process 154, loader 72, settings 74, storage 53, mm 128, irq 93, e2e 50, host 89+27+77. Kernel worktree: `..\AuroraOS-Claude-kernel` (run QEMU tests through an LF copy inside WSL, see the dev-environment memory; branches are not checked out twice). The sibling checkout `C:\Users\satvi\Desktop\AuroraOS` holds the owner's uncommitted kernel work and must not be touched. |
 
 | Task | Status |
 |---|---|
 | F0, M1 shell, M2 Passport, M3 Trail, M4 Vault | **merged to main** (unit 8/8 suites; Playwright 465 passed, 22 skipped, 0 failed; layout matrix 28/28) |
-| M6 Calculator | **done, PR open** (branch `feature/aurora-calculator`; unit 122, Playwright 25 specs, full suite 490 passed locally, layout matrix 28/28) |
-| M5 Notes, M7 Clock, M8 polish | not started |
+| M6 Calculator | **merged (#41)**: unit 122, Playwright 25 specs, full suite 490 passed locally (22 skipped as before), layout matrix 28/28 |
+| M5 Notes, M7 Clock, M8 polish | **not started** (nothing was begun on them; see `AURORA_UI_TASKS.md`) |
 | Kernel D program loader, E settings registry, init, hardening | **merged to main** (see the Kernel row) |
 
 M4 visual review: actually looked at Vault at 390 dark (select mode, two selected), 390 light (preview), 1280 dark (grid + side preview), 1280 light (list + preview). Not looked at by eye: 360, 412, 768, 1024, 1440, Clear mode, high contrast, 200% text, reduced motion (covered by assertions in vault.test.js and the layout matrix only).
@@ -46,7 +46,7 @@ Test side effect: normal runs no longer modify tracked files (CI asserts a clean
 
 ## Exact next task
 
-1. **M5 Notes** on `feature/aurora-notes` from `main` (see `AURORA_UI_TASKS.md` M5: DOM-free notes model, versioned `localStorage` envelope with validation and corrupt-data handling, autosave, undo-delete, two-pane layout). Then M6 Calculator, M7 Clock, M8 polish (including a shell-level fix for the Glass Corner floating over scrolled content).
+1. **M5 Notes**, **M7 Clock**, **M8 polish** (in that order of independence; all depend only on M1). Start each on a branch from `main` as written in `AURORA_UI_TASKS.md`. Conventions learned from M6: DOM-free model + screen + css + unit table + Playwright spec; register the screen in `tests/ui-golden/screen-registry.js` and the unit file in `.github/workflows/ci.yml` (CI lists unit files explicitly, a new suite is silently skipped otherwise); set the app's `screen:` in `app.js`; look at screenshots by eye (M6's review found a layout shift and a clipped result that assertions had not); when an app ships, update the Index specs that used it as an 'unbuilt' app (they now fall back to the synthetic `zz-later` app pattern).
 2. **Kernel** (issue #6 scope is done; nothing is open there). Candidates, none started: an installer service and signed or manifest-based application authorisation (today an executable is authorised by installer ownership of its file, and AuroraFS has CRC-32 only); an init process and a launch request service for EL0; arguments and exit-status delivery for loaded programs; a native Settings UI that reads the registry through `SYS_SETTINGS`. Read `docs/kernel/loader.md` and `docs/kernel/settings.md` limits first.
 
 ```bash
