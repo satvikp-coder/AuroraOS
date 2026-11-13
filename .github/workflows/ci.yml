@@ -129,6 +129,10 @@ jobs:
         run: |
           chmod +x tests/qemu/loader-tests.sh
           ./tests/qemu/loader-tests.sh
+      - name: Run native settings registry tests (typed, authorised, persistent across three QEMU runs, corrupt/newer/missing records, injected storage failures)
+        run: |
+          chmod +x tests/qemu/settings-tests.sh
+          ./tests/qemu/settings-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

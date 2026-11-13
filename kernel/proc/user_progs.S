@@ -596,12 +596,12 @@ role_recv_flags:
     sys     SYS_EXIT
     b       .
 
-/* role 67: try every unknown system call number 8..40 (all must be -ENOSYS: there is no way to grant oneself authority),
+/* role 67: try every unknown system call number 10..40 (all must be -ENOSYS; 8 is the file system call, 9 the settings call: there is no way to grant oneself authority),
  * then send to the pid in x1 which this process was never authorised to message. [0x20] = number of -ENOSYS, [0x28] = send result. */
 role_tryall:
     ldr     x20, =DATA_VA
     mov     x19, x1
-    mov     x21, #9
+    mov     x21, #10
     mov     x22, #0
 ta_loop:
     mov     x0, #2

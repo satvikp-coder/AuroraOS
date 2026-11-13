@@ -49,7 +49,7 @@ void __attribute__((section(".text._start"))) _start(void)
     yield();
     if (zeroed != MARK || secret != MARK) quit(45);
 
-    if (sc(9, 0, 0, 0, 0, 0) != -4) quit(50);                 /* a system call number that does not exist: AE_ENOSYS */
+    if (sc(30, 0, 0, 0, 0, 0) != -4) quit(50);                /* a system call number that does not exist: AE_ENOSYS */
     if (sc(SYS_FS, 99, 0, 0, 0, 0) != -1) quit(51);           /* an unknown file operation: AE_EINVAL (there is no format or raw-disk operation) */
     if (sc(SYS_FS, 0x464F524D, 0, 0, 0, 0) != -1) quit(52);
     say(NAME " done");

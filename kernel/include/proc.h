@@ -110,6 +110,7 @@ void sched_trace_reset(void);
 #define SYS_RECV   7   /* x0 = user buffer, x1 = capacity, x2 = flags (1 = do not block): x0 = length or error, x1 = sender pid */
 #define IPC_NONBLOCK 1
 #define SYS_FS     8   /* x0 = operation (FSOP_*), x1..x4 arguments: see kernel/proc/fssys.c */
+#define SYS_SETTINGS 9   /* x0 = operation (SETOP_*), x1 = setting id, x2 = value: see kernel/settings.c */
 #define SYS_WRITE_MAX 256
 #define AE_OK      0
 #define AE_EINVAL (-1)
@@ -129,6 +130,7 @@ enum { FSOP_CREATE = 1, FSOP_LOOKUP, FSOP_READ, FSOP_WRITE, FSOP_STAT, FSOP_LIST
 struct user_fs_stat { uint64_t id; uint32_t size, owner, perm, reserved; char name[32]; };   /* 56 bytes, written to user memory */
 int  proc_set_principal(int pid, uint32_t principal);   /* kernel-only; 0 (the kernel) and PRINCIPAL_NONE are refused */
 int64_t fs_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4);
+int64_t settings_syscall(struct proc *p, uint64_t op, uint64_t id, uint64_t value);   /* kernel/settings.c */
 
 /* ---- safe user memory access ---- */
 int copy_from_user(void *dst, uint64_t uva, size_t n);   /* AE_OK / AE_EINVAL / AE_EFAULT; never faults the kernel */
