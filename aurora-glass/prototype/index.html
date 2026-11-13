@@ -237,11 +237,11 @@
     <nav class="dock" id="dock" role="navigation" aria-label="Aurora Dock">
       <span class="dock-horizon" id="dock-horizon" aria-hidden="true" hidden><span class="dock-horizon-fill" id="dock-horizon-fill"></span></span>
       <ul class="dock-list">
-        <li><button type="button" class="dock-btn" id="dock-back" aria-label="Back" data-target="screen-home"><span class="dock-icon" data-icon="back"></span><span class="dock-label">Back</span></button></li>
-        <li><button type="button" class="dock-btn active" id="dock-home" aria-label="Home" data-target="screen-home"><span class="dock-icon" data-icon="home"></span><span class="dock-label">Home</span></button></li>
-        <li><button type="button" class="dock-btn" id="dock-spaces" aria-label="Spaces" data-target="screen-spaces"><span class="dock-icon" data-icon="spaces"></span><span class="dock-label">Spaces</span></button></li>
-        <li><button type="button" class="dock-btn" id="dock-pages" aria-label="Pages" data-target="screen-pages"><span class="dock-icon" data-icon="pages"></span><span class="dock-label">Pages</span></button></li>
-        <li><button type="button" class="dock-btn" id="dock-ask" aria-label="Ask Aura / Search" data-target="screen-index"><span class="dock-icon" data-icon="search"></span><span class="dock-label">Ask</span></button></li>
+        <li><button type="button" class="dock-btn" id="dock-back" aria-label="Back" data-i18n-attr="aria-label:dock.back" data-target="screen-home"><span class="dock-icon" data-icon="back"></span><span class="dock-label" data-i18n="dock.back">Back</span></button></li>
+        <li><button type="button" class="dock-btn active" id="dock-home" aria-label="Home" data-i18n-attr="aria-label:dock.home" data-target="screen-home"><span class="dock-icon" data-icon="home"></span><span class="dock-label" data-i18n="dock.home">Home</span></button></li>
+        <li><button type="button" class="dock-btn" id="dock-spaces" aria-label="Spaces" data-i18n-attr="aria-label:dock.spaces" data-target="screen-spaces"><span class="dock-icon" data-icon="spaces"></span><span class="dock-label" data-i18n="dock.spaces">Spaces</span></button></li>
+        <li><button type="button" class="dock-btn" id="dock-pages" aria-label="Pages" data-i18n-attr="aria-label:dock.pages" data-target="screen-pages"><span class="dock-icon" data-icon="pages"></span><span class="dock-label" data-i18n="dock.pages">Pages</span></button></li>
+        <li><button type="button" class="dock-btn" id="dock-ask" aria-label="Ask Aura / Search" data-i18n-attr="aria-label:dock.ask.aria" data-target="screen-index"><span class="dock-icon" data-icon="search"></span><span class="dock-label" data-i18n="dock.ask">Ask</span></button></li>
       </ul>
       <ul class="dock-apps" id="dock-apps" aria-label="Open apps"></ul>
       <div class="dock-tray" id="dock-tray">
@@ -259,6 +259,9 @@
   <script src="broker.js"></script>
   <script src="ui.js"></script>
   <script src="index-model.js"></script>
+  <script src="strings-catalog.js"></script>
+  <script src="strings-model.js"></script>
+  <script src="strings.js"></script>
   <script src="contextmenu-model.js"></script>
   <script src="contextmenu.js"></script>
   <script src="app.js"></script>
