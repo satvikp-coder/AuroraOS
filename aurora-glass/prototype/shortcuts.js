@@ -31,12 +31,6 @@
       { keys: [["Tab"], ["Shift", "Tab"]], does: "Move between the dialog's buttons; focus stays inside the dialog." },
       { keys: [["Space"], ["Enter"]], does: "Press and hold on a hold-to-confirm button to confirm a high-risk action." },
     ] },
-    { id: "menu", title: "Actions menu (Vault files, Pages)", screens: ["screen-vault", "screen-pages"], rows: [
-      { keys: [["Shift", "F10"], ["Menu"]], does: "Open the actions menu for the focused file or Page. Right-click or a long press does the same." },
-      { keys: [["↑"], ["↓"], ["Home"], ["End"]], does: "Move through the menu; typing a letter jumps to a matching action." },
-      { keys: [["Enter"], ["Space"]], does: "Run the action. Risky ones (Move, Delete) still open their review first." },
-      { keys: [["Esc"]], does: "Close the menu and return to the item." },
-    ] },
     { id: "notes", title: "Notes", screens: ["screen-notes"], rows: [
       { keys: [["Mod", "N"]], does: "New note." },
       { keys: [["Mod", "S"]], does: "Save now." },
@@ -60,6 +54,12 @@
       { keys: [["Mod", "A"]], does: "Select all visible files." },
       { keys: [["Delete"]], does: "Review deleting the selected files (nothing is deleted until you confirm)." },
       { keys: [["Esc"]], does: "Clear the selection, or close the preview." },
+    ] },
+    { id: "menu", title: "Actions menu (Vault files, Pages)", screens: ["screen-vault", "screen-pages"], rows: [
+      { keys: [["Shift", "F10"], ["Menu"]], does: "Open the actions menu for the focused file or Page. Right-click or a long press does the same." },
+      { keys: [["↑"], ["↓"], ["Home"], ["End"]], does: "Move through the menu; typing a letter jumps to a matching action." },
+      { keys: [["Enter"], ["Space"]], does: "Run the action. Risky ones (Move, Delete) still open their review first." },
+      { keys: [["Esc"]], does: "Close the menu and return to the item." },
     ] },
     { id: "tabs", title: "Tabs (Clock, Passport)", screens: ["screen-clock", "screen-passport"], rows: [
       { keys: [["←"], ["→"]], does: "Switch to the previous or next tab." },
