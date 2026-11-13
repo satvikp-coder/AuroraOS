@@ -18,6 +18,9 @@
 .vault-list { display: flex; flex-direction: column; background: var(--color-surface-opaque); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-card); overflow: hidden; }
 .vault-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: var(--space-3); }
 
+/* Long lists (over 60 files, class set by vault.js): rows that are off screen skip layout and paint. "auto" remembers a row's real size once it has been shown. */
+.vault-list.is-large .vault-item { content-visibility: auto; contain-intrinsic-size: auto 76px; }
+.vault-grid.is-large .vault-item { content-visibility: auto; contain-intrinsic-size: auto 132px; }
 .vault-item { position: relative; display: flex; align-items: stretch; min-width: 0; }
 .vault-list .vault-item { border-top: var(--border-width) solid var(--color-border); }
 .vault-list .vault-item:first-child { border-top: 0; }

@@ -29,7 +29,10 @@
     return (Math.round((n / 1048576) * 10) / 10) + " MB";
   }
 
-  const byName = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: "base" }) || String(a.id).localeCompare(String(b.id));
+  // One shared collator: String.prototype.localeCompare with options builds a new collator on every call, which dominated sorting hundreds of files per render
+  // (measured: tests/perf/profile.js). Same ordering as localeCompare(b, undefined, { numeric: true, sensitivity: "base" }), just not rebuilt per comparison.
+  const NAME_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }), ID_ORDER = new Intl.Collator();
+  const byName = (a, b) => NAME_ORDER.compare(String(a.name), String(b.name)) || ID_ORDER.compare(String(a.id), String(b.id));
   /**
    * Sorted copy. key: name | modified | size (anything else sorts by name). dir: "asc" | "desc" (anything else is asc).
    * Ties always fall back to name then id so the order is stable and total.

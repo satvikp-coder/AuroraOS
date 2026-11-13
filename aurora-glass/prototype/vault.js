@@ -14,6 +14,7 @@
 
   const screen = Shell.addScreen("screen-vault", "Vault");
   const ui = { view: "list", sort: "name", dir: "asc", space: "all", query: "", select: false, sel: new Set(), anchor: null, previewId: null, focusId: null, result: null, busy: false };
+  const LARGE_LIST = 60;
   const wide = window.matchMedia ? window.matchMedia("(min-width: 1024px)") : { matches: false, addEventListener() {} };
   const spaceName = (id) => System.spaceName(id);
   const decision = (id) => System.permissions.get(id);
@@ -264,7 +265,8 @@
       else if (!vis.length) list = el("div", {}, [UI.emptyState("search", "No files match", "Try another search or Space."), el("div", { class: "action-bar" }, [el("button", { type: "button", class: "btn outline", id: "btn-vault-clear-filters", "data-fk": "clearf", onclick: () => { ui.query = ""; ui.space = "all"; render(); } }, [el("span", { text: "Clear filters" })])])]);
       else {
         const tab = vis.some((f) => f.id === ui.focusId) ? ui.focusId : vis[0].id;
-        const ul = el("ul", { class: "vault-" + ui.view, role: "list", "aria-label": "Files" }, vis.map((f, i) => fileItem(f, i, f.id === tab)));
+        // A long list skips layout and paint for rows that are off screen (content-visibility, see vault.css). Short lists, the normal case, are untouched.
+        const ul = el("ul", { class: "vault-" + ui.view + (vis.length > LARGE_LIST ? " is-large" : ""), role: "list", "aria-label": "Files" }, vis.map((f, i) => fileItem(f, i, f.id === tab)));
         ul.addEventListener("keydown", onListKey);
         list = ul;
       }

@@ -1,0 +1,320 @@
+{
+  "when": "2026-11-13T20:03:01.784Z",
+  "runsPerMeasure": 7,
+  "environment": {
+    "os": "Windows_NT 10.0.26300",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-1355U",
+    "logicalCpus": 12,
+    "ramGB": 16,
+    "freeRamMBAtStart": 2255,
+    "node": "v24.12.0",
+    "chromium": "131.0.6778.33",
+    "mode": "headless, software rendering, viewport 390x844, cold cache, local server without compression"
+  },
+  "assets": {
+    "js": {
+      "bytes": 387983,
+      "gzip": 126799,
+      "count": 29
+    },
+    "css": {
+      "bytes": 96612,
+      "gzip": 23904,
+      "count": 12
+    },
+    "html": {
+      "bytes": 18216,
+      "gzip": 4170,
+      "count": 1
+    },
+    "total": {
+      "bytes": 502811,
+      "gzip": 154873,
+      "count": 42
+    },
+    "largest": [
+      "app.js 44230",
+      "broker.js 31935",
+      "shell.css 29158",
+      "vault.js 27602",
+      "components.css 25953",
+      "review.js 23591"
+    ]
+  },
+  "load": {
+    "domContentLoadedMs": {
+      "median": 340.1,
+      "min": 256.8,
+      "max": 411.8,
+      "n": 7
+    },
+    "loadMs": {
+      "median": 343.7,
+      "min": 263.2,
+      "max": 416.9,
+      "n": 7
+    },
+    "firstContentfulPaintMs": {
+      "median": 251.8,
+      "min": 182.2,
+      "max": 330.6,
+      "n": 7
+    },
+    "requests": 42,
+    "scriptMs": {
+      "median": 80.3,
+      "min": 42.8,
+      "max": 116,
+      "n": 7
+    },
+    "layoutMs": {
+      "median": 79.9,
+      "min": 51.9,
+      "max": 104.4,
+      "n": 7
+    },
+    "styleMs": {
+      "median": 45.8,
+      "min": 27.4,
+      "max": 55.1,
+      "n": 7
+    },
+    "taskMs": {
+      "median": 299.6,
+      "min": 204.4,
+      "max": 327.2,
+      "n": 7
+    },
+    "layoutCount": 3,
+    "styleRecalcCount": 10,
+    "nodes": 2312,
+    "jsHeapMB": {
+      "median": 2.1,
+      "min": 2.1,
+      "max": 2.2,
+      "n": 7
+    }
+  },
+  "actions": {
+    "errors": [],
+    "domNodes": {
+      "home": 1316,
+      "notes": 1325,
+      "clock": 1321,
+      "calculator": 1339,
+      "vault": 1339,
+      "pages": 1339,
+      "passport": 1339,
+      "trail": 1339,
+      "settings": 1366,
+      "index": 1510
+    },
+    "openAppMs": {
+      "notes": {
+        "first": 48.3,
+        "warm": {
+          "median": 4.9,
+          "min": 2.8,
+          "max": 10.4,
+          "n": 7
+        }
+      },
+      "clock": {
+        "first": 7.4,
+        "warm": {
+          "median": 2.4,
+          "min": 1.6,
+          "max": 6.7,
+          "n": 7
+        }
+      },
+      "calculator": {
+        "first": 5,
+        "warm": {
+          "median": 5.1,
+          "min": 2.7,
+          "max": 15.9,
+          "n": 7
+        }
+      },
+      "vault": {
+        "first": 9.3,
+        "warm": {
+          "median": 12.3,
+          "min": 8.2,
+          "max": 20.1,
+          "n": 7
+        }
+      },
+      "passport": {
+        "first": 24.6,
+        "warm": {
+          "median": 25.8,
+          "min": 20.8,
+          "max": 51.3,
+          "n": 7
+        }
+      },
+      "trail": {
+        "first": 18.6,
+        "warm": {
+          "median": 4.6,
+          "min": 3.8,
+          "max": 14.8,
+          "n": 7
+        }
+      },
+      "settings": {
+        "first": 8.7,
+        "warm": {
+          "median": 8.5,
+          "min": 6.6,
+          "max": 27.8,
+          "n": 7
+        }
+      }
+    },
+    "indexKeystrokeMs": {
+      "median": 2.6,
+      "min": 1,
+      "max": 6.3,
+      "n": 14
+    },
+    "indexKeystrokeWorstMs": 6.3,
+    "vault": {
+      "10": {
+        "files": 10,
+        "renderedItems": 10,
+        "nodes": 172,
+        "openRenderMs": {
+          "median": 8.8,
+          "min": 7.4,
+          "max": 13.5,
+          "n": 5
+        },
+        "searchKeystrokeMs": {
+          "median": 2.5,
+          "min": 2.2,
+          "max": 4.6,
+          "n": 8
+        },
+        "selectClickMs": {
+          "median": 15.5,
+          "min": 11.5,
+          "max": 43.9,
+          "n": 6
+        }
+      },
+      "200": {
+        "files": 200,
+        "renderedItems": 200,
+        "nodes": 1692,
+        "openRenderMs": {
+          "median": 89.4,
+          "min": 49.1,
+          "max": 152.9,
+          "n": 5
+        },
+        "searchKeystrokeMs": {
+          "median": 40.3,
+          "min": 5,
+          "max": 107.3,
+          "n": 8
+        },
+        "selectClickMs": {
+          "median": 91.5,
+          "min": 75.2,
+          "max": 134.7,
+          "n": 6
+        }
+      },
+      "1000": {
+        "files": 1000,
+        "renderedItems": 1000,
+        "nodes": 8092,
+        "openRenderMs": {
+          "median": 559.4,
+          "min": 554.5,
+          "max": 637.5,
+          "n": 5
+        },
+        "searchKeystrokeMs": {
+          "median": 402.4,
+          "min": 14.3,
+          "max": 502.1,
+          "n": 8
+        },
+        "selectClickMs": {
+          "median": 453.6,
+          "min": 408.1,
+          "max": 527.2,
+          "n": 6
+        }
+      }
+    },
+    "contextMenuOpenMs": {
+      "median": 6.7,
+      "min": 5.5,
+      "max": 12.7,
+      "n": 15
+    }
+  },
+  "frames": {
+    "clear": {
+      "frameIntervalMeanMs": {
+        "median": 16.8,
+        "min": 16.7,
+        "max": 16.8,
+        "n": 5
+      },
+      "frameIntervalP95Ms": {
+        "median": 16.7,
+        "min": 16.7,
+        "max": 16.8,
+        "n": 5
+      },
+      "worstFrameMs": {
+        "median": 33.3,
+        "min": 16.8,
+        "max": 33.3,
+        "n": 5
+      },
+      "framesOver20ms": {
+        "median": 1,
+        "min": 0,
+        "max": 1,
+        "n": 5
+      },
+      "framesPerRun": 150,
+      "scrollablePx": 11611
+    },
+    "soft": {
+      "frameIntervalMeanMs": {
+        "median": 16.7,
+        "min": 16.7,
+        "max": 16.8,
+        "n": 5
+      },
+      "frameIntervalP95Ms": {
+        "median": 16.8,
+        "min": 16.7,
+        "max": 16.8,
+        "n": 5
+      },
+      "worstFrameMs": {
+        "median": 16.8,
+        "min": 16.8,
+        "max": 33.4,
+        "n": 5
+      },
+      "framesOver20ms": {
+        "median": 0,
+        "min": 0,
+        "max": 1,
+        "n": 5
+      },
+      "framesPerRun": 150,
+      "scrollablePx": 11611
+    }
+  }
+}
