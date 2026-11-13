@@ -1,7 +1,7 @@
 # Storage: virtio block driver (issue #6, milestone A)
 
 Status (current): block I/O (milestone A), the AuroraFS filesystem (B), EL0 file access (C) and the program loader (D, docs/kernel/loader.md) are
-implemented and tested in QEMU. The native settings registry (E) does not exist yet. Nothing here has run on hardware. (This file keeps the milestone A text
+implemented and tested in QEMU, and so is the native settings registry (E, docs/kernel/settings.md). Nothing here has run on hardware. (This file keeps the milestone A text
 below as written; later sections describe the filesystem and its hardening.)
 
 ## Device selection (verified, not assumed)
