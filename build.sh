@@ -54,6 +54,9 @@ fi
 if [ -n "$AURORA_FS_TEST" ]; then
     CFLAGS="$CFLAGS -DAURORA_FS_TEST=1"        # DESTRUCTIVE filesystem tests: only for a disposable QEMU disk image
 fi
+if [ -n "$AURORA_LOAD_TEST" ]; then
+    CFLAGS="$CFLAGS -DAURORA_LOAD_TEST=1"      # loader tests: need a disk provisioned by tests/tools/mkafs; they write only through the programs they launch
+fi
 if [ -n "$AURORA_FAULT_TEST" ]; then
     CFLAGS="$CFLAGS -DAURORA_FAULT_TEST=$AURORA_FAULT_TEST"
 fi
@@ -76,7 +79,7 @@ if [ -n "$AURORA_FS_TEST" ]; then      # EL0 file-access boundary programs: test
 fi
 
 echo "[build] Compiling kernel..."
-for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/blktest.c kernel/fs/afs.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
+for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proc/elf.c kernel/proc/launch.c kernel/loadtest.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/blktest.c kernel/fs/afs.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
          kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do
     o="$BUILD_DIR/$(basename "$c" .c).o"
     $CC $CFLAGS -c "$c" -o "$o"

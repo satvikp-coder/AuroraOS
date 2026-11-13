@@ -1,5 +1,6 @@
 /* kernel/proc/proc.c — process table, creation, destruction, explicit state machine, safe user-memory access. */
 #include <console.h>
+#include <elf.h>
 #include <mm.h>
 #include <proc.h>
 
@@ -69,6 +70,65 @@ int proc_create_image(int role, uint64_t arg1, const char *name, const void *ima
     p->ctx.x[0] = (uint64_t)role;
     p->ctx.x[1] = arg1;
     p->state = PROC_READY;
+    return p->pid;
+}
+
+/*
+ * Create a process from a validated executable image (the program loader's back end).
+ *
+ * `file` is UNTRUSTED: it is validated here, by elf_validate, every time, so a caller cannot hand in a description that does not match the bytes.
+ * `principal` is chosen by the KERNEL caller (the launcher's registry), never taken from the file. Order of work, and why it is safe:
+ *   1. validate everything (no memory touched); 2. take a slot in state NEW (the scheduler only ever runs READY processes); 3. build the address
+ *   space page by page: a fresh zeroed kernel page buffer is filled with the file-backed bytes that fall in that page, the rest is zero (this is
+ *   the bss and the tail of the last file page), and the page is mapped with permissions derived from the validated flags (R+X -> RX, R+W -> RW
+ *   and never executable, R -> RO); 4. map the stack; 5. only now set the registers, the identity and READY.
+ * Any failure destroys the address space (which frees every page it owns) and releases the slot: nothing half-built is ever runnable and nothing
+ * leaks. Returns the pid, or PROC_ELOAD_* (< 0); *elf_err receives the elf_validate code for PROC_ELOAD_INVALID.
+ */
+static uint8_t load_page[PAGE_SIZE];
+
+int proc_create_elf(const uint8_t *file, size_t len, const char *name, uint32_t principal, uint64_t arg, int *elf_err)
+{
+    if (elf_err) *elf_err = 0;
+    if (principal == 0 || principal == PRINCIPAL_NONE) return PROC_ELOAD_ARG;
+    struct elf_image img;
+    int ve = elf_validate(file, len, &img);
+    if (ve) { if (elf_err) *elf_err = ve; return PROC_ELOAD_INVALID; }
+
+    int slot = -1;
+    for (int i = 0; i < PROC_MAX; i++) if (table[i].state == PROC_UNUSED) { slot = i; break; }
+    if (slot < 0) return PROC_ELOAD_NOSLOT;
+    struct proc *p = &table[slot];
+    kzero(p, sizeof *p);
+    p->pid = slot + 1;
+    p->principal = PRINCIPAL_NONE;
+    p->gen = next_gen++;
+    p->state = PROC_NEW;
+    for (int i = 0; i < 15 && name && name[i]; i++) p->name[i] = name[i];
+
+    int rc = aspace_create(&p->as, (uint32_t)p->pid);
+    for (int s = 0; rc == 0 && s < img.nseg; s++) {
+        const struct elf_seg *g = &img.seg[s];
+        int perm = (g->flags & ELF_PF_X) ? UPERM_RX : (g->flags & ELF_PF_W) ? UPERM_RW : UPERM_RO;
+        uint64_t file_lo = g->vaddr, file_hi = g->vaddr + g->filesz, end = g->vaddr + g->memsz;
+        for (uint64_t pg = g->vaddr & ~(uint64_t)(PAGE_SIZE - 1); rc == 0 && pg < end; pg += PAGE_SIZE) {
+            for (size_t i = 0; i < PAGE_SIZE; i++) load_page[i] = 0;
+            uint64_t lo = pg > file_lo ? pg : file_lo, hi = pg + PAGE_SIZE < file_hi ? pg + PAGE_SIZE : file_hi;
+            for (uint64_t a = lo; a < hi; a++) load_page[a - pg] = file[g->offset + (a - g->vaddr)];     /* hi <= file_hi: inside the validated file range */
+            rc = aspace_map(&p->as, pg, perm, load_page, PAGE_SIZE, 0);
+        }
+    }
+    if (rc == 0) rc = aspace_map(&p->as, USER_STACK_VA, UPERM_RW, 0, 0, &p->stack_pa);
+    if (rc == 0) rc = aspace_map(&p->as, USER_STACK_VA + PAGE_SIZE, UPERM_RW, 0, 0, 0);
+    if (rc) { aspace_destroy(&p->as); kzero(p, sizeof *p); return PROC_ELOAD_NOMEM; }
+
+    p->entry = img.entry;
+    p->ctx.elr = img.entry;
+    p->ctx.spsr = 0;
+    p->ctx.sp_el0 = USER_STACK_TOP;
+    p->ctx.x[0] = arg;                                       /* a number chosen by the kernel (the launch registry); the program receives it as its first argument */
+    p->principal = principal;
+    p->state = PROC_READY;                                   /* the LAST step: until here the scheduler cannot see it */
     return p->pid;
 }
 

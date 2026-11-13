@@ -48,6 +48,7 @@ void fs_unmount(void);
 
 int  fs_create(uint32_t principal, const char *name, uint32_t perm, fs_id_t *id);
 int  fs_lookup(uint32_t principal, const char *name, fs_id_t *id);   /* the caller's own file of that name, else the first it may see; FS_ENOENT also hides files it may not touch. Names are unique per owner. */
+int  fs_lookup_owner(uint32_t owner, const char *name, fs_id_t *id);   /* KERNEL ONLY (no system call): the file of exactly that owner and name, else FS_ENOENT */
 int  fs_read(uint32_t principal, fs_id_t id, uint32_t off, void *buf, uint32_t len);        /* bytes read (short at EOF) or FS_E* */
 int  fs_write(uint32_t principal, fs_id_t id, uint32_t off, const void *buf, uint32_t len); /* len, or FS_E*; off <= size (no holes) */
 int  fs_delete(uint32_t principal, fs_id_t id);

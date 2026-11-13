@@ -125,6 +125,10 @@ jobs:
         run: |
           chmod +x tests/qemu/fs-tests.sh
           ./tests/qemu/fs-tests.sh
+      - name: Run program loader tests (executables provisioned on the disk image by the host, launched by name, run at EL0, three QEMU runs)
+        run: |
+          chmod +x tests/qemu/loader-tests.sh
+          ./tests/qemu/loader-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

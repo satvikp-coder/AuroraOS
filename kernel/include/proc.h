@@ -69,6 +69,10 @@ struct proc {
 };
 int  proc_create(int role, uint64_t arg1, const char *name);   /* pid > 0, or a negative error */
 int  proc_create_image(int role, uint64_t arg1, const char *name, const void *image, size_t len);   /* same, with kernel-supplied code (<= 1 page) instead of the built-in blob */
+/* Create a process from an executable file image (kernel/proc/elf.c validates it; see docs/kernel/loader.md). The principal is chosen by the CALLER, which
+ * is always kernel code. Returns pid > 0 or PROC_ELOAD_*; for PROC_ELOAD_INVALID *elf_err is the elf_validate error. */
+enum { PROC_ELOAD_ARG = -1, PROC_ELOAD_INVALID = -2, PROC_ELOAD_NOSLOT = -3, PROC_ELOAD_NOMEM = -4 };
+int  proc_create_elf(const uint8_t *file, size_t len, const char *name, uint32_t principal, uint64_t arg, int *elf_err);   /* arg: kernel-chosen number passed in x0 */
 struct proc *proc_get(int pid);
 int  proc_destroy(int pid);                      /* NEW/READY/TERMINATED/FAULTED only; frees all memory */
 const char *proc_state_name(enum proc_state s);
