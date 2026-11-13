@@ -13,7 +13,7 @@ An independent, open-source ARM64 operating system with the **Aurora Glass** UI 
 | Interrupts, timer, separate exception stack | **Working on QEMU, tested in CI** | `kernel/irq.c`, `kernel/arch/`, `docs/kernel/interrupts-timers.md` |
 | Processes, EL0 userspace, preemptive scheduler, syscalls, bounded IPC | **Working on QEMU, tested in CI** (8 processes, isolated address spaces, W^X, fault containment) | `kernel/proc/`, `docs/kernel/userspace.md` |
 | Storage and filesystem | **Working on QEMU, tested in CI**: virtio-blk driver; AuroraFS with per-owner names, file-id existence hiding, per-principal quotas, crash and uncertain-write handling; EL0 file access | `kernel/drivers/`, `kernel/fs/`, `docs/kernel/storage.md` |
-| Program loader | **Working on QEMU, tested in CI**: a narrow static AArch64 ELF subset is loaded from AuroraFS into an isolated EL0 process under an identity chosen by the kernel | `kernel/proc/elf.c`, `kernel/proc/launch.c`, `docs/kernel/loader.md` |
+| Program loader and init | **Working on QEMU, tested in CI**: a narrow static AArch64 ELF subset is loaded from AuroraFS into an isolated EL0 process under an identity chosen by the kernel; the kernel starts an installed `init.elf` as the first user process | `kernel/proc/elf.c`, `kernel/proc/launch.c`, `docs/kernel/loader.md` |
 | Native settings registry | **Working on QEMU, tested in CI**: six typed preferences, capability-checked, persistent on AuroraFS (stored preferences; no hardware is driven) | `kernel/settings.c`, `docs/kernel/settings.md` |
 | Native graphics and native Aurora Glass UI | Not started | issues #7, #8 |
 | Aurora Glass **browser prototype** | **Prototype only** (runs in a host browser, controls nothing real) | `aurora-glass/prototype/` |
