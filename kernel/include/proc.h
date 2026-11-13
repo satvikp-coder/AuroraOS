@@ -68,6 +68,7 @@ struct proc {
     char name[16];
 };
 int  proc_create(int role, uint64_t arg1, const char *name);   /* pid > 0, or a negative error */
+int  proc_create_image(int role, uint64_t arg1, const char *name, const void *image, size_t len);   /* same, with kernel-supplied code (<= 1 page) instead of the built-in blob */
 struct proc *proc_get(int pid);
 int  proc_destroy(int pid);                      /* NEW/READY/TERMINATED/FAULTED only; frees all memory */
 const char *proc_state_name(enum proc_state s);

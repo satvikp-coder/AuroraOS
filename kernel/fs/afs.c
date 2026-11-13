@@ -74,7 +74,7 @@ const char *fs_strerror(int rc)
     case FS_OK: return "ok"; case FS_EARG: return "invalid argument"; case FS_ENOENT: return "no such file"; case FS_EEXIST: return "file exists";
     case FS_ENOSPC: return "no space"; case FS_ENFILE: return "no free file slot"; case FS_EFBIG: return "file too large"; case FS_EACCES: return "permission denied";
     case FS_EBADID: return "invalid file id"; case FS_ECORRUPT: return "corrupt"; case FS_EVERSION: return "unsupported version"; case FS_ENOFS: return "no filesystem";
-    case FS_EIO: return "I/O error"; case FS_ENAME: return "invalid name"; case FS_EMOUNT: return "not mounted"; case FS_ENODEV: return "no device"; case FS_ERO: return "read-only"; case FS_EUNCERTAIN: return "update outcome uncertain: remount required";
+    case FS_EIO: return "I/O error"; case FS_ENAME: return "invalid name"; case FS_EMOUNT: return "not mounted"; case FS_ENODEV: return "no device"; case FS_ERO: return "read-only"; case FS_EUNCERTAIN: return "update outcome uncertain: remount required"; case FS_EQUOTA: return "quota exceeded";
     default: return "unknown error";
     }
 }
@@ -196,6 +196,46 @@ static int can(uint32_t principal, const struct inode *n, int write)
 static int can_see(uint32_t principal, const struct inode *n) { return can(principal, n, 0) || can(principal, n, 1); }
 
 /*
+ * EXISTENCE POLICY (issue #6 hardening). A file id is not a secret, so what a caller learns from an id must not depend on whether a file
+ * the caller may not discover happens to exist behind it. For every operation that takes an id:
+ *   - the kernel (principal 0) always gets the true result;
+ *   - a caller that is the file's owner, or that has read or write permission on it, can DISCOVER the file; for such callers a refused operation
+ *     is FS_EACCES (the file is legitimately visible, the operation is not allowed);
+ *   - any other caller gets FS_EBADID, byte for byte the same result as for an id that never existed, a stale generation or a deleted file.
+ * resolve_for() applies this FIRST, and every argument check that does not depend on the file is made BEFORE it, so no argument error can
+ * be used as a probe either. This hides existence in the returned error codes only: no claim is made about timing or other side channels.
+ * Aggregate-resource errors (FS_ENFILE, FS_ENOSPC) still reflect global usage by design; they reveal no particular file.
+ */
+static int visible(uint32_t principal, const struct inode *n) { return principal == 0 || principal == n->owner || can_see(principal, n); }
+static int resolve_for(uint32_t principal, fs_id_t id, struct inode **out)
+{
+    struct inode *n; int rc = resolve(id, &n); if (rc) return rc;
+    if (!visible(principal, n)) return FS_EBADID;
+    *out = n;
+    return FS_OK;
+}
+
+/* ---- per-principal quotas ----
+ * Usage is DERIVED from the inode table (the only authoritative state), never stored: it cannot disagree with the files, survives remount
+ * and reboot by construction, and a failed or uncertain update (which leaves the cache unchanged or unmounts) cannot leave a stale counter.
+ * Charged to the file's OWNER, whoever writes it (a world-writable file spends its owner's quota: the owner chose to expose it). Logical blocks
+ * are what a file occupies when committed; the temporary second copy of copy-on-write is not charged (it is released at commit). */
+static void usage_of(uint32_t owner, uint32_t *files, uint32_t *blocks)
+{
+    uint32_t f = 0, b = 0;
+    for (uint32_t i = 0; i < FS_MAX_FILES; i++)
+        if (F.t.ino[i].state == ST_USED && F.t.ino[i].owner == owner) { f++; b += F.t.ino[i].nblocks; }   /* <= 32 * 48: cannot overflow */
+    *files = f; *blocks = b;
+}
+int fs_usage(uint32_t principal, uint32_t *files, uint32_t *blocks)
+{
+    if (!F.mounted) return FS_EMOUNT;
+    if (!files || !blocks) return FS_EARG;
+    usage_of(principal, files, blocks);
+    return FS_OK;
+}
+
+/*
  * Publish one inode: write its sector, flush, then (only on success) update the cache.
  *
  * Outcome classes (this is the heart of the recovery design):
@@ -241,6 +281,8 @@ int fs_create(uint32_t principal, const char *name, uint32_t perm, fs_id_t *id)
         if (F.t.ino[i].state == ST_USED) { if (F.t.ino[i].owner == principal && streq(F.t.ino[i].name, name)) return FS_EEXIST; }
         else if (free_idx < 0 && F.t.ino[i].gen < 0x00FFFFFFu) free_idx = (int)i;
     }
+    uint32_t qf, qb; usage_of(principal, &qf, &qb); (void)qb;
+    if (qf >= FS_QUOTA_FILES) return FS_EQUOTA;                                 /* the principal's own limit: reveals nothing about anyone else */
     if (free_idx < 0) return FS_ENFILE;
     struct inode n; zero(&n, sizeof n);
     n.state = ST_USED; n.gen = F.t.ino[free_idx].gen + 1; n.owner = principal; n.perm = perm; n.size = 0; n.nblocks = 0; n.data_crc = crc32(0, 0);
@@ -282,8 +324,9 @@ static int load(const struct inode *n)
 
 int fs_read(uint32_t principal, fs_id_t id, uint32_t off, void *buf, uint32_t len)
 {
-    struct inode *n; int rc = resolve(id, &n); if (rc) return rc;
-    if (!buf && len) return FS_EARG;
+    if (!F.mounted) return FS_EMOUNT;
+    if (!buf && len) return FS_EARG;                                          /* file-independent checks first: see EXISTENCE POLICY */
+    struct inode *n; int rc = resolve_for(principal, id, &n); if (rc) return rc;
     if (!can(principal, n, 0)) return FS_EACCES;
     if (off > n->size) return FS_EARG;
     uint32_t avail = n->size - off, take = len < avail ? len : avail;
@@ -295,8 +338,9 @@ int fs_read(uint32_t principal, fs_id_t id, uint32_t off, void *buf, uint32_t le
 
 int fs_write(uint32_t principal, fs_id_t id, uint32_t off, const void *buf, uint32_t len)
 {
-    struct inode *n; int rc = resolve(id, &n); if (rc) return rc;
+    if (!F.mounted) return FS_EMOUNT;
     if (!buf && len) return FS_EARG;
+    struct inode *n; int rc = resolve_for(principal, id, &n); if (rc) return rc;
     if (!can(principal, n, 1)) return FS_EACCES;
     if (blk_readonly()) return FS_ERO;
     if (off > n->size) return FS_EARG;                                        /* no holes */
@@ -304,6 +348,10 @@ int fs_write(uint32_t principal, fs_id_t id, uint32_t off, const void *buf, uint
     if (len > FS_MAX_FILE || off + len > FS_MAX_FILE) return FS_EFBIG;        /* off <= size <= MAX and len <= MAX: no overflow */
     uint32_t newsize = off + len > n->size ? off + len : n->size;
     uint32_t nb = (newsize + BLK_SECTOR - 1) / BLK_SECTOR;
+    if (nb > n->nblocks) {                                                    /* only GROWTH is charged: an overwrite in place never fails on quota */
+        uint32_t qf, qb; usage_of(n->owner, &qf, &qb); (void)qf;
+        if (qb - n->nblocks > FS_QUOTA_BLOCKS || nb > FS_QUOTA_BLOCKS - (qb - n->nblocks)) return FS_EQUOTA;   /* checked before any disk write: a refused write costs nothing */
+    }
 
     rc = load(n); if (rc) return rc;                                          /* also proves the old content is intact before replacing it */
     copy(scratch + off, buf, len);
@@ -329,8 +377,8 @@ int fs_write(uint32_t principal, fs_id_t id, uint32_t off, const void *buf, uint
 
 int fs_delete(uint32_t principal, fs_id_t id)
 {
-    struct inode *n; int rc = resolve(id, &n); if (rc) return rc;
-    if (principal != 0 && principal != n->owner) return FS_EACCES;
+    struct inode *n; int rc = resolve_for(principal, id, &n); if (rc) return rc;
+    if (principal != 0 && principal != n->owner) return FS_EACCES;            /* visible but not the owner */
     if (blk_readonly()) return FS_ERO;
     struct inode cand; zero(&cand, sizeof cand);
     cand.state = ST_FREED; cand.gen = n->gen;                                  /* the generation survives so the old id stays dead */
@@ -343,8 +391,9 @@ int fs_delete(uint32_t principal, fs_id_t id)
 
 int fs_set_perm(uint32_t principal, fs_id_t id, uint32_t perm)
 {
-    struct inode *n; int rc = resolve(id, &n); if (rc) return rc;
+    if (!F.mounted) return FS_EMOUNT;
     if (perm & ~FS_PERM_MASK) return FS_EARG;
+    struct inode *n; int rc = resolve_for(principal, id, &n); if (rc) return rc;
     if (principal != 0 && principal != n->owner) return FS_EACCES;
     if (blk_readonly()) return FS_ERO;
     struct inode cand; copy(&cand, n, INODE_SIZE); cand.perm = perm;
@@ -359,9 +408,10 @@ static void fill_stat(struct fs_stat *st, const struct inode *n, uint32_t idx)
 
 int fs_stat(uint32_t principal, fs_id_t id, struct fs_stat *st)
 {
-    struct inode *n; int rc = resolve(id, &n); if (rc) return rc;
+    if (!F.mounted) return FS_EMOUNT;
     if (!st) return FS_EARG;
-    if (!can_see(principal, n)) return FS_EACCES;
+    struct inode *n; int rc = resolve_for(principal, id, &n); if (rc) return rc;
+    if (principal != 0 && !can_see(principal, n)) return FS_EACCES;            /* an owner who removed all of its own permission bits */
     fill_stat(st, n, (uint32_t)(n - F.t.ino));
     return FS_OK;
 }

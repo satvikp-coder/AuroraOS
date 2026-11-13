@@ -16,11 +16,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_FS_BOOT1=57
-EXPECTED_FS_BOOTN=21
+EXPECTED_FS_BOOT1=69
+EXPECTED_FS_BOOTN=23
 EXPECTED_FS_RO=2
-EXPECTED_FSPROC_BOOT1=16
-EXPECTED_FSPROC_BOOTN=14
+EXPECTED_FSPROC_BOOT1=26
+EXPECTED_FSPROC_BOOTN=24
 EXPECTED_PROC_TESTS=79
 
 OUT="$ROOT/build/fs-tests"
@@ -67,7 +67,7 @@ for n in 1 2 3; do
 done
 expect "$OUT/boot1.log" "\[fs\] initial mount: no filesystem" "boot1: empty disk detected, not formatted automatically"
 expect "$OUT/boot1.log" "AURORA-FS-SELFTEST: $EXPECTED_FS_BOOT1 passed, 0 failed" "boot1: all $EXPECTED_FS_BOOT1 checks pass"
-for t in "unmounted filesystem fail with FS_EMOUNT" "oversized: writing 24 KiB" "invalid ids" "owner-only file: another principal gets FS_EACCES" "GUESSES the exact id" "full disk: a write that does not fit is FS_ENOSPC" "100 create/write/read/delete cycles" "crash injection \(write k" "crash injection for create and delete" "boot 1: filesystem formatted and persistent files written" "inject: an inode write rejected before reaching the device is a DEFINITE failure" "inject: an inode write that fails with unknown outcome returns FS_EUNCERTAIN, UNMOUNTS" "inject: an inode write that LANDED but was reported as failed" "inject: after an uncertain commit a second write is refused" "inject: after remount both files are exact" "inject: a failed flush AFTER the inode write is uncertain too" "inject: a data-block write failure" "inject: a failed data flush" "inject create" "inject delete" "inject chmod"; do
+for t in "unmounted filesystem fail with FS_EMOUNT" "oversized: writing 24 KiB" "invalid ids" "owner-only file: another principal gets FS_EBADID" "existence: a stranger probing a HIDDEN file" "existence: files the stranger CAN discover" "existence: an OWNER always discovers" "existence: when the owner revokes" "file quota: principal 40 creates 8 files" "file quota: deleting a file releases" "file quota: the limit is rebuilt" "block quota: files of 48 \+ 48 blocks" "block quota: an overwrite in place" "quota policy: it is charged to the file.s OWNER" "block quota: deleting a file releases" "inject quota" "GUESSES the exact id" "full disk: a write that does not fit is FS_ENOSPC" "100 create/write/read/delete cycles" "crash injection \(write k" "crash injection for create and delete" "boot 1: filesystem formatted and persistent files written" "inject: an inode write rejected before reaching the device is a DEFINITE failure" "inject: an inode write that fails with unknown outcome returns FS_EUNCERTAIN, UNMOUNTS" "inject: an inode write that LANDED but was reported as failed" "inject: after an uncertain commit a second write is refused" "inject: after remount both files are exact" "inject: a failed flush AFTER the inode write is uncertain too" "inject: a data-block write failure" "inject: a failed data flush" "inject create" "inject delete" "inject chmod"; do
     expect "$OUT/boot1.log" "\[fs-test\] .*$t.*: PASS" "boot1: $t"
 done
 expect "$OUT/boot2.log" "\[fs\] initial mount: ok" "boot2: mounted without formatting"
@@ -77,6 +77,8 @@ expect "$OUT/boot3.log" "boot counter was 2, now 3" "boot3: counter 2 -> 3 (stat
 for n in 2 3; do
     expect "$OUT/boot$n.log" "AURORA-FS-SELFTEST: $EXPECTED_FS_BOOTN passed, 0 failed" "boot$n: all $EXPECTED_FS_BOOTN checks pass (incl. corruption suite)"
     expect "$OUT/boot$n.log" "authorization after the restart.*: PASS" "boot$n: authorization still enforced after restart"
+    expect "$OUT/boot$n.log" "quota after the RESTART: usage of principal 7 is recomputed from the disk.*: PASS" "boot$n: quota usage rebuilt from the disk after an emulator restart"
+    expect "$OUT/boot$n.log" "quota after the RESTART: the 8-file and 96-block limits.*: PASS" "boot$n: quota limits still enforced after an emulator restart"
     expect "$OUT/boot$n.log" "silent data corruption.*: PASS" "boot$n: flipped data bit is detected, never returned"
     expect "$OUT/boot$n.log" "version mismatch.*FS_EVERSION.*: PASS" "boot$n: version mismatch refused"
 done
@@ -87,6 +89,9 @@ for n in 1 2 3; do
     expect "$OUT/boot$n.log" "program B \(EL0, identity 22\) with a GUESSED exact id.*: PASS" "boot$n: EL0 program B refused on the private file even with the exact id"
     expect "$OUT/boot$n.log" "hostile arguments from EL0.*: PASS" "boot$n: hostile EL0 arguments (kernel pointers, overflow) rejected safely"
     expect "$OUT/boot$n.log" "PID reuse: a new process created in the pid slot.*: PASS" "boot$n: a reused pid inherits no file identity"
+    for t in "EL0 boundary: a name or buffer that straddles the unmapped guard page" "EL0 boundary: a name with an embedded NUL" "EL0 boundary: LIST with 0 entries" "EL0 boundary: writing at offset size\+1" "EL0 boundary: READ into the read-only code page" "EL0 boundary: 64-bit values" "EL0 identities: read, write, stat, delete and chmod" "after the whole boundary matrix" "EL0 quota: an identity creates 8 files" "EL0 with the filesystem unmounted"; do
+        expect "$OUT/boot$n.log" "\[fsproc-test\] $t.*: PASS" "boot$n: $t"
+    done
 done
 for n in 2 3; do
     expect "$OUT/boot$n.log" "AURORA-FSPROC-SELFTEST: $EXPECTED_FSPROC_BOOTN passed, 0 failed" "boot$n: all $EXPECTED_FSPROC_BOOTN EL0 file-access checks pass"
@@ -124,12 +129,20 @@ echo "== 3. read-only disk with a filesystem =="
 before="$(sum "$img")"; log="$OUT/ro.log"; run_qemu "$TESTK" "$log" $(disk_args "$img" ,readonly=on); finished readonly "$log"
 expect "$log" "AURORA-FS-SELFTEST: $EXPECTED_FS_RO passed, 0 failed" "readonly: $EXPECTED_FS_RO checks pass"
 expect "$log" "read-only disk: write, create, delete, set_perm and format are all refused with FS_ERO.*: PASS" "readonly: every modification refused with FS_ERO"
+expect "$log" "AURORA-FSPROC-SELFTEST: 1 passed, 0 failed" "readonly: the EL0 file-system suite ran (1 check)"
+expect "$log" "read-only disk: an EL0 program's file create is refused with FS_ERO.*: PASS" "readonly: an EL0 create is refused with FS_ERO"
 if [ "$(sum "$img")" = "$before" ]; then ok "readonly: image unchanged"; else bad "readonly: image changed"; fi
 
 echo "== 4. no disk =="
 log="$OUT/nodisk.log"; run_qemu "$NORMAL" "$log"; finished nodisk "$log"
 expect_not "$log" "\[fs\] mount" "nodisk: no filesystem activity"
 expect "$log" "AURORA-PROC-SELFTEST: $EXPECTED_PROC_TESTS passed, 0 failed" "nodisk: userspace suite passes"
+
+echo "== 5. test kernel with no disk: EL0 file calls fail cleanly =="
+log="$OUT/nodisk-test.log"; run_qemu "$TESTK" "$log"; finished nodisk-test "$log"
+expect "$log" "AURORA-FSPROC-SELFTEST: 1 passed, 0 failed" "nodisk-test: the EL0 file-system suite ran (1 check)"
+expect "$log" "no block device: every file system call from EL0.*: PASS" "nodisk-test: EL0 file calls return FS_EMOUNT"
+expect "$log" "AURORA-PROC-SELFTEST: $EXPECTED_PROC_TESTS passed, 0 failed" "nodisk-test: userspace suite passes"
 
 echo "fs-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]
