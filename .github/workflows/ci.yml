@@ -35,6 +35,7 @@ jobs:
       - run: node tests/unit/contextmenu.test.js
       - run: node tests/unit/index.test.js
       - run: node tests/unit/strings.test.js
+      - run: node tests/unit/handoff-docs.test.js
 
   ui-browser-tests:
     name: Browser interaction tests (Playwright)

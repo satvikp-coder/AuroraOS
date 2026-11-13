@@ -17,7 +17,7 @@ An independent, open-source ARM64 operating system with the **Aurora Glass** UI 
 | Native settings registry | **Working on QEMU, tested in CI**: six typed preferences, capability-checked, persistent on AuroraFS (stored preferences; no hardware is driven) | `kernel/settings.c`, `docs/kernel/settings.md` |
 | Native graphics and native Aurora Glass UI | Not started | issues #7, #8 |
 | Aurora Glass **browser prototype** | **Prototype only** (runs in a host browser, controls nothing real) | `aurora-glass/prototype/` |
-| Aura Action Broker | **Mock only**: a tested contract for typed, approved actions; not wired into the UI, not an OS service | `aurora-glass/prototype/broker.js` |
+| Aura Action Broker | **Mock only**: a tested contract for typed, approved actions. The browser prototype's Aura, Vault, Passport, Trail and Clock go through it, but it is JavaScript in one browser context: not an OS service and not a security boundary | `aurora-glass/prototype/broker.js` |
 | Offline language model, speech | Not started | issues #12, #13 |
 | Samsung Galaxy F04 | **Unverified research target.** Nothing here has run on hardware. | issue #15 |
 
@@ -32,7 +32,9 @@ An independent, open-source ARM64 operating system with the **Aurora Glass** UI 
 - Tests (QEMU, all in CI): memory 128, interrupts 93, processes 154, storage 53, filesystem and EL0 file access 161, program loader 72, settings 74, and an end-to-end run of loader + storage + settings on one disk 50; host-side parser, policy and ELF-validator tests (with a 300,000-iteration fuzz) under ASan/UBSan. QEMU only: nothing here has run on hardware.
 
 **Browser prototype (host only)**
-- Home, Aurora Dock, Spaces, Index search, Aura Plan sheet, Pages (simulated multitasking and memory), Quick Center (simulated controls), Settings (one registry, simple and advanced views, searchable from Index; each entry is labelled live, stored-only or locked); Clear and Soft Glass tiers, light/dark, high contrast, 150%/200% text, reduced motion, keyboard support.
+- Shell: Home, Aurora Dock, Spaces, Pages (simulated multitasking and memory), Quick Center (simulated controls), Settings (one registry, simple and advanced views; each entry is labelled live, stored-only or locked), Index search (ranked results, recent use as a tie-break, and cautious typo suggestions for app names that never run on Enter), the Aura Plan sheet with review and hold-to-confirm, a first-run welcome, a keyboard shortcut sheet (press `?`), shared context menus for Vault files and Pages, and a desktop window card at 1024 px and wider.
+- Apps: Notes (saved in this browser only), Calculator, Clock (clock, stopwatch, timer), Vault/Files (sample files, moves reviewed, deletes need a hold), Passport (permissions), Trail (receipts and undo).
+- Looks and access: Clear and Soft Glass tiers, light/dark, high contrast, 125/150/200% text, reduced motion, keyboard support. English is the only verified language; Hindi and Gujarati are empty placeholders that show English.
 - Everything is simulated. Changing a toggle changes the prototype, never your computer or phone.
 
 **Aura Action Broker (mock)**: typed actions, risk classes S0-S3, permissions that fail closed, approvals bound to the exact plan, undo from real receipts. It documents its own limits: it is JavaScript in one browser context, not a security boundary. The native broker must run in a privileged OS service.
@@ -47,10 +49,9 @@ Drivers beyond the console and the virtio block device, native graphics and UI, 
 ```
 npm ci
 npx playwright install chromium
-node tests/unit/aurora-glass.test.js
-node tests/unit/core.test.js
-node tests/unit/broker.test.js
-npx playwright test            # starts a local static server on :3000
+for f in tests/unit/*.test.js; do node "$f" || break; done   # all unit tests (CI lists each one in .github/workflows/ci.yml)
+npx playwright test --workers=1   # real-browser tests; starts a local static server on :3000
+node tests/perf/profile.js --runs 7   # optional: measure the prototype (not a test; see docs/agents/AURORA_UI_PERF.md)
 npx http-server aurora-glass/prototype -p 3000   # to look at it yourself
 ```
 
@@ -75,7 +76,8 @@ Always boot `build/kernel.bin` (the ELF gets no device tree). On Windows, run th
 - `DESIGN.md`: Aurora Glass visual contract. `AuroraOS_Final_Blueprint_OpenDesign.md`: architecture and plan.
 - `docs/kernel/mmu-configuration.md`: reviewed MMU settings, mapping policy and known limits.
 - `docs/kernel/userspace.md`, `storage.md`, `loader.md`, `settings.md`: processes and syscalls, the filesystem, the program loader and launch policy, the settings registry (each lists its limits).
-- `aurora-glass/open-design-handoff/native-compositor-mapping.md`: browser-to-native component mapping.
+- `aurora-glass/open-design-handoff/native-compositor-mapping.md`: what a native compositor and UI toolkit must provide, component by component (a requirements reference: no native graphics exists yet). Its names, colours and numbers are checked against the prototype by `tests/unit/handoff-docs.test.js`.
+- `docs/agents/AURORA_UI_HANDOFF.md` (current state and next steps), `AURORA_UI_TASKS.md` (milestone log), `AURORA_TESTING.md` (how to test), `AURORA_UI_PERF.md` (measured prototype performance and its limits).
 
 ## Safety
 
