@@ -70,6 +70,7 @@ test.describe("Shortcut sheet: when ? opens it", () => {
   test("a dialog cannot be bypassed by the sheet: while it is open ? typed in its filter is text, and Ctrl+K stays blocked", async ({ page }) => {
     await start(page);
     await page.keyboard.press("?");
+    await expect(page.locator("#shortcuts-filter")).toBeFocused();
     await page.keyboard.type("?"); await expect(page.locator("#shortcuts-filter")).toHaveValue("?");
     await expect(sheet(page)).toHaveCount(1);
     await page.keyboard.press("Control+k");
@@ -256,7 +257,7 @@ test.describe("Shortcut sheet: layouts", () => {
     await start(page);
     await ev(page, () => { window.AuroraShell.setContrast("high"); window.AuroraShell.setMotion("reduce"); });
     await page.keyboard.press("?");
-    expect(await page.locator(".kbd").first().evaluate((n) => getComputedStyle(n).borderTopWidth)).toBe("2px");
+    expect(await page.locator("#shortcuts-dialog .kbd").first().evaluate((n) => getComputedStyle(n).borderTopWidth)).toBe("2px");
     expect(await page.locator("#shortcuts-dialog").evaluate((n) => getComputedStyle(n).animationName)).toBe("none");
   });
 });
