@@ -18,8 +18,9 @@ Project model: one human owner (solo maintainer). No external reviewer is requir
 | Task | Status |
 |---|---|
 | F0, M1 shell, M2 Passport, M3 Trail, M4 Vault | **merged to main** (unit 8/8 suites; Playwright 465 passed, 22 skipped, 0 failed; layout matrix 28/28) |
-| M5 Notes, M6 Calculator, M7 Clock, M8 polish | not started |
-| Kernel D program loader, E settings registry, hardening | **merged to main** (see the Kernel row) |
+| M6 Calculator | **done, PR open** (branch `feature/aurora-calculator`; unit 122, Playwright 25 specs, full suite 490 passed locally, layout matrix 28/28) |
+| M5 Notes, M7 Clock, M8 polish | not started |
+| Kernel D program loader, E settings registry, init, hardening | **merged to main** (see the Kernel row) |
 
 M4 visual review: actually looked at Vault at 390 dark (select mode, two selected), 390 light (preview), 1280 dark (grid + side preview), 1280 light (list + preview). Not looked at by eye: 360, 412, 768, 1024, 1440, Clear mode, high contrast, 200% text, reduced motion (covered by assertions in vault.test.js and the layout matrix only).
 Defects found and fixed in review: selected rows showed two check marks (redundant mark removed; the filled checkbox plus aria-checked remain); after a move or delete on a scrolled page the result with Undo / View in Trail was off-screen (now scrolled into view); the Glass Corner covered the sticky selection bar, the preview's top-right Close and the search field when scrolled (bar no longer sticky, Close moved into the action row, search reserves room for the corner below 1024 px); the Vault Space chips reused the Spaces screen's focus keys (renamed).

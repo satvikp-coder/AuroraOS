@@ -166,7 +166,7 @@ test.describe("Index: keyboard", () => {
   test("Enter opens the active app; a second option can be chosen by arrow", async ({ page }) => {
     await openIndex(page, "calc");
     await page.keyboard.press("Enter");
-    await expect(page.locator('#screen-pages [data-page="page-calc"]')).toBeVisible();
+    await expect(page.locator("#screen-calculator")).toBeVisible();                  // Calculator is a real app now (M6): it opens its own screen instead of the Pages fallback
   });
 
   test("Escape goes back", async ({ page }) => {
@@ -187,7 +187,7 @@ test.describe("Index: keyboard", () => {
   test("pointer click activates the clicked option", async ({ page }) => {
     await openIndex(page, "calc");
     await opts(page).first().click();
-    await expect(page.locator("#screen-pages")).toBeVisible();
+    await expect(page.locator("#screen-calculator")).toBeVisible();
   });
 });
 

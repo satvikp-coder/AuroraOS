@@ -417,7 +417,11 @@ fix P0/P1 findings before the PRs are called ready.
   failure state via `page.addInitScript` overriding `localStorage.setItem`), layout matrix, screenshots.
 - Depends on: M1.
 
-## M6. Calculator — `not started` — branch `feature/aurora-calculator` (from M1)
+## M6. Calculator — `done, PR open` (calc.test.js unit 122; calculator.test.js 25 Playwright specs; layout matrix 28/28 with 3 new states) — branch `feature/aurora-calculator` (from main)
+
+**Record.** Engine `calc-engine.js` (no eval; scaled-BigInt decimals, 12 significant digits, exponent form, overflow at 1e+99, division by zero is an error until Clear), screen `calculator.js` + `calculator.css`, registered as the app's `screen`. Keypad is 4x5 (C, backspace, %, divide / digits / operators / sign, 0, dot, equals); Clear-Entry is the Delete key, Escape is Clear. History keeps the last 10 completed calculations (tap to reuse). Visual review done by eye at 390 light, 390 dark (error), 1280 dark, 360 at 200% text; it found and fixed: the keypad moved when the display font shrank (fixed line boxes), and at 360/200% the exponent was clipped and the title broke mid-word (the result now shrinks until the whole text fits; the title scales). Not looked at by eye: 412, 768, 1024, 1440, Soft/Clear differences, high contrast (covered by assertions and the layout matrix only).
+
+Original plan:
 
 - Files: `calc-engine.js` (DOM-free), `calculator.js`, `calculator.css`, `tests/unit/calc.test.js`,
   `tests/ui-golden/calculator.test.js`.
