@@ -23,7 +23,7 @@
 .timer-bar { height: 10px; border-radius: var(--radius-pill); background: var(--color-surface-sunken); border: var(--border-width) solid var(--color-border); overflow: hidden; }
 .timer-fill { height: 100%; width: 0; background: var(--color-accent-fill); }
 @media (prefers-reduced-motion: no-preference) { :root:not([data-motion="reduce"]) .timer-fill { transition: width 250ms linear; } }
-.timer-inputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.timer-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 6.5rem), 1fr)); gap: var(--space-2); }   /* three across when they fit, stacked at large text sizes (font metrics differ between machines) */
 .timer-unit { min-width: 0; }
 .timer-field { width: 100%; min-width: 0; box-sizing: border-box; text-align: center; font-variant-numeric: tabular-nums; }
 .timer-error { margin: 0; color: var(--color-danger); font-weight: var(--weight-bold); }
