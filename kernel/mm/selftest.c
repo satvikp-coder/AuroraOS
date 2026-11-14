@@ -51,7 +51,10 @@ void selftest_pmm(void)
     check("pmm: free of arbitrary address rejected", pmm_free_page(0xDEAD0000UL) == PMM_ERR_RANGE);
     check("pmm: free of kernel text page rejected", pmm_free_page((uintptr_t)__text_start) == PMM_ERR_RESERVED);
     check("pmm: free of boot-region page rejected", pmm_free_page(pmm_ram_base()) == PMM_ERR_RESERVED);
+    /* A page that is neither allocated nor reserved. It used to be assumed that the last RAM page is such a page; the optional
+     * framebuffer (gfx_reserve) now lives at the top of RAM, so search downward for a genuinely free one instead. */
     uintptr_t never = pmm_ram_end() - PAGE_SIZE;
+    while (never > pmm_ram_base() && (pmm_is_allocated(never) || pmm_is_reserved(never))) never -= PAGE_SIZE;
     check("pmm: free of never-allocated page rejected", !pmm_is_allocated(never) && !pmm_is_reserved(never) && pmm_free_page(never) == PMM_ERR_DOUBLE);
     pmm_get_stats(&s1);
     check("pmm: rejected frees counted and do not change free pages", s1.free_errors == s0.free_errors + 8 && s1.free_pages == s0.free_pages);

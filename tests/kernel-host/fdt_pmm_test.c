@@ -334,6 +334,31 @@ static void virtio_tests(void)
     { uint8_t bad[64] = { 0 }; CHECK("an invalid blob is rejected by the same validation as fdt_parse", fdt_virtio_mmio(bad, v, 4) < 0); }
 }
 
+static void fwcfg_tests(void)
+{
+    struct fb b; struct fdt_virtio v[4]; int rc;
+    printf("-- fw_cfg discovery --\n");
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); base_close(&b);
+    CHECK("a tree without fw_cfg yields 0 nodes", fdt_fwcfg_mmio(b.out, v, 4) == 0);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_virtio(&b, "fw-cfg@9020000", "qemu,fw-cfg-mmio", 0x9020000ULL, 0x18, 0, 0, 4); base_close(&b);
+    rc = fdt_fwcfg_mmio(b.out, v, 4);
+    CHECK("the real QEMU node is found with its base and 0x18 size", rc == 1 && v[0].base == 0x9020000ULL && v[0].size == 0x18);
+    CHECK("a virtio-only query ignores the fw_cfg node", fdt_virtio_mmio(b.out, v, 4) == 0);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_virtio(&b, "virtio_mmio@a000000", "virtio,mmio", 0xa000000ULL, 0x200, 0, 0, 4); base_close(&b);
+    CHECK("a fw_cfg query ignores virtio nodes", fdt_fwcfg_mmio(b.out, v, 4) == 0);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL);
+    add_virtio(&b, "fw-cfg@9020000", "qemu,fw-cfg-mmio", 0x9020000ULL, 0x18, 0, 0, 4);
+    add_virtio(&b, "fw-cfg@9030000", "qemu,fw-cfg-mmio", 0x9030000ULL, 0x18, 0, 0, 4); base_close(&b);
+    CHECK("two nodes are both reported (the driver then refuses the ambiguity)", fdt_fwcfg_mmio(b.out, v, 4) == 2);
+    CHECK("a smaller buffer is never overrun", fdt_fwcfg_mmio(b.out, v, 1) == 1);
+    CHECK("max <= 0 or NULL output is an error", fdt_fwcfg_mmio(b.out, v, 0) == FDT_ERR_NULL && fdt_fwcfg_mmio(b.out, 0, 4) == FDT_ERR_NULL);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_virtio(&b, "fw-cfg@9020000", "qemu,fw-cfg-mmio", 0x9020000ULL, 0, 0, 0, 4); base_close(&b);
+    CHECK("a zero-size window is rejected", fdt_fwcfg_mmio(b.out, v, 4) == FDT_ERR_RESERVATION);
+    base_open(&b, 2, 2, 0x40000000ULL, 0x10000000ULL); add_virtio(&b, "fw-cfg@f", "qemu,fw-cfg-mmio", 0xFFFFFFFFFFFFFFF0ULL, 0x100, 0, 0, 4); base_close(&b);
+    CHECK("a window that wraps the address space is rejected", fdt_fwcfg_mmio(b.out, v, 4) == FDT_ERR_RESERVATION);
+    { uint8_t bad[64] = { 0 }; CHECK("an invalid blob is rejected", fdt_fwcfg_mmio(bad, v, 4) < 0); }
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3 && !strcmp(argv[1], "--emit")) {
@@ -354,6 +379,7 @@ int main(int argc, char **argv)
     tests();
     platform_tests();
     virtio_tests();
+    fwcfg_tests();
     pmm_tests();
     printf("\n== Summary ==\nPassed: %d\nFailed: %d\n", passed, failed);
     return failed ? 1 : 0;

@@ -261,7 +261,7 @@ int fdt_platform_parse(const void *fdt, struct fdt_platform *out)
  * virtio-mmio transports: every depth-2 node with compatible "virtio,mmio" (reg = base,size; interrupts = <type num flags>,
  * SPI type 0 => GIC interrupt ID 32 + num). Runs on a blob fdt_parse() accepted. Nothing is assumed about how many exist.
  * ---------------------------------------------------------------------------------------------- */
-int fdt_virtio_mmio(const void *fdt, struct fdt_virtio *out, int max)
+static int fdt_mmio_nodes(const void *fdt, const char *compat, struct fdt_virtio *out, int max)
 {
     struct fdt_info scratch;
     int rc = fdt_parse(fdt, &scratch);
@@ -300,7 +300,7 @@ int fdt_virtio_mmio(const void *fdt, struct fdt_virtio *out, int max)
             if (noff < size_str) {
                 if (depth == 1 && streq(pname, "#address-cells") && len == 4) root_ac = be32(val);
                 else if (depth == 1 && streq(pname, "#size-cells") && len == 4) root_sc = be32(val);
-                else if (depth == 2 && streq(pname, "compatible") && has_string(val, len, "virtio,mmio")) is_virtio = 1;
+                else if (depth == 2 && streq(pname, "compatible") && has_string(val, len, compat)) is_virtio = 1;
                 else if (depth == 2 && streq(pname, "reg")) { reg = val; reg_len = len; }
                 else if (depth == 2 && streq(pname, "interrupts")) { irq = val; irq_len = len; }
             }
@@ -311,3 +311,9 @@ int fdt_virtio_mmio(const void *fdt, struct fdt_virtio *out, int max)
     }
     return n;
 }
+
+int fdt_virtio_mmio(const void *fdt, struct fdt_virtio *out, int max) { return fdt_mmio_nodes(fdt, "virtio,mmio", out, max); }
+
+/* fw_cfg MMIO nodes ("qemu,fw-cfg-mmio"); only top-level nodes with a reg property are reported. */
+int fdt_fwcfg_mmio(const void *fdt, struct fdt_virtio *out, int max) { return fdt_mmio_nodes(fdt, "qemu,fw-cfg-mmio", out, max); }
+
