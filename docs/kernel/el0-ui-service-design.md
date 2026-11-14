@@ -24,7 +24,7 @@ Not proposed: mapping the framebuffer into any EL0 process (a client **or** the 
 
 ## 3. True architectural blockers (an EL0 compositor cannot be built until these change)
 
-1. **No concurrency between the shell and EL0.** The shell loop does not schedule processes, so no client can run while the user interacts. Either the loop must become a scheduler participant (a time slice per tick, input and presents handled between slices), or the compositor must itself be an EL0 process. Either is a kernel change with its own tests.
+1. **No concurrency between the shell and EL0. (Resolved in Cycle 17: the shell loop now hands READY processes bounded slices, see `native-graphics-plan.md` section 15.)** Originally the shell loop did not schedule processes, so no client could run while the user interacted.
 2. **The 24-page address-space cap and the single code page.** A framebuffer-sized buffer is 768 pages (3 MiB at 1024x768 XRGB). An EL0 compositor holding its own back buffer, glyph data and scene cannot fit. Clients that want a pixel buffer cannot either.
 3. **No shared-memory primitive.** All data crosses the boundary as 64-byte copies, at most 4 queued.
 4. **No input-delivery or display path for EL0.** There is no syscall to receive input events or to present a frame.

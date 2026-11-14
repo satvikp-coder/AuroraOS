@@ -55,6 +55,9 @@ fi
 if [ -n "$AURORA_SHELL_TEXT_PCT" ]; then
     CFLAGS="$CFLAGS -DAURORA_SHELL_TEXT_PCT=$AURORA_SHELL_TEXT_PCT -DAURORA_SHELL_LAYOUT_LOG=1"   # test kernel: the real shell started at this text scale; logs control geometry (tests/qemu/scale-tests.sh)
 fi
+if [ -n "$AURORA_SHELL_CLIENTS" ]; then
+    CFLAGS="$CFLAGS -DAURORA_SHELL_CLIENTS=$AURORA_SHELL_CLIENTS"   # test kernel: EL0 clients from shclient.elf run while the shell is interactive (tests/qemu/shell-sched-tests.sh)
+fi
 if [ -n "$AURORA_SHELL_CONTRAST" ]; then
     CFLAGS="$CFLAGS -DAURORA_SHELL_CONTRAST=$AURORA_SHELL_CONTRAST -DAURORA_SHELL_LAYOUT_LOG=1"   # test kernel: the real shell started in high contrast
 fi
