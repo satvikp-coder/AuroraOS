@@ -174,7 +174,7 @@ The Tier 0 pipeline must **not** include alpha blending, blur or gradients; thos
 
 ## 10. G2 as implemented (QEMU `virt` + ramfb only)
 
-**Status: implemented and verified in QEMU on QEMU 11.1.0 under TCG (`-cpu cortex-a53`). Nothing here has run on real hardware, KVM or any accelerator.** The kernel finds fw_cfg, configures ramfb with a DMA write, draws a diagnostic pattern itself, and QEMU's own `screendump` is parsed to prove the pixels. Stage G3 is section 11; G4 onward is not done.
+**Status: implemented and verified in QEMU on QEMU 11.1.0 under TCG (`-cpu cortex-a53`). Nothing here has run on real hardware, KVM or any accelerator.** The kernel finds fw_cfg, configures ramfb with a DMA write, draws a diagnostic pattern itself, and QEMU's own `screendump` is parsed to prove the pixels. Stage G3 is section 11 and G4 section 12; G5 onward is not done.
 
 ### What exists
 
@@ -243,7 +243,8 @@ QEMU only. Fixed 1024x768 XRGB8888 (the surface API carries width, height, strid
 | G1 | done |
 | G2 | **done on QEMU**, as above |
 | G3 | **done on QEMU**, section 11 |
-| G4 to G6 | not started |
+| G4 | **done on QEMU for printable ASCII**, section 12 |
+| G5 and G6 | not started |
 
 ## 11. G3 as implemented: rounded rectangles, borders and exact clipping (QEMU/TCG only)
 
@@ -270,6 +271,32 @@ A pixel belongs to a rounded rectangle iff its **centre** (x + 1/2, y + 1/2) is 
 ### Limits
 
 QEMU/TCG only. No anti-aliasing: edges are hard, which is the Tier 0 contract. The shapes are not yet connected to any UI element. Performance is unmeasured. Text (G4), input (G5) and window composition (G6) are not started.
+
+## 12. G4 as implemented: native bitmap text (QEMU/TCG only, printable ASCII only)
+
+**Status: implemented and verified on QEMU for printable ASCII in Noto Sans Mono. This is NOT multilingual text support: Hindi and Gujarati are not supported (they draw as boxes), there is no shaping, no bidirectional text, no combining marks, no input, no focus and no screen-reader or text-to-speech path.** Text is opaque 1-bit bitmaps (Tier 0).
+
+### Font source and licence (verified before any asset was added)
+
+Noto Sans Mono, release `NotoSansMono-v2.014` (2023-09-30) of https://github.com/notofonts/latin-greek-cyrillic, files `googlefonts/ttf/NotoSansMono-Regular.ttf` and `-Bold.ttf`, pinned by SHA-256 in `tools/fontgen/gen_font.py`. Licence: SIL Open Font License 1.1; `OFL.txt` is byte-identical to the file inside the release archive and to the repository file at the release tag; copyright "2022 The Noto Project Authors"; no Reserved Font Name declared. The generator also reads the licence strings embedded in the font (name IDs 13, 14) and refuses anything that does not say OFL 1.1. The TrueType files are not committed; `third_party/fonts/NotoSansMono/` holds `OFL.txt`, `AUTHORS.txt` and a provenance `README.md`. The generated `kernel/gfx/font_noto_mono.c` is a modified version of the font software (outlines rasterized to bitmaps) and says so, with the notices, in its header. No proprietary or system font was used. (A distribution-packaged copy of Noto Sans Mono was present on the build machine but was deliberately not used; the pinned upstream release is.)
+
+### Atlas generation (`tools/fontgen/gen_font.py`, reproducible)
+
+Python standard library only. It parses the TrueType tables itself (head, maxp, hhea, hmtx, cmap formats 4 and 12, loca, glyf with simple and translated composite glyphs; hinting is ignored), flattens the quadratic outlines, rasterizes with the non-zero winding rule at 8 sub-scanlines per pixel with exact horizontal span coverage, and keeps a pixel when at least half of it is covered. A glyph that would keep under 60 percent of its covered area (a thin stem straddling a pixel boundary) is re-thresholded as low as 25 percent so it cannot vanish; this was needed for `|` at 14 px, which a host test had found to be blank. Glyphs are laid on an integer advance (0.6 em rounded) and scaled horizontally by at most about 4 percent so they fill the cell pitch exactly. Output: 10 faces (regular 400 and bold 700 at 12, 14, 16, 18, 24 px), 14,287 bytes of bitmap. **Reproducibility checked:** two runs give identical bytes, and Windows Python 3.13 and WSL Python 3.14 both reproduce the committed file byte for byte; a font with a different hash is refused.
+
+### Engine (`kernel/gfx/gfx_text.c`, API in `gfx.h`)
+
+One UTF-8 code point is one cell. Strict decoding (overlong forms, surrogates and values above U+10FFFF are invalid; an invalid sequence consumes exactly one byte). U+0020 to U+007E draw their glyph; every other code point, including controls, DEL, `\r` and `\t`, accented Latin, Devanagari and Gujarati, draws a **visible hollow missing-glyph box** (documented size). `gfx_text_measure`, `gfx_text_wrap` (greedy; breaks at the last space run, else between cells; spaces at a break are dropped; `\n` honoured; at least one cell per line), `gfx_draw_text` (first line, clipped to the surface and an optional rectangle) and `gfx_draw_text_block` (wraps into a box, draws every line whose top is above the box bottom, clipped to the box). Line spacing is the face's `line_height`; the baseline is `y + ascent`. Input is bytes with an explicit length, capped at 1 MiB; a corrupt glyph table is skipped, never read out of bounds.
+
+### Evidence
+
+- `tests/kernel-host/gfx_text_test.c`, **109 checks** under ASan/UBSan: font data integrity (all ten faces, every glyph inside its bit array and its cell box, tight boxes, advance rule, provenance hashes, licence files), UTF-8 (21 hand cases plus 200,000 random byte strings: always progresses, never overruns, never yields a surrogate or a value above U+10FFFF), measuring, 21 hand-worked wrap cases plus invariants on 20,000 random texts (no line too wide, no trailing space, every visible character survives in order), glyph pixels against the table, **2,100 clipped renderings equal to the crop of an unclipped rendering**, strides with padding checks and guard canaries, INT32 extremes, corrupt font data, text blocks (no pixel outside the box).
+- `tests/qemu/gfx-tests.sh` (now **55 checks**): a test kernel built with `AURORA_GFX_TEXT=1` draws the G4 image (every size and weight, the full ASCII range, missing glyphs, wrapped blocks in wide, narrow and short boxes, clipping at all four screen edges and to a rectangle); `gfx_check.py --pattern text` renders it again with its own UTF-8 decoding, its own paragraph-style word wrap and its own blitter over the glyph data parsed from the C file, and requires the screenshot to match **byte for byte**, also after the whole boot. The reference image was also looked at by eye: all sizes and both weights are legible; boxes, wrapping and clipping are as designed.
+- **Mutation checks** (the screenshot test must fail): baseline one pixel low, glyph x offset flipped, one extra column per line, UTF-8 continuation check disabled, clip one pixel too wide, narrower missing-glyph box, line height off by one, spaces at the edge not dropped. All eight were caught.
+
+### Limits (not hidden)
+
+ASCII only. 1-bit glyphs at five sizes: hard-edged, hinting-free, so small text is rougher than anti-aliased text would be. Indic scripts need shaping, which is not planned yet. No kerning or proportional layout (monospace only). No text input or editing, no selection, no accessibility interface. QEMU/TCG only; performance unmeasured.
 
 ## Appendix: commands that produced the **[verified]** facts
 

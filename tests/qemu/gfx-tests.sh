@@ -61,6 +61,8 @@ BUILD_DIR="$OUT/normal" ./build.sh >/dev/null 2>&1 || { bad "kernel build failed
 ok "kernel builds"
 AURORA_GFX_SHAPES=1 BUILD_DIR="$OUT/shapes" ./build.sh >/dev/null 2>&1 || { bad "shapes (G3) kernel build failed"; echo "gfx-tests: $PASSES passed, $FAILS failed"; exit 1; }
 ok "G3 shapes test kernel builds"
+AURORA_GFX_TEXT=1 BUILD_DIR="$OUT/text" ./build.sh >/dev/null 2>&1 || { bad "text (G4) kernel build failed"; echo "gfx-tests: $PASSES passed, $FAILS failed"; exit 1; }
+ok "G4 text test kernel builds"
 
 run_display() {   # name ram expected_fb_base
     name="$1"; ram="$2"; fb="$3"
@@ -98,6 +100,19 @@ wait_boot "$L" 240
 expect_not "$L" "KERNEL PANIC|SELFTEST FAILED|Kernel halted|gfx: pattern FAILED" "shapes: no panic, no failed self-test, no failed drawing"
 python3 "$SCRIPT_DIR/gfx_check.py" --pattern shapes --qmp "$S" --serial "$L" --timeout 30 > "$OUT/shapes.check2.log" 2>&1
 if [ "$?" -eq 0 ]; then ok "shapes: screenshot still identical after the whole boot"; else bad "shapes: screenshot changed after boot"; fi
+stop_qemu
+
+echo "== G4: bitmap text (Noto Sans Mono data), byte-exact against an independent Python renderer =="
+L="$OUT/text.log"; S="$OUT/text.sock"
+start_qemu "$OUT/text/kernel.bin" "$L" "$S" 256M -device ramfb
+python3 "$SCRIPT_DIR/gfx_check.py" --pattern text --qmp "$S" --serial "$L" --timeout 120 --keep "$OUT/text-first.ppm" > "$OUT/text.check.log" 2>&1
+rc=$?; sed 's/^/    /' "$OUT/text.check.log" | grep -E "FAIL|note:|gfx_check:"
+if [ "$rc" -eq 0 ]; then ok "text: screenshot equals the independent reference image byte for byte"; else bad "text: screenshot verification failed (see $OUT/text.check.log)"; fi
+expect "$L" "^gfx: text pattern drawn" "text: kernel reported the text pattern"
+wait_boot "$L" 240
+expect_not "$L" "KERNEL PANIC|SELFTEST FAILED|Kernel halted|gfx: pattern FAILED" "text: no panic, no failed self-test, no failed drawing"
+python3 "$SCRIPT_DIR/gfx_check.py" --pattern text --qmp "$S" --serial "$L" --timeout 30 > "$OUT/text.check2.log" 2>&1
+if [ "$?" -eq 0 ]; then ok "text: screenshot still identical after the whole boot"; else bad "text: screenshot changed after boot"; fi
 stop_qemu
 
 echo "== no display device: a normal boot =="

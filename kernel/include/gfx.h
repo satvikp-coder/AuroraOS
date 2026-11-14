@@ -12,6 +12,7 @@
 #define AURORA_GFX_H
 #include <stddef.h>
 #include <stdint.h>
+#include <gfx_font.h>
 
 #define GFX_FMT_XRGB8888 1u        /* 32 bits per pixel: 0x00RRGGBB as a little-endian u32 (bytes B,G,R,X); DRM fourcc XR24 */
 #define GFX_BPP_BYTES    4u
@@ -49,6 +50,34 @@ int  gfx_fill_round_rect(const struct gfx_surface *s, struct gfx_rect r, int32_t
 /* The border is drawn INSIDE r: outer shape minus the shape inset by `border` with radius max(radius - border, 0). border <= 0 draws nothing. */
 int  gfx_stroke_round_rect(const struct gfx_surface *s, struct gfx_rect r, int32_t radius, int32_t border, uint32_t color);
 int  gfx_draw_shapes_pattern(const struct gfx_surface *s);               /* the G3 diagnostic image (test builds only) */
+
+/* ---- text (kernel/gfx/gfx_text.c, stage G4): printable ASCII only, monospaced bitmap font, 1-bit, opaque ---------------------------------
+ * Layout model: one UTF-8 code point = one cell of `advance` pixels. U+0020..U+007E draw their glyph; EVERYTHING ELSE (controls, DEL,
+ * non-ASCII such as Devanagari or Gujarati, invalid UTF-8: one cell per bad byte) draws a visible hollow missing-glyph box; there is no
+ * shaping, no bidirectional text and no combining marks. '
+' ends a line; '' and '	' are ordinary controls (boxes). Lines are
+ * `line_height` apart; a line's top is y, its baseline is y + ascent. Text input is bytes with an explicit length (no NUL needed). */
+#define GFX_TEXT_MAX_BYTES (1u << 20)             /* longer inputs are refused (GFX_ESIZE) */
+struct gfx_text_line { size_t start, len; uint32_t cells; };   /* byte range in the input (trailing spaces at a wrap trimmed) and its cell count */
+
+const struct gfx_font *gfx_font_find(int weight, int size);    /* exact weight and size, or NULL */
+/* Decode one code point at s[*i] (requires *i < n): advances *i by the sequence length, or by exactly 1 byte for an invalid or
+ * overlong sequence, a surrogate or a value above U+10FFFF, for which *cp is U+FFFD. */
+void gfx_utf8_next(const char *s, size_t n, size_t *i, uint32_t *cp);
+/* Size of the text with explicit newlines only (no wrapping): width of the longest line, height = lines * line_height. */
+int  gfx_text_measure(const struct gfx_font *f, const char *s, size_t n, int32_t *w, int32_t *h);
+/* Word wrap to max_w pixels (at least one cell per line even if max_w is smaller). Breaks at spaces (the spaces at the break are dropped),
+ * breaks overlong words between cells, honours '
+'. Fills up to max_out entries of `out` (may be NULL with max_out 0) and always
+ * stores the total number of lines in *total. A final empty line after a trailing '
+' is not counted. */
+int  gfx_text_wrap(const struct gfx_font *f, const char *s, size_t n, int32_t max_w, struct gfx_text_line *out, size_t max_out, size_t *total);
+/* Draw the first line of the text (up to the first '
+') with its top-left at (x, y), clipped to the surface and to `clip` (may be NULL). */
+int  gfx_draw_text(const struct gfx_surface *s, const struct gfx_font *f, int32_t x, int32_t y, const char *str, size_t n, uint32_t color, const struct gfx_rect *clip);
+/* Wrap into `box` and draw every line whose top is above the box bottom, clipped to the box. *lines_total / *lines_drawn may be NULL. */
+int  gfx_draw_text_block(const struct gfx_surface *s, const struct gfx_font *f, struct gfx_rect box, const char *str, size_t n, uint32_t color, size_t *lines_total, size_t *lines_drawn);
+int  gfx_draw_text_pattern(const struct gfx_surface *s);       /* the G4 diagnostic image (test builds only) */
 
 /* ---- placement of the framebuffer in RAM (kernel/gfx/gfx_region.c): pure ------------------------------------------------ */
 /* Find the HIGHEST page-aligned region of `size` bytes inside [ram_base, ram_end) for which busy(page) is false for every
