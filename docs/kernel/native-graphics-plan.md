@@ -309,7 +309,21 @@ ASCII only. 1-bit glyphs at five sizes: hard-edged, hinting-free, so small text 
 
 **Measured (see `native-graphics-performance.md`).** On QEMU/TCG (i7-1355U, QEMU 11.1.0): 1024x768 clear about 2-5 ms; a 100-control full-frame redraw about 7-12 ms median; a one-widget damaged redraw about 0.05-0.1 ms; run-to-run variation about 2x. Nothing about real hardware.
 
-**Not done.** Application windows, an EL0 UI service, non-ASCII text, text editing beyond end-typing and Backspace, text scaling, a high-contrast mode, persistence, a real clock, notifications, interrupt-driven input (polled), the statusq (LEDs), caps lock, real-hardware cache coherence.
+**Not done.** Application windows, an EL0 UI service, non-ASCII text, text editing beyond end-typing and Backspace, a user-reachable way to change text scale or contrast (see section 14), persistence, a real clock, notifications, interrupt-driven input (polled), the statusq (LEDs), caps lock, real-hardware cache coherence.
+
+## 14. Text scaling and high contrast (QEMU/TCG, Tier 0)
+
+**Scaling.** `gfx_draw_text_mag` magnifies the 1-bit glyphs by an exact integer (1 to 4), so 200 percent is a true doubling: the 14, 16, 18 and 24 px roles become 28, 32, 36 and 48 px. Every text role maps a percentage to the nearest size of a fixed ladder (12 14 16 18 24 native, 24 28 32 36 48 magnified); values between snap to a real size and text never goes below 12 px, so 75 percent shrinks only the larger roles. The scale range is 75 to 200 (the settings registry range); other values are refused.
+
+**Reflow.** 100 percent keeps the reference layout exactly (the earlier tests are untouched). Other scales use a flow layout in `kernel/ui/shell.c`: labels and buttons wrap, buttons grow to hold their label and never drop below the 48 px reference touch size, the header moves the status text to its own row when it does not fit, the dock widens, and the Index results become a window that always contains the selected row ("Showing 1-4 of 8"). At the largest scales (about 190 percent and up) the optional Home caption "System" is omitted rather than clipped. Nothing is placed outside the region between the status rail and the dock.
+
+**High contrast.** A runtime preference (`shell_set_contrast`): opaque white surfaces, black text (at least 12.6:1 measured), 2 px borders on enabled controls and 1 px on disabled ones, a marker bar inside the active control in addition to its inverted colours, a `0x0000E0` focus ring (3 px), a black scrim. State is never colour-only. It applies to every shell screen, the About modal and the Glass Corner sheet.
+
+**Known finding.** In the standard palette, white text on the active accent blue (`0x3478F6`) is 4.07:1, below the 4.5:1 normal-text level. The token was not changed; high contrast is the answer for now.
+
+**Not done.** Nothing in the UI changes scale or contrast yet (the Settings screen is the next step), and neither persists. The QEMU tests select the appearance with the test-only build flags `AURORA_SHELL_TEXT_PCT` and `AURORA_SHELL_CONTRAST`; the shipped kernel starts at 100 percent, standard contrast. No screen reader. No claim about real hardware.
+
+**Evidence.** Host (ASan/UBSan) `shell_scale_test.c`, 40 checks including an audit of 2,268 layouts (every scale 75 to 200, both palettes, nine states) against an independent word-wrap oracle and an independent WCAG contrast calculation; the earlier shell (138), scene (25), focus (62) and input (45) tests pass unchanged. QEMU `tests/qemu/scale-tests.sh`: four boots (200, 200 high contrast, 75, 150 high contrast), each 36 or 38 checks driven by real QMP key and pointer events, with every screendump pixel required to belong to the mode's palette and a 2 px band around every control required to be clean of text.
 
 ## Appendix: commands that produced the **[verified]** facts
 

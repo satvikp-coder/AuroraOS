@@ -25,8 +25,15 @@ void shell_boot_draw(void)
     const struct gfx_surface *s = gfx_get_surface();
     if (!s) return;
     shell_init(&SH, s->width, s->height);
+#ifdef AURORA_SHELL_TEXT_PCT
+    shell_set_text_scale(&SH, AURORA_SHELL_TEXT_PCT);          /* test builds only: the preference store is not wired to the shell yet */
+#endif
+#ifdef AURORA_SHELL_CONTRAST
+    shell_set_contrast(&SH, AURORA_SHELL_CONTRAST);
+#endif
     up = 1;
     present();
+    console_puts("shell: appearance text="); console_dec(SH.text_pct); console_puts(" contrast="); console_dec(SH.contrast); console_puts("\n");
     console_puts("shell: home drawn\n");
 }
 
@@ -50,6 +57,28 @@ static void log_state(uint32_t *screen, uint32_t *space, int32_t *focus, uint32_
     if (SH.about_open != *modal) { *modal = SH.about_open; console_puts(*modal ? "shell: modal open\n" : "shell: modal closed\n"); }
 }
 
+#ifdef AURORA_SHELL_LAYOUT_LOG
+/* Test builds: print the geometry of every focusable control whenever it changes, so tests/qemu can click real controls. */
+static void log_layout(uint32_t *sig)
+{
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < SH.n; i++) {
+        if (!(SH.c[i].flags & UI_FOCUSABLE)) continue;
+        h = (h ^ SH.c[i].id) * 16777619u; h = (h ^ (uint32_t)SH.c[i].x) * 16777619u; h = (h ^ (uint32_t)SH.c[i].y) * 16777619u;
+        h = (h ^ (uint32_t)SH.c[i].w) * 16777619u; h = (h ^ (uint32_t)SH.c[i].h) * 16777619u;
+    }
+    if (h == *sig) return;
+    *sig = h;
+    console_puts("shell: layout begin\n");
+    for (uint32_t i = 0; i < SH.n; i++) {
+        if (!(SH.c[i].flags & UI_FOCUSABLE)) continue;
+        console_puts("shell: ctrl "); console_dec(SH.c[i].id); console_puts(" "); console_dec((uint64_t)SH.c[i].x); console_puts(" "); console_dec((uint64_t)SH.c[i].y);
+        console_puts(" "); console_dec((uint64_t)SH.c[i].w); console_puts(" "); console_dec((uint64_t)SH.c[i].h); console_puts("\n");
+    }
+    console_puts("shell: layout end\n");
+}
+#endif
+
 void shell_loop(struct input_state *in)
 {
     if (!up) return;
@@ -64,12 +93,18 @@ void shell_loop(struct input_state *in)
     uint64_t t0 = timer_count(), hz = timer_freq();
     uint32_t screen = SH.screen, space = SH.space, modal = SH.about_open; int32_t focus = -2;
     uint32_t last_act = SH.activations, opens = SH.index_opens, qsig = 0xffffffffu, corner = SH.corner_open;
+#ifdef AURORA_SHELL_LAYOUT_LOG
+    uint32_t lsig = 0;
+#endif
     for (;;) {
         vinput_poll(in);
         struct input_event e;
         while (input_pop(in, &e)) shell_handle(&SH, &e);
         shell_set_uptime(&SH, (uint32_t)((timer_count() - t0) / hz));
         log_state(&screen, &space, &focus, &modal, &opens, &qsig, &corner);
+#ifdef AURORA_SHELL_LAYOUT_LOG
+        log_layout(&lsig);
+#endif
         if (SH.activations != last_act) { last_act = SH.activations; console_puts("shell: activate "); console_dec(SH.last_activated); console_puts("\n"); }
         if (SH.dirty) present();
         __asm__ volatile ("wfi");

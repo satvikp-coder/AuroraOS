@@ -25,7 +25,7 @@ static char status[32] = "Active: Home";
 
 static void set(int i, int x, int y, int w, int h, int r, uint8_t layer, uint8_t kind, const char *t, uint32_t fill, uint32_t id, uint8_t flags)
 {
-    struct ui_widget k = { { x, y, w, h, r, id, flags, layer }, kind, 0, t, fill, UI_COL_MUTED, UI_COL_INK, 0, 0, 0 };
+    struct ui_widget k = { { x, y, w, h, r, id, flags, layer }, kind, 0, t, fill, UI_COL_MUTED, UI_COL_INK, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     WD[i] = k;
 }
 

@@ -31,7 +31,7 @@ enum {
     SID_RESULT_BASE = 100               /* SID_RESULT_BASE + k is the k-th Index result row (k < SHELL_RESULTS) */
 };
 
-#define SHELL_MAX_WIDGETS 48
+#define SHELL_MAX_WIDGETS 64
 #define SHELL_HISTORY 8
 #define SHELL_SPACES 4
 #define SHELL_RESULTS 8
@@ -42,6 +42,9 @@ struct shell_caps { uint8_t keyboard, pointer; };      /* what input hardware th
 struct shell {
     uint32_t width, height;
     uint8_t screen, space, about_open, corner_open, dirty;
+    uint8_t contrast;                   /* 1 = high-contrast appearance (a runtime preference; nothing persists it yet) */
+    uint8_t text_pct;                   /* text scale in percent, SHELL_TEXT_MIN..SHELL_TEXT_MAX (100 = the reference layout) */
+    int32_t lay_bottom;                 /* lowest content pixel of the last scaled layout (layout fitting and tests) */
     uint8_t hist[SHELL_HISTORY], hist_n;
     struct shell_caps caps;
     uint32_t uptime_s;
@@ -69,6 +72,16 @@ struct shell {
 };
 
 #define SHELL_NONE 0xffffffffu
+#define SHELL_TEXT_MIN 75
+#define SHELL_TEXT_MAX 200
+
+/* Text scale: the percentage maps every text role to the nearest size of a fixed ladder (12 14 16 18 24 px native, and 24 28 32 36 48 px
+ * by exact 2x magnification of the same 1-bit glyphs), so 100 and 200 percent are exact and values between snap to a real size. Text
+ * wraps instead of being cut; at the largest scales secondary lines are omitted rather than clipped. Out-of-range values are refused. */
+int  shell_set_text_scale(struct shell *sh, uint32_t pct);
+int  shell_set_contrast(struct shell *sh, int on);
+/* The text size the shell uses for a role whose reference size is `base` px at 100 percent (exposed for tests). */
+void shell_font_for(uint32_t base, uint32_t pct, uint8_t *size, uint8_t *mag);
 
 extern const char *const SHELL_SPACE_NAMES[SHELL_SPACES];
 

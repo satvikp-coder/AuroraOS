@@ -162,6 +162,10 @@ jobs:
         run: |
           chmod +x tests/qemu/home-tests.sh
           ./tests/qemu/home-tests.sh
+      - name: Run native text-scale and high-contrast tests (the real shell at 200 percent, 200 percent high contrast, 75 percent and 150 percent high contrast; QMP keyboard and pointer events; every screendump pixel checked against the palette)
+        run: |
+          chmod +x tests/qemu/scale-tests.sh
+          ./tests/qemu/scale-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:
