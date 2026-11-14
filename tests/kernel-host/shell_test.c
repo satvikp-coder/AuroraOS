@@ -56,12 +56,12 @@ int main(void)
     CHECK("control ids are unique on Home", ids_ok);
 
     /* --- Tab order --- */
-    static const uint32_t order[] = { SID_CHANGE_SPACE, SID_ABOUT, SID_APP_SPACES, SID_APP_INDEX, SID_DOCK_HOME, SID_DOCK_SPACES, SID_DOCK_INDEX, SID_CHANGE_SPACE };
+    static const uint32_t order[] = { SID_CHANGE_SPACE, SID_ABOUT, SID_APP_SPACES, SID_APP_INDEX, SID_DOCK_HOME, SID_DOCK_SPACES, SID_DOCK_INDEX, SID_CORNER, SID_CHANGE_SPACE };
     int ord = 1;
     for (unsigned i = 0; i < sizeof order / sizeof order[0]; i++) { tab(); if (focus_id() != order[i]) { ord = 0; printf("    step %u: got %u want %u\n", i, focus_id(), order[i]); } }
-    CHECK("Tab visits content then dock, skips the disabled apps and disabled Back, and wraps", ord);
+    CHECK("Tab visits content, the dock, then the Glass Corner handle; skips the disabled apps and disabled Back; wraps", ord);
     stab();
-    CHECK("Shift+Tab wraps backwards to the last dock item", focus_id() == SID_DOCK_INDEX);
+    CHECK("Shift+Tab wraps backwards to the Glass Corner handle (the last stop)", focus_id() == SID_CORNER);
 
     /* --- activation by keyboard --- */
     fresh(); while (focus_id() != SID_APP_SPACES) tab();
@@ -285,6 +285,64 @@ int main(void)
     to_index(); surf(); shell_draw(&sh, &S);
     { uint32_t muted = 0; for (int y = 152; y < 200; y++) for (int x = 64; x < 400; x++) muted += px(x, y) == 0x0052627Au; CHECK("SCREEN: an empty field shows the muted placeholder", muted > 20); }
     CHECK("all Index renders stayed inside the surface", guards_ok());
+
+
+    /* ================= Glass Corner and Aurora Horizon ================= */
+    fresh();
+    CHECK("the Glass Corner handle exists on every screen, is enabled and focusable", (sh.c[shell_find(&sh, SID_CORNER)].flags & (UI_ENABLED | UI_FOCUSABLE)) == (UI_ENABLED | UI_FOCUSABLE) && !sh.corner_open);
+    click(SID_DOCK_SPACES); CHECK("... also on Spaces", shell_find(&sh, SID_CORNER) >= 0); click(SID_DOCK_INDEX); CHECK("... and on Index", shell_find(&sh, SID_CORNER) >= 0);
+    fresh(); click(SID_CORNER);
+    CHECK("clicking the handle opens the held-items sheet; focus moves into it (Close)", sh.corner_open && focus_id() == SID_CORNER_CLOSE);
+    CHECK("the handle itself is unreachable while the sheet is open (it sits below the sheet layer)", ui_hit(&sh.fx, 960, 32) == -1);
+    { int esc2 = 1; for (int i = 0; i < 10; i++) { tab(); if (focus_id() != SID_CORNER_CLOSE) esc2 = 0; stab(); if (focus_id() != SID_CORNER_CLOSE) esc2 = 0; }
+      CHECK("Tab and Shift+Tab never leave the sheet", esc2); }
+    act = sh.activations; click(SID_DOCK_SPACES);
+    CHECK("a click on the dock button behind the open sheet closes the sheet and activates nothing (no click-through)", sh.activations == act && sh.screen == SCR_HOME && !sh.corner_open);
+    click(SID_CORNER); act = sh.activations; click(SID_CHANGE_SPACE);
+    CHECK("same for the Change Space button behind the open sheet (the Spaces tile is physically under the sheet panel)", sh.activations == act && sh.screen == SCR_HOME && !sh.corner_open);
+    click(SID_CORNER); act = sh.activations; click(SID_ABOUT);
+    CHECK("same for the About button behind the sheet (it does not open)", sh.activations == act && !sh.about_open && !sh.corner_open);
+    click(SID_CORNER);
+    CHECK("the sheet can be reopened afterwards", sh.corner_open && focus_id() == SID_CORNER_CLOSE);
+    surf(); shell_draw(&sh, &S);
+    CHECK("SCREEN: the sheet is an opaque white panel with a focus-coloured border, clear of the dock", px(700, 200) == 0x00FFFFFFu && px(584, 200) == 0x00175CD3u && px(300, 704) != 0x00525A66u);
+    CHECK("SCREEN: the sheet leaves the Current Space card (left) untouched", px(300, 150) == 0x00FFFFFFu && px(584 - 8, 200) != 0x00175CD3u);
+    key(KEY_ESC, 0, 0);
+    CHECK("Escape closes the sheet; focus returns to the handle", !sh.corner_open && focus_id() == SID_CORNER && sh.screen == SCR_HOME);
+    enter();
+    CHECK("Enter on the focused handle opens it again", sh.corner_open);
+    act = sh.activations; ptr(IN_PTR_DOWN, 300, 500); ptr(IN_PTR_UP, 300, 500);
+    CHECK("a click outside the sheet closes it and activates nothing underneath", !sh.corner_open && sh.activations == act);
+    click(SID_CORNER); click(SID_CORNER_CLOSE);
+    CHECK("the Close button closes it", !sh.corner_open);
+    click(SID_CORNER); ptr(IN_PTR_DOWN, 700, 150); ptr(IN_PTR_UP, 700, 150);
+    CHECK("a click on the sheet's own text does not close it", sh.corner_open);
+    key(KEY_ESC, 0, 0);
+    click(SID_DOCK_INDEX); click(SID_CORNER); text("abc");
+    CHECK("typing while the sheet is open does not edit the Index query", sh.qlen == 0 && sh.corner_open);
+    key(KEY_ESC, 0, 0); text("ab");
+    CHECK("after closing, typing works again", sh.qlen == 2);
+    fresh(); { int32_t focus_before; while (focus_id() != SID_APP_INDEX) tab(); focus_before = sh.fx.focus; (void)focus_before;
+      click(SID_CORNER); key(KEY_ESC, 0, 0);
+      CHECK("opening and closing the sheet by pointer leaves a valid focus", sh.fx.focus >= 0 && (sh.c[sh.fx.focus].flags & UI_ENABLED)); }
+    fresh(); while (focus_id() != SID_ABOUT) tab(); enter();
+    CHECK("the About dialog hides the corner handle (only one modal layer at a time)", sh.about_open && shell_find(&sh, SID_CORNER) < 0);
+    key(KEY_ESC, 0, 0);
+    CHECK("... and it comes back after the dialog closes", shell_find(&sh, SID_CORNER) >= 0);
+    fresh(); click(SID_CORNER); shell_go(&sh, SCR_SPACES);
+    CHECK("navigating while the sheet is open is refused by the UI (dock inert) so state stays consistent", sh.screen == SCR_HOME || sh.corner_open);
+
+    /* Horizon: one source, honest states */
+    fresh(); surf(); shell_draw(&sh, &S);
+    CHECK("Horizon: keyboard and pointer found -> aura rail and 'Horizon: ready'", px(500, 65) == 0x0000AEB8u && strcmp(sh.horizon_txt, "Horizon: ready") == 0);
+    { struct shell_caps kb_only = { 1, 0 }; shell_set_caps(&sh, kb_only); surf(); shell_draw(&sh, &S);
+      CHECK("Horizon: a missing pointer -> muted rail and 'Horizon: limited input' (never claims more than it measured)", px(500, 65) == 0x0052627Au && strcmp(sh.horizon_txt, "Horizon: limited input") == 0); }
+    { struct shell_caps none = { 0, 0 }; shell_set_caps(&sh, none); surf(); shell_draw(&sh, &S);
+      CHECK("Horizon: no input devices -> the same limited state", px(500, 65) == 0x0052627Au); }
+    surf(); fresh(); shell_draw(&sh, &S);
+    { uint32_t ink = 0; for (int y = 22; y < 46; y++) for (int x = 190; x < 400; x++) ink += px(x, y) == 0x0052627Au; CHECK("SCREEN: the Horizon status text is drawn in the header", ink > 20); }
+    { uint32_t ink = 0; for (int y = 8; y < 56; y++) for (int x = 912; x < 1008; x++) ink += px(x, y) == 0x00142136u; CHECK("SCREEN: the Held handle label is drawn at the top right", ink > 10); }
+    CHECK("rendering with the corner open or closed stayed inside the surface", guards_ok());
 
     printf("shell: %d passed, %d failed\n", passed, failed);
     free(base);

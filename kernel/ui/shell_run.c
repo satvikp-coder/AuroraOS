@@ -30,7 +30,7 @@ void shell_boot_draw(void)
     console_puts("shell: home drawn\n");
 }
 
-static void log_state(uint32_t *screen, uint32_t *space, int32_t *focus, uint32_t *modal, uint32_t *opens, uint32_t *qsig)
+static void log_state(uint32_t *screen, uint32_t *space, int32_t *focus, uint32_t *modal, uint32_t *opens, uint32_t *qsig, uint32_t *corner)
 {
     if (SH.screen != *screen) { *screen = SH.screen; console_puts("shell: screen="); console_puts(shell_screen_name(SH.screen)); console_puts(" history="); console_dec(SH.hist_n); console_puts("\n"); }
     if (SH.space != *space) { *space = SH.space; console_puts("shell: space="); console_puts(SHELL_SPACE_NAMES[SH.space]); console_puts("\n"); }
@@ -46,6 +46,7 @@ static void log_state(uint32_t *screen, uint32_t *space, int32_t *focus, uint32_
         }
     } else *qsig = 0xffffffffu;
     if (SH.index_opens != *opens) { *opens = SH.index_opens; console_puts("shell: opened="); console_puts(SH.recent[0]); console_puts("\n"); }
+    if (SH.corner_open != *corner) { *corner = SH.corner_open; console_puts(*corner ? "shell: corner open\n" : "shell: corner closed\n"); }
     if (SH.about_open != *modal) { *modal = SH.about_open; console_puts(*modal ? "shell: modal open\n" : "shell: modal closed\n"); }
 }
 
@@ -62,13 +63,13 @@ void shell_loop(struct input_state *in)
     irq_cpu_enable();
     uint64_t t0 = timer_count(), hz = timer_freq();
     uint32_t screen = SH.screen, space = SH.space, modal = SH.about_open; int32_t focus = -2;
-    uint32_t last_act = SH.activations, opens = SH.index_opens, qsig = 0xffffffffu;
+    uint32_t last_act = SH.activations, opens = SH.index_opens, qsig = 0xffffffffu, corner = SH.corner_open;
     for (;;) {
         vinput_poll(in);
         struct input_event e;
         while (input_pop(in, &e)) shell_handle(&SH, &e);
         shell_set_uptime(&SH, (uint32_t)((timer_count() - t0) / hz));
-        log_state(&screen, &space, &focus, &modal, &opens, &qsig);
+        log_state(&screen, &space, &focus, &modal, &opens, &qsig, &corner);
         if (SH.activations != last_act) { last_act = SH.activations; console_puts("shell: activate "); console_dec(SH.last_activated); console_puts("\n"); }
         if (SH.dirty) present();
         __asm__ volatile ("wfi");

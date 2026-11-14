@@ -63,12 +63,12 @@ time.sleep(1.5)
 q.cmd("screendump", filename=sys.argv[2], format="ppm")
 w, h, d = read_ppm(sys.argv[2])
 px = lambda x, y: tuple(d[(y * w + x) * 3:(y * w + x) * 3 + 3])
-ok = (w, h) == (1024, 768) and px(500, 30) == (255, 255, 255) and px(500, 65) == (0, 174, 184) and px(410, 704) == (52, 120, 246)
+ok = (w, h) == (1024, 768) and px(500, 30) == (255, 255, 255) and px(500, 65) == (82, 98, 122) and px(410, 704) == (52, 120, 246)
 cursor = px(506, 384) == (20, 33, 54)
 print("noinput-screen", "OK" if ok and not cursor else "BAD")
 PY
 stop_qemu
-expect "$OUT/noinput.shot.txt" "^noinput-screen OK" "no input: screenshot shows Home (white header, Horizon rail, active Home dock item) and no pointer cursor"
+expect "$OUT/noinput.shot.txt" "^noinput-screen OK" "no input: screenshot shows Home (white header, muted Horizon rail (limited input), active Home dock item) and no pointer cursor"
 expect "$OUT/noinput.log" "Boot complete" "no input: boot completed before the interactive loop"
 echo "== input devices, no display: UART boot completes and idles =="
 L="$OUT/nodisplay.log"
