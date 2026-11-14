@@ -154,7 +154,10 @@ void kernel_main(uint64_t dtb)
         else { console_puts("[blk] block device present but unusable: "); console_puts(blk_strerror(br)); console_puts("\n"); }
         /* 4c. Input: virtio keyboard/tablet are optional. No input device is a normal boot. */
         {
-#if defined(AURORA_INPUT_TEST)
+#if defined(AURORA_UI_DEMO)
+            extern void ui_demo_run(const void *fdt, uint32_t seconds);   /* test build: kernel/ui/ui_demo.c */
+            ui_demo_run((const void *)(uintptr_t)dtb, AURORA_UI_DEMO);
+#elif defined(AURORA_INPUT_TEST)
             extern void input_demo_run(const void *fdt, uint32_t seconds);   /* test build: input_demo.c */
             input_demo_run((const void *)(uintptr_t)dtb, AURORA_INPUT_TEST);
 #else
