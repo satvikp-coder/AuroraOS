@@ -18,6 +18,7 @@
 #include <console.h>
 #include <mm.h>
 #include <timer.h>
+#include <virtio_mmio.h>
 
 #define R_MAGIC 0x000
 #define R_VERSION 0x004
@@ -172,26 +173,13 @@ static void release_pages(void)
 int blk_init(const void *fdt)
 {
     static struct fdt_virtio nodes[32];
-    static int mapped;
     if (D.present && !D.failed) return BLK_OK;                   /* idempotent: a second call neither remaps nor allocates */
     D.present = 0; D.failed = 0; D.drop_after = -1; D.dropping = 0; D.inj_w = D.inj_f = -1;
     if (!fdt) return BLK_ENODEV;
-    int n = fdt_virtio_mmio(fdt, nodes, 32);
-    if (n <= 0) return BLK_ENODEV;
+    int n = virtio_map_window(fdt, nodes, 32);                   /* maps exactly the pages the device tree names, once, as Device memory */
+    if (n < 0) return BLK_EPROTO;
+    if (n == 0) return BLK_ENODEV;
     INFO.nodes_seen = n;
-
-    /* Map exactly the pages the device tree names, as Device memory, after declaring them to the MMU policy. */
-    uint64_t lo = nodes[0].base, hi = nodes[0].base + nodes[0].size;
-    for (int i = 1; i < n; i++) {
-        if (nodes[i].base < lo) lo = nodes[i].base;
-        if (nodes[i].base + nodes[i].size > hi) hi = nodes[i].base + nodes[i].size;
-    }
-    lo &= ~(PAGE_SIZE - 1); hi = (hi + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    if (hi - lo > 64 * PAGE_SIZE) return BLK_EPROTO;             /* implausible window: refuse */
-    if (!mapped) {
-        if (vmm_register_mmio(lo, hi - lo) != VMM_OK || vmm_map(lo, lo, hi - lo, VMM_ATTR_DEVICE) != VMM_OK) return BLK_EPROTO;
-        mapped = 1;
-    }
 
     int found = -1, legacy = 0;
     for (int i = 0; i < n; i++) {
