@@ -18,6 +18,7 @@
 #include <ui_focus.h>
 #include <index_model.h>
 #include <ui_scene.h>
+#include <ui_proto.h>
 
 enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_COUNT };
 
@@ -34,7 +35,7 @@ enum {
     SID_SET_UP = 220, SID_SET_DOWN      /* scroll the Settings list when it does not fit */
 };
 
-#define SHELL_MAX_WIDGETS 64
+#define SHELL_MAX_WIDGETS 160
 #define SHELL_HISTORY 8
 #define SHELL_SPACES 4
 #define SHELL_RESULTS 8
@@ -85,6 +86,10 @@ struct shell {
     char field_txt[IDX_MAX_QUERY + 8];
     char res_txt[SHELL_RESULTS][56];
     uint32_t index_opens;               /* how many results were opened (tests) */
+    /* EL0 client surfaces (read-only view owned by the kernel; NULL = none). The compositor draws them in the content band, below the dock, the corner,
+     * sheets and modals; chrome text (the application name) comes from client_name, never from the client. */
+    const struct uip_state *clients;
+    const char *(*client_name)(uint8_t pid);
     /* Settings screen */
     const struct shell_store *store;    /* NULL = no usable store: changes last for this session only */
     uint32_t sess[SHELL_SET_ROWS];      /* session values (used when there is no store, and for high contrast always) */
@@ -104,6 +109,7 @@ struct shell {
  * wraps instead of being cut; at the largest scales secondary lines are omitted rather than clipped. Out-of-range values are refused. */
 int  shell_set_text_scale(struct shell *sh, uint32_t pct);
 int  shell_set_contrast(struct shell *sh, int on);
+void shell_set_clients(struct shell *sh, const struct uip_state *st, const char *(*name_of)(uint8_t pid));
 /* Attach (or detach, with NULL) the settings store; the stored text scale is applied at once. */
 void shell_set_store(struct shell *sh, const struct shell_store *store);
 /* Settings table (read-only facts for tests): row count, registry id (0 = the session-only high-contrast row), number of values. */
