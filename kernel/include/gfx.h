@@ -77,6 +77,9 @@ int  gfx_text_wrap(const struct gfx_font *f, const char *s, size_t n, int32_t ma
 int  gfx_draw_text(const struct gfx_surface *s, const struct gfx_font *f, int32_t x, int32_t y, const char *str, size_t n, uint32_t color, const struct gfx_rect *clip);
 /* Wrap into `box` and draw every line whose top is above the box bottom, clipped to the box. *lines_total / *lines_drawn may be NULL. */
 int  gfx_draw_text_block(const struct gfx_surface *s, const struct gfx_font *f, struct gfx_rect box, const char *str, size_t n, uint32_t color, size_t *lines_total, size_t *lines_drawn);
+/* Same as gfx_draw_text, but every glyph pixel is replaced by a mag x mag block (mag 1..4; otherwise GFX_EARG): exact integer
+ * magnification of the 1-bit glyphs, so 2 gives true 200 percent. Advance and line height scale by mag too. */
+int  gfx_draw_text_mag(const struct gfx_surface *s, const struct gfx_font *f, int mag, int32_t x, int32_t y, const char *str, size_t n, uint32_t color, const struct gfx_rect *clip);
 int  gfx_draw_text_pattern(const struct gfx_surface *s);       /* the G4 diagnostic image (test builds only) */
 
 /* ---- placement of the framebuffer in RAM (kernel/gfx/gfx_region.c): pure ------------------------------------------------ */

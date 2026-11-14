@@ -40,10 +40,18 @@ struct ui_widget {
     uint8_t border_w;
     uint8_t font_size;                  /* 12/14/16/18/24; 0 = 16 */
     uint8_t bold;                       /* 1 = bold weight */
+    uint8_t mag;                        /* integer glyph magnification 1..4 (0 = 1): the font_size glyphs drawn mag times larger */
+    uint8_t wrap;                       /* 1 = word-wrap inside the widget (lines are centred as a block for buttons); 0 = one line */
+    uint8_t marker;                     /* 1 = an active button also shows a non-colour marker (a bar inside its left edge) */
+    uint32_t active_fill, active_ink, disabled_ink;   /* theme overrides; 0 = the Clear defaults (accent / surface / muted) */
 };
 
 /* Draw every visible widget in (layer, index) order, then the focus ring of the focused widget, then the pointer.
  * `focus` may be NULL. Everything is clipped to the surface. Returns GFX_OK or the first renderer error. */
 int ui_scene_draw(const struct gfx_surface *s, const struct ui_widget *w, uint32_t n, const struct ui_ctx *focus, int32_t pointer_x, int32_t pointer_y, int draw_pointer);
+/* As ui_scene_draw, with an explicit focus-ring colour (high-contrast themes). */
+int ui_scene_draw_ex(const struct gfx_surface *s, const struct ui_widget *w, uint32_t n, const struct ui_ctx *focus, int32_t pointer_x, int32_t pointer_y, int draw_pointer, uint32_t focus_color);
+/* Pixel size of the font a widget uses (after magnification): line height, advance. Shared with the shell layout. */
+int ui_text_metrics(uint8_t font_size, uint8_t bold, uint8_t mag, int32_t *advance, int32_t *line_height);
 
 #endif

@@ -52,6 +52,12 @@ fi
 if [ -n "$AURORA_UI_DEMO" ]; then
     CFLAGS="$CFLAGS -DAURORA_UI_DEMO=$AURORA_UI_DEMO"   # test kernel: native Tier 0 Clear demo for N seconds (tests/qemu/ui-tests.sh)
 fi
+if [ -n "$AURORA_SHELL_TEXT_PCT" ]; then
+    CFLAGS="$CFLAGS -DAURORA_SHELL_TEXT_PCT=$AURORA_SHELL_TEXT_PCT -DAURORA_SHELL_LAYOUT_LOG=1"   # test kernel: the real shell started at this text scale; logs control geometry (tests/qemu/scale-tests.sh)
+fi
+if [ -n "$AURORA_SHELL_CONTRAST" ]; then
+    CFLAGS="$CFLAGS -DAURORA_SHELL_CONTRAST=$AURORA_SHELL_CONTRAST -DAURORA_SHELL_LAYOUT_LOG=1"   # test kernel: the real shell started in high contrast
+fi
 if [ -n "$AURORA_BENCH" ]; then
     CFLAGS="$CFLAGS -DAURORA_BENCH=1"   # test kernel: prints the native renderer CPU-time baseline (tests/qemu/bench.sh)
 fi

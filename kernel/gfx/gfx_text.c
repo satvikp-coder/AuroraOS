@@ -148,7 +148,7 @@ static void put(const struct gfx_surface *s, const struct clipbox *c, int64_t x,
     *(uint32_t *)(void *)(s->pixels + (uint64_t)y * s->stride_bytes + (uint64_t)x * GFX_BPP_BYTES) = color;
 }
 
-static void draw_cell(const struct gfx_surface *s, const struct gfx_font *f, const struct clipbox *c, int64_t pen, int64_t baseline, uint32_t cp, uint32_t color)
+static void draw_cell(const struct gfx_surface *s, const struct gfx_font *f, const struct clipbox *c, int64_t pen, int64_t baseline, uint32_t cp, uint32_t color, int mag)
 {
     if (cp >= f->first && cp <= f->last) {
         const struct gfx_glyph *g = &f->glyphs[cp - f->first];
@@ -156,32 +156,35 @@ static void draw_cell(const struct gfx_surface *s, const struct gfx_font *f, con
         uint32_t stride = ((uint32_t)g->w + 7u) / 8u;
         if ((uint64_t)g->off + (uint64_t)stride * g->h > f->bits_len) return;     /* corrupt table: draw nothing rather than read out of bounds */
         for (uint32_t r = 0; r < g->h; r++) {
-            int64_t py = baseline - g->top + r;
-            if (py < c->y0 || py >= c->y1) continue;
             const uint8_t *row = f->bits + g->off + (size_t)r * stride;
-            for (uint32_t col = 0; col < g->w; col++)
-                if (row[col >> 3] & (0x80u >> (col & 7u))) put(s, c, pen + g->xoff + col, py, color);
+            for (int dy = 0; dy < mag; dy++) {               /* integer magnification: every glyph pixel becomes a mag x mag block */
+                int64_t py = baseline - (int64_t)g->top * mag + (int64_t)r * mag + dy;
+                if (py < c->y0 || py >= c->y1) continue;
+                for (uint32_t col = 0; col < g->w; col++)
+                    if (row[col >> 3] & (0x80u >> (col & 7u)))
+                        for (int dx = 0; dx < mag; dx++) put(s, c, pen + ((int64_t)g->xoff + col) * mag + dx, py, color);
+            }
         }
         return;
     }
     /* missing glyph: a hollow box standing on the baseline, one pixel in from each side of the cell */
-    int64_t bh = (int64_t)f->ascent * 3 / 4; if (bh < 5) bh = 5;
-    int64_t left = pen + 1, right = pen + f->advance - 2, bottom = baseline - 1, top = baseline - bh;
+    int64_t bh = (int64_t)f->ascent * mag * 3 / 4; if (bh < 5) bh = 5;
+    int64_t left = pen + mag, right = pen + (int64_t)f->advance * mag - 2 * mag, bottom = baseline - mag, top = baseline - bh;
     if (right < left + 2) return;
     for (int64_t x = left; x <= right; x++) { put(s, c, x, top, color); put(s, c, x, bottom, color); }
     for (int64_t y = top; y <= bottom; y++) { put(s, c, left, y, color); put(s, c, right, y, color); }
 }
 
-static void draw_line(const struct gfx_surface *s, const struct gfx_font *f, const struct clipbox *c, int64_t x, int64_t y, const char *str, size_t len, uint32_t color)
+static void draw_line(const struct gfx_surface *s, const struct gfx_font *f, const struct clipbox *c, int64_t x, int64_t y, const char *str, size_t len, uint32_t color, int mag)
 {
-    if (y + f->line_height <= c->y0 || y >= c->y1) return;
-    int64_t pen = x, baseline = y + f->ascent;
+    if (y + (int64_t)f->line_height * mag <= c->y0 || y >= c->y1) return;
+    int64_t pen = x, baseline = y + (int64_t)f->ascent * mag;
     size_t i = 0;
     while (i < len) {
         uint32_t cp; gfx_utf8_next(str, len, &i, &cp);
         if (pen >= c->x1) break;
-        if (pen + f->advance > c->x0) draw_cell(s, f, c, pen, baseline, cp, color);
-        pen += f->advance;
+        if (pen + (int64_t)f->advance * mag > c->x0) draw_cell(s, f, c, pen, baseline, cp, color, mag);
+        pen += (int64_t)f->advance * mag;
     }
 }
 
@@ -196,18 +199,23 @@ static int make_clip(const struct gfx_surface *s, const struct gfx_rect *clip, s
     return 1;
 }
 
-int gfx_draw_text(const struct gfx_surface *s, const struct gfx_font *f, int32_t x, int32_t y, const char *str, size_t n, uint32_t color, const struct gfx_rect *clip)
+int gfx_draw_text_mag(const struct gfx_surface *s, const struct gfx_font *f, int mag, int32_t x, int32_t y, const char *str, size_t n, uint32_t color, const struct gfx_rect *clip)
 {
     int rc = gfx_surface_check(s);
     if (rc) return rc;
-    if (!check_font(f) || (!str && n)) return GFX_EARG;
+    if (!check_font(f) || (!str && n) || mag < 1 || mag > 4) return GFX_EARG;
     if (n > GFX_TEXT_MAX_BYTES) return GFX_ESIZE;
     struct clipbox c;
     if (!make_clip(s, clip, &c)) return GFX_OK;
     size_t len = 0;
     while (len < n && str[len] != '\n') len++;               /* the first line only */
-    draw_line(s, f, &c, x, y, str, len, color);
+    draw_line(s, f, &c, x, y, str, len, color, mag);
     return GFX_OK;
+}
+
+int gfx_draw_text(const struct gfx_surface *s, const struct gfx_font *f, int32_t x, int32_t y, const char *str, size_t n, uint32_t color, const struct gfx_rect *clip)
+{
+    return gfx_draw_text_mag(s, f, 1, x, y, str, n, color, clip);
 }
 
 struct blockctx { const struct gfx_surface *s; const struct gfx_font *f; struct clipbox c; const char *str; int64_t x, y; uint32_t color; size_t total, drawn; };
@@ -217,7 +225,7 @@ static void block_line(void *p, size_t start, size_t len, uint32_t cells)
     int64_t ly = b->y + (int64_t)b->total * b->f->line_height;
     b->total++;
     if (ly >= b->c.y1 || ly + b->f->line_height <= b->c.y0) return;
-    draw_line(b->s, b->f, &b->c, b->x, ly, b->str + start, len, b->color);
+    draw_line(b->s, b->f, &b->c, b->x, ly, b->str + start, len, b->color, 1);
     b->drawn++;
 }
 
