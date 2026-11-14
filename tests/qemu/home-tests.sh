@@ -59,12 +59,17 @@ import sys, time
 sys.path.insert(0, "tests/qemu")
 from gfx_check import Qmp, read_ppm
 q = Qmp(sys.argv[1], time.time() + 30)
-time.sleep(1.5)
-q.cmd("screendump", filename=sys.argv[2], format="ppm")
-w, h, d = read_ppm(sys.argv[2])
-px = lambda x, y: tuple(d[(y * w + x) * 3:(y * w + x) * 3 + 3])
-ok = (w, h) == (1024, 768) and px(500, 30) == (255, 255, 255) and px(500, 65) == (82, 98, 122) and px(410, 704) == (52, 120, 246)
-cursor = px(506, 384) == (20, 33, 54)
+# the guest logs "ready" just before it presents the frame, and a loaded CI runner can be slow: poll for the expected pixels instead of
+# trusting one screenshot after a fixed sleep (the assertions themselves are unchanged)
+end = time.time() + 25
+while True:
+    q.cmd("screendump", filename=sys.argv[2], format="ppm")
+    w, h, d = read_ppm(sys.argv[2])
+    px = lambda x, y: tuple(d[(y * w + x) * 3:(y * w + x) * 3 + 3])
+    ok = (w, h) == (1024, 768) and px(500, 30) == (255, 255, 255) and px(500, 65) == (82, 98, 122) and px(410, 704) == (52, 120, 246)
+    cursor = px(506, 384) == (20, 33, 54)
+    if (ok and not cursor) or time.time() > end: break
+    time.sleep(0.5)
 print("noinput-screen", "OK" if ok and not cursor else "BAD")
 PY
 stop_qemu
