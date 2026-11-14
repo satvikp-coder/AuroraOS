@@ -45,14 +45,14 @@ def main():
     def key(k, d): return {"type": "key", "data": {"down": d, "key": {"type": "qcode", "data": k}}}
     def tap(k): q.cmd("input-send-event", events=[key(k, True), key(k, False)])
     def latency(n=8):
-        """press Tab, poll the screen until the page region changes; returns the latencies in ms (inf if the screen never changed)"""
+        """press Tab, poll the screen until it changes below the header (the header holds the uptime clock; the dock at y 664-744 must be included: focus moves there too); returns the latencies in ms (inf if the screen never changed)"""
         out = []
         for _ in range(n):
-            before = region(shot(), 0, 64, 1024, 660)
+            before = region(shot(), 0, 64, 1024, 768)
             t0 = time.time(); tap("tab")
             ok = False
             while time.time() - t0 < 12:
-                if region(shot(), 0, 64, 1024, 660) != before: ok = True; break
+                if region(shot(), 0, 64, 1024, 768) != before: ok = True; break
             out.append((time.time() - t0) * 1000.0 if ok else float("inf"))
             if not ok:                     # keep the evidence: what the guest logged about this press, and the last frames
                 fl = [l for l in log().split(chr(10)) if l.startswith("shell: focus=")]
