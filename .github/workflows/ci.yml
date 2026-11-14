@@ -144,7 +144,7 @@ jobs:
         run: |
           chmod +x tests/qemu/e2e-tests.sh
           ./tests/qemu/e2e-tests.sh
-      - name: Run native graphics tests (fw_cfg + ramfb: the kernel draws, QEMU screendump pixels are verified; no-display boot; 128/256/512 MiB RAM)
+      - name: Run native graphics tests (fw_cfg and ramfb; the kernel draws, QEMU screendump pixels are verified; no-display boot; 128/256/512 MiB RAM)
         run: |
           chmod +x tests/qemu/gfx-tests.sh
           python3 --version
