@@ -43,6 +43,13 @@ int  gfx_vline(const struct gfx_surface *s, int32_t x, int32_t y, int32_t len, u
 int  gfx_clip_rect(uint32_t w, uint32_t h, struct gfx_rect r, struct gfx_rect *out);
 int  gfx_draw_test_pattern(const struct gfx_surface *s);                 /* the G2 diagnostic image; needs width,height >= 1024x768 */
 
+/* ---- rounded rectangles and borders (kernel/gfx/gfx_shape.c, stage G3): exact integer coverage rule documented in that file ---- */
+int32_t gfx_round_clamp_radius(int32_t w, int32_t h, int32_t r);          /* r clamped to [0, min(w,h)/2] */
+int  gfx_fill_round_rect(const struct gfx_surface *s, struct gfx_rect r, int32_t radius, uint32_t color);
+/* The border is drawn INSIDE r: outer shape minus the shape inset by `border` with radius max(radius - border, 0). border <= 0 draws nothing. */
+int  gfx_stroke_round_rect(const struct gfx_surface *s, struct gfx_rect r, int32_t radius, int32_t border, uint32_t color);
+int  gfx_draw_shapes_pattern(const struct gfx_surface *s);               /* the G3 diagnostic image (test builds only) */
+
 /* ---- placement of the framebuffer in RAM (kernel/gfx/gfx_region.c): pure ------------------------------------------------ */
 /* Find the HIGHEST page-aligned region of `size` bytes inside [ram_base, ram_end) for which busy(page) is false for every
  * page. 0 on success (*out set), GFX_EMEM if none, GFX_EARG on bad arguments or overflow. */

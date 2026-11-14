@@ -9,6 +9,7 @@
 #   AURORA_FIXED_RAM=1 ./build.sh                   DEV ONLY: allow a fixed-RAM fallback (see kernel/kernel.c)
 #   AURORA_BLK_TEST=1 BUILD_DIR=... ./build.sh      build the DESTRUCTIVE block-device tests (disposable QEMU disk only)
 #   AURORA_FS_TEST=1 BUILD_DIR=... ./build.sh       build the DESTRUCTIVE filesystem tests (disposable QEMU disk only)
+#   AURORA_GFX_SHAPES=1 BUILD_DIR=... ./build.sh     build a kernel that draws the G3 rounded-rectangle test image (tests/qemu/gfx-tests.sh)
 #   AURORA_FAULT_TEST=1 BUILD_DIR=... ./build.sh    build a deliberate-fault test kernel
 #                                                   (see tests/qemu/mm-tests.sh)
 
@@ -60,6 +61,9 @@ fi
 if [ -n "$AURORA_SET_TEST" ]; then
     CFLAGS="$CFLAGS -DAURORA_SET_TEST=1"        # settings registry tests: need a disk provisioned by tests/tools/mkafs
 fi
+if [ -n "$AURORA_GFX_SHAPES" ]; then
+    CFLAGS="$CFLAGS -DAURORA_GFX_SHAPES=1"      # draw the G3 shapes diagnostic image instead of the G2 pattern (needs a ramfb display)
+fi
 if [ -n "$AURORA_FAULT_TEST" ]; then
     CFLAGS="$CFLAGS -DAURORA_FAULT_TEST=$AURORA_FAULT_TEST"
 fi
@@ -82,7 +86,7 @@ if [ -n "$AURORA_FS_TEST" ]; then      # EL0 file-access boundary programs: test
 fi
 
 echo "[build] Compiling kernel..."
-for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proc/elf.c kernel/proc/launch.c kernel/settings.c kernel/settingstest.c kernel/loadtest.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/drivers/fwcfg.c kernel/drivers/fwcfg_proto.c kernel/gfx/gfx.c kernel/gfx/gfx_draw.c kernel/gfx/gfx_region.c kernel/blktest.c kernel/fs/afs.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
+for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proc/elf.c kernel/proc/launch.c kernel/settings.c kernel/settingstest.c kernel/loadtest.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/drivers/fwcfg.c kernel/drivers/fwcfg_proto.c kernel/gfx/gfx.c kernel/gfx/gfx_draw.c kernel/gfx/gfx_region.c kernel/gfx/gfx_shape.c kernel/blktest.c kernel/fs/afs.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
          kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do
     o="$BUILD_DIR/$(basename "$c" .c).o"
     $CC $CFLAGS -c "$c" -o "$o"
