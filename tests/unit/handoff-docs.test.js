@@ -21,7 +21,7 @@ const uniq = (a) => [...new Set(a)];
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 console.log("Mapping doc: every named thing exists");
-test("the document has content and a status banner that says no native graphics exists", () => { assert.ok(doc.length > 5000); assert.ok(/No native graphics exists today/.test(doc)); });
+test("the document has content and a status banner that limits native graphics to the QEMU first-pixels stage", () => { assert.ok(doc.length > 5000); assert.ok(/Native graphics is at the first-pixels stage, on QEMU only/.test(doc)); assert.ok(/no text rendering, no input stack, no window composition and no UI toolkit/.test(doc)); assert.ok(!/No native graphics exists today/.test(doc)); });
 test("every `.class` is used in the prototype", () => {
   const bad = uniq(spans.filter((s) => /^\.[a-z][\w-]*$/.test(s))).filter((s) => !new RegExp("(^|[^\\w-])" + escRe(s.slice(1)) + "($|[^\\w-])").test(source));
   assert.deepStrictEqual(bad, []);

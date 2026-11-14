@@ -535,3 +535,15 @@ what was fixed in the handoff. Never record a review that did not happen.
 | Test suite time on a low-RAM machine (matrix grows with every screen) | One worker; run targeted specs while developing; full suite before each push; CI as the second run |
 | Font metrics differ on CI (Linux) | Wide-font stress test in the matrix; no layout that depends on glyph width |
 | Security regressions hidden by UI churn | `broker.test.js` unchanged; `aura-plan.test.js` asserts state, not panels; R1 review |
+
+## Native graphics workstream (issue #7), status
+
+| Stage | State | Evidence |
+|---|---|---|
+| G1 research | done (PR #54) | `docs/kernel/native-graphics-plan.md` sections 1 to 9 |
+| G2 first pixels (fw_cfg + ramfb) | **done on QEMU** (PR #55) | `tests/qemu/gfx-tests.sh`, `tests/kernel-host/fwcfg_test.c`, `gfx_test.c`; plan section 10 |
+| G3 rounded rectangles, borders, clipping | **done on QEMU** (PR #56) | byte-exact screenshot comparison, `gfx_shape_test.c`; plan section 11 |
+| G4 text | next (Noto Sans Mono, OFL 1.1; verify the licence and source before any asset is added) | not started |
+| G5 input and focus, G6 composition | not started | not started |
+
+Issue #7 and issue #8 stay open. Native text, input, windows and the native Aurora Glass UI do not exist; the browser prototype remains the executable specification only.
