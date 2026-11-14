@@ -1,5 +1,6 @@
 /* kernel/ui/shell.c - native Aurora Glass shell (Tier 0 Clear): screens, navigation, layout, input dispatch. See kernel/include/shell.h. */
 #include <shell.h>
+#include <settings.h>        /* result codes only (SETTINGS_*); the registry itself is behind struct shell_store */
 
 const char *const SHELL_SPACE_NAMES[SHELL_SPACES] = { "Study", "Work", "Projects", "Personal" };
 
@@ -19,7 +20,7 @@ static const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, U
 static const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 2, 1, 6 };
 #define PAL(sh) ((sh)->contrast ? &PAL_HC : &PAL_STD)
 
-static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index" };
+static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings" };
 
 const char *shell_screen_name(uint32_t screen) { return screen < SCR_COUNT ? NAMES[screen] : "?"; }
 
@@ -42,7 +43,7 @@ static const struct idx_item ITEMS[] = {
 static const struct dest DEST[] = {
     { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
     { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
-    { D_ABOUT, 0 }, { D_UNAVAILABLE, 0 }, { D_UNAVAILABLE, 0 }, { D_UNAVAILABLE, 0 },
+    { D_ABOUT, 0 }, { D_UNAVAILABLE, 0 }, { D_UNAVAILABLE, 0 }, { D_SCREEN, SCR_SETTINGS },
 };
 #define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
 _Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");
@@ -136,8 +137,8 @@ static void build_home(struct shell *sh)
     button(sh, 544, 216, 416, 56, "Index", SID_APP_INDEX, 1, UI_LAYER_CONTENT);
     button(sh, 544, 284, 416, 56, "Pages (not available yet)", SID_APP_PAGES, 0, UI_LAYER_CONTENT);
     button(sh, 544, 352, 416, 56, "Aura (not available yet)", SID_APP_AURA, 0, UI_LAYER_CONTENT);
-    button(sh, 544, 420, 416, 56, "Settings (not available yet)", SID_APP_SETTINGS, 0, UI_LAYER_CONTENT);
-    label(sh, 544, 496, 416, 24, "Only Spaces and Index exist so far.", 14, PAL(sh)->muted, 0);
+    button(sh, 544, 420, 416, 56, "Settings", SID_APP_SETTINGS, 1, UI_LAYER_CONTENT);
+    label(sh, 544, 496, 416, 24, "Pages and Aura are not available yet.", 14, PAL(sh)->muted, 0);
 }
 
 static void build_spaces(struct shell *sh)
@@ -391,10 +392,10 @@ static void home_scaled(struct shell *sh, const struct geo *g, int opt)
     struct ui_widget *cc = card_s(sh, rx, y, cw);
     y += 12;
     y += sl(sh, rx + 16, y, iw, "Applications", 14, P->muted, 0) + 6;
-    static const char *const AT[5] = { "Spaces", "Index", "Pages (not available yet)", "Aura (not available yet)", "Settings (not available yet)" };
+    static const char *const AT[5] = { "Spaces", "Index", "Pages (not available yet)", "Aura (not available yet)", "Settings" };
     static const uint32_t AI[5] = { SID_APP_SPACES, SID_APP_INDEX, SID_APP_PAGES, SID_APP_AURA, SID_APP_SETTINGS };
-    for (int i = 0; i < 5; i++) y += sb(sh, rx + 24, y, bw, 56, AT[i], AI[i], i < 2, UI_LAYER_CONTENT) + 8;
-    if (opt) y += sl(sh, rx + 16, y, iw, "Only Spaces and Index exist so far.", 14, P->muted, 0);
+    for (int i = 0; i < 5; i++) y += sb(sh, rx + 24, y, bw, 56, AT[i], AI[i], i < 2 || i == 4, UI_LAYER_CONTENT) + 8;
+    if (opt) y += sl(sh, rx + 16, y, iw, "Pages and Aura are not available yet.", 14, P->muted, 0);
     card_end(sh, cc, y);
 }
 
@@ -532,6 +533,168 @@ static void corner_scaled(struct shell *sh, const struct geo *g)
     if (p) p->c.h = iy + ch + 16 - y;
 }
 
+static void build(struct shell *sh);
+
+/* ============================ Settings (native screen over the typed registry) ============================ */
+enum { K_WORKS = 0, K_STORED, K_SESSION };
+struct srow { uint8_t id, kind, nvals; uint16_t vals[6]; const char *const *vnames; const char *name, *note; uint16_t def; };
+static const char *const V_THEME[] = { "Auto", "Light", "Dark" };
+static const char *const V_SCALE[] = { "75%", "100%", "125%", "150%", "175%", "200%" };
+static const char *const V_ONOFF[] = { "Off", "On" };
+static const char *const V_FOCUS[] = { "Off", "Work", "Rest", "Sleep" };
+static const char *const V_AURA[] = { "Off", "Suggest", "Act with review" };
+static const char *const V_NOTIF[] = { "All", "Priority only", "None" };
+static const struct srow SROWS[SHELL_SET_ROWS] = {
+    { SET_THEME, K_STORED, 3, { 0, 1, 2 }, V_THEME, "Theme", "stored only, no dark theme yet", 0 },
+    { SET_TEXT_SCALE, K_WORKS, 6, { 75, 100, 125, 150, 175, 200 }, V_SCALE, "Text size", "works now", 100 },
+    { SET_REDUCED_MOTION, K_STORED, 2, { 0, 1 }, V_ONOFF, "Reduced motion", "stored only, nothing animates", 0 },
+    { SET_FOCUS_MODE, K_STORED, 4, { 0, 1, 2, 3 }, V_FOCUS, "Focus mode", "stored only", 0 },
+    { SET_AURA_MODE, K_STORED, 3, { 0, 1, 2 }, V_AURA, "Aura mode", "stored only, Aura does not exist, needs system permission", 1 },
+    { SET_NOTIFICATIONS, K_STORED, 3, { 0, 1, 2 }, V_NOTIF, "Notifications", "stored only, no notification source", 0 },
+    { 0, K_SESSION, 2, { 0, 1 }, V_ONOFF, "High contrast", "works now, this session only", 0 },
+};
+
+uint32_t shell_setting_id(uint32_t row) { return row < SHELL_SET_ROWS ? SROWS[row].id : 0xffffffffu; }
+uint32_t shell_setting_default(uint32_t row) { return row < SHELL_SET_ROWS ? SROWS[row].def : 0; }
+uint32_t shell_setting_values(uint32_t row, uint32_t *vals, uint32_t max)
+{
+    if (row >= SHELL_SET_ROWS) return 0;
+    for (uint32_t i = 0; i < SROWS[row].nvals && i < max && vals; i++) vals[i] = SROWS[row].vals[i];
+    return SROWS[row].nvals;
+}
+
+static uint32_t set_current(struct shell *sh, uint32_t row)
+{
+    uint32_t v = 0;
+    if (SROWS[row].id && sh->store && sh->store->get && sh->store->get(SROWS[row].id, &v) == SETTINGS_OK) return v;
+    return sh->sess[row];
+}
+
+static void put_num(char *d, uint32_t cap, uint32_t v, const char *suffix)
+{
+    char t[12]; int k = 0; do { t[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 11);
+    uint32_t n = 0; while (k && n + 1 < cap) d[n++] = t[--k];
+    while (*suffix && n + 1 < cap) d[n++] = *suffix++;
+    d[n] = 0;
+}
+
+static void set_texts(struct shell *sh)
+{
+    for (uint32_t r = 0; r < SHELL_SET_ROWS; r++) {
+        uint32_t v = set_current(sh, r), i;
+        for (i = 0; i < SROWS[r].nvals && SROWS[r].vals[i] != v; i++) {}
+        if (i < SROWS[r].nvals) scpy(sh->set_val[r], sizeof sh->set_val[r], SROWS[r].vnames[i]);
+        else put_num(sh->set_val[r], sizeof sh->set_val[r], v, SROWS[r].id == SET_TEXT_SCALE ? "%" : "");   /* a stored value outside the offered steps is shown as it is */
+        uint32_t n = 0;
+        for (const char *a = SROWS[r].name; *a && n + 1 < sizeof sh->set_lab[r]; a++) sh->set_lab[r][n++] = *a;
+        for (const char *a = " - "; *a && n + 1 < sizeof sh->set_lab[r]; a++) sh->set_lab[r][n++] = *a;
+        const char *note = sh->text_pct > 125 ? (SROWS[r].kind == K_WORKS ? "works now" : SROWS[r].kind == K_SESSION ? "session only" : "stored only") : SROWS[r].note;   /* short at large text so more rows fit */
+        for (const char *a = note; *a && n + 1 < sizeof sh->set_lab[r]; a++) sh->set_lab[r][n++] = *a;
+        sh->set_lab[r][n] = 0;
+    }
+}
+
+static const char *set_status_text(const struct shell *sh)
+{
+    switch (sh->set_msg) {
+    case SM_SAVED: return "Saved to disk.";
+    case SM_RESET_SAVED: return "Reset and saved to disk.";
+    case SM_SESSION: return "This session only. Nothing is saved.";
+    case SM_STORE_FAIL: return "Not saved. Value unchanged.";
+    case SM_DENIED: return "Not permitted: no permission.";
+    case SM_VERSION: return "Not saved: newer stored version.";
+    case SM_HC_ON: return "High contrast on. Not saved.";
+    case SM_HC_OFF: return "High contrast off.";
+    case SM_AURA_LOCAL: return "Not permitted: needs system permission.";
+    default: return "Enter or click to change.";
+    }
+}
+
+/* One user action on Settings row r: new value `nv` (or the default when reset). The registry is the authority; the shell only reports its answer. */
+static void set_change(struct shell *sh, uint32_t r, int reset)
+{
+    if (r >= SHELL_SET_ROWS) return;
+    const struct srow *w = &SROWS[r];
+    uint32_t cur = set_current(sh, r), nv = w->def, i;
+    if (!reset) {
+        for (i = 0; i < w->nvals && w->vals[i] != cur; i++) {}
+        if (i < w->nvals) nv = w->vals[(i + 1) % w->nvals];
+        else { nv = w->vals[0]; for (i = 0; i < w->nvals; i++) if (w->vals[i] > cur) { nv = w->vals[i]; break; } }
+    }
+    sh->set_row = (uint8_t)r; sh->set_seq++;
+    if (!w->id) {                                                   /* high contrast: a runtime preference, never stored */
+        sh->sess[r] = nv; shell_set_contrast(sh, (int)nv);
+        sh->set_msg = nv ? SM_HC_ON : SM_HC_OFF;
+        return;
+    }
+    if (sh->store && sh->store->set) {
+        int rc = reset ? (sh->store->reset ? sh->store->reset(w->id) : SETTINGS_EARG) : sh->store->set(w->id, nv);
+        if (rc == SETTINGS_OK) { sh->set_msg = reset ? SM_RESET_SAVED : SM_SAVED; if (w->id == SET_TEXT_SCALE) shell_set_text_scale(sh, nv); }
+        else sh->set_msg = rc == SETTINGS_EPERM ? SM_DENIED : rc == SETTINGS_EVERSION ? SM_VERSION : SM_STORE_FAIL;   /* nothing changed, nothing applied */
+        return;
+    }
+    if (w->id == SET_AURA_MODE) { sh->set_msg = SM_AURA_LOCAL; return; }   /* system policy: the shell cannot grant itself this, with or without a store */
+    sh->sess[r] = nv; sh->set_msg = SM_SESSION;
+    if (w->id == SET_TEXT_SCALE) shell_set_text_scale(sh, nv);
+}
+
+void shell_set_store(struct shell *sh, const struct shell_store *store)
+{
+    sh->store = store;
+    uint32_t v = 0;
+    if (store && store->get && store->get(SET_TEXT_SCALE, &v) == SETTINGS_OK && v >= SHELL_TEXT_MIN && v <= SHELL_TEXT_MAX) shell_set_text_scale(sh, v);
+    build(sh); sh->dirty = 1;
+}
+
+static void settings_flow(struct shell *sh, const struct geo *g, int opt)
+{
+    const struct pal *P = PAL(sh);
+    set_texts(sh);
+    int32_t y = g->top, w = g->W - 80, iw = w - 32;
+    struct ui_widget *c = card_s(sh, 40, y, w);
+    y += 12;
+    y += sl(sh, 56, y, iw, "Settings", 24, P->ink, 1) + 2;
+    int32_t foot = 0;
+    foot += lines_for(pick_font(14, sh->text_pct), 0, set_status_text(sh), iw) * lh_of(pick_font(14, sh->text_pct), 0) + 4;
+    if (opt) foot += lines_for(pick_font(14, sh->text_pct), 0, "Brightness, sound, Wi-Fi and battery: not supported, there are no drivers.", iw) * lh_of(pick_font(14, sh->text_pct), 0) + 4;
+    int32_t rowh[SHELL_SET_ROWS], total = 0;
+    int32_t lw = iw * 38 / 100, vw = iw * 38 / 100, rw = iw * 20 / 100;
+    struct fnt bf = pick_font(16, sh->text_pct);
+    for (uint32_t r = 0; r < SHELL_SET_ROWS; r++) {
+        int32_t lh = lines_for(pick_font(14, sh->text_pct), 0, sh->set_lab[r], lw) * lh_of(pick_font(14, sh->text_pct), 0) + 4;
+        int32_t bh = lines_for(bf, 0, sh->set_val[r], vw - 2) * lh_of(bf, 0) + 16; if (bh < 48) bh = 48;
+        rowh[r] = (lh > bh ? lh : bh) + 8;
+        total += rowh[r];
+    }
+    int32_t room = g->bottom - 16 - y - foot;
+    int need_scroll = total > room;
+    if (need_scroll) room -= 2 * (48 + 8);
+    uint32_t first = sh->set_first, last;
+    if (first >= SHELL_SET_ROWS) first = SHELL_SET_ROWS - 1;
+    if (!need_scroll) first = 0;
+    int32_t used = 0;
+    for (last = first; last < SHELL_SET_ROWS && (used + rowh[last] <= room || last == first); last++) used += rowh[last];
+    if (need_scroll && last == SHELL_SET_ROWS) {                      /* at the end: show as many rows as fit, counted back from the last */
+        used = 0; first = SHELL_SET_ROWS;
+        while (first > 0 && used + rowh[first - 1] <= room) { first--; used += rowh[first]; }
+        if (first == SHELL_SET_ROWS) first = SHELL_SET_ROWS - 1;
+    }
+    sh->set_first = (uint8_t)first;
+    if (need_scroll && first > 0) y += sb(sh, 56, y, iw, 48, "Earlier settings", SID_SET_UP, 1, UI_LAYER_CONTENT) + 8;
+    for (uint32_t r = first; r < last; r++) {
+        int32_t ry = y;
+            int32_t lh = sl(sh, 56, ry, lw, sh->set_lab[r], 14, P->muted, 0);
+            int32_t bh = sb(sh, 56 + lw + 8, ry, vw, 48, sh->set_val[r], SID_SET_VALUE + r, 1, UI_LAYER_CONTENT);
+            sb(sh, 56 + lw + 8 + vw + 8, ry, rw, 48, "Reset", SID_SET_RESET + r, SROWS[r].id != 0 || sh->sess[r] != 0, UI_LAYER_CONTENT);
+            y = ry + (lh > bh ? lh : bh) + 8;
+    }
+    if (need_scroll && last < SHELL_SET_ROWS) y += sb(sh, 56, y, iw, 48, "More settings", SID_SET_DOWN, 1, UI_LAYER_CONTENT) + 8;
+    y += sl(sh, 56, y, iw, set_status_text(sh), 14, sh->set_msg == SM_NONE || sh->set_msg == SM_SAVED || sh->set_msg == SM_RESET_SAVED ? P->muted : P->ink, sh->set_msg >= SM_STORE_FAIL && sh->set_msg != SM_HC_ON && sh->set_msg != SM_HC_OFF);
+    if (opt) y += sl(sh, 56, y, iw, "Brightness, sound, Wi-Fi and battery: not supported, there are no drivers.", 14, P->muted, 0);
+    card_end(sh, c, y);
+}
+
+
 static void build_scaled(struct shell *sh)
 {
     struct geo g = make_geo(sh);
@@ -542,6 +705,7 @@ static void build_scaled(struct shell *sh)
         sh->n = n0; sh->lay_bottom = 0;
         if (sh->screen == SCR_HOME) home_scaled(sh, &g, opt);
         else if (sh->screen == SCR_SPACES) spaces_scaled(sh, &g, opt);
+        else if (sh->screen == SCR_SETTINGS) settings_flow(sh, &g, opt);
         else index_scaled(sh, &g, opt);
         if (sh->lay_bottom <= g.bottom) break;
     }
@@ -573,6 +737,7 @@ static void build(struct shell *sh)
     add(sh, 0, 64, (int32_t)sh->width, 4, 0, UI_LAYER_CONTENT, UI_PANEL, 0, full ? PAL(sh)->aura : PAL(sh)->muted, 0xF303u, SOLID);
     if (sh->screen == SCR_HOME) build_home(sh);
     else if (sh->screen == SCR_SPACES) build_spaces(sh);
+    else if (sh->screen == SCR_SETTINGS) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; settings_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; settings_flow(sh, &g, 0); } }
     else build_index(sh);
     build_dock(sh);
     if (sh->about_open) build_about(sh);
@@ -597,6 +762,7 @@ void shell_init(struct shell *sh, uint32_t width, uint32_t height)
     for (uint32_t i = 0; i < sizeof *sh; i++) z[i] = 0;
     sh->width = width; sh->height = height;
     sh->screen = SCR_HOME; sh->space = 0; sh->text_pct = 100;
+    for (uint32_t r = 0; r < SHELL_SET_ROWS; r++) sh->sess[r] = SROWS[r].def;
     sh->px = (int32_t)(width / 2); sh->py = (int32_t)(height / 2);
     sh->last_activated = SHELL_NONE;
     scpy(sh->uptime_txt, 16, "Up 0:00");
@@ -739,12 +905,17 @@ static void activate(struct shell *sh, uint32_t id)
     case SID_DOCK_HOME: shell_go(sh, SCR_HOME); break;
     case SID_DOCK_SPACES: case SID_CHANGE_SPACE: case SID_APP_SPACES: shell_go(sh, SCR_SPACES); break;
     case SID_DOCK_INDEX: case SID_APP_INDEX: shell_go(sh, SCR_INDEX); break;
+    case SID_APP_SETTINGS: shell_go(sh, SCR_SETTINGS); break;
+    case SID_SET_UP: if (sh->set_first) sh->set_first--; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_DOWN); if (k < 0) k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
+    case SID_SET_DOWN: if (sh->set_first + 1 < SHELL_SET_ROWS) sh->set_first++; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_ABOUT: set_about(sh, 1); break;
     case SID_ABOUT_CLOSE: set_about(sh, 0); break;
     case SID_CORNER: set_corner(sh, 1); break;
     case SID_CORNER_CLOSE: set_corner(sh, 0); break;
     default:
-        if (id >= SID_SPACE_BASE && id < SID_SPACE_BASE + SHELL_SPACES) shell_select_space(sh, id - SID_SPACE_BASE);
+        if (id >= SID_SET_VALUE && id < SID_SET_VALUE + SHELL_SET_ROWS) set_change(sh, id - SID_SET_VALUE, 0);
+        else if (id >= SID_SET_RESET && id < SID_SET_RESET + SHELL_SET_ROWS) set_change(sh, id - SID_SET_RESET, 1);
+        else if (id >= SID_SPACE_BASE && id < SID_SPACE_BASE + SHELL_SPACES) shell_select_space(sh, id - SID_SPACE_BASE);
         else if (id >= SID_RESULT_BASE && id < SID_RESULT_BASE + SHELL_RESULTS) index_open(sh, id - SID_RESULT_BASE);
         break;                                                   /* unknown ids do nothing */
     }

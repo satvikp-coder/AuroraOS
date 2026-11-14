@@ -75,3 +75,13 @@ file or block, and creating it when the principal is already at its file limit f
   per-user profiles, no migration from other versions (a newer record is preserved but not read).
 * Six fixed settings with a fixed schema compiled into the kernel; adding a setting changes the record version.
 * AuroraFS offers CRC-32 only: tampering by someone who can write the disk image is not detected.
+
+## Native Settings screen (QEMU, Tier 0)
+
+The native shell (`kernel/ui/shell.c`, `shell_run.c`) has a Settings screen reachable from the Home tile and from Index. It is an ordinary client of this registry, not a second store:
+
+* **Identity and trust boundary.** The kernel-side shell acts as its own principal, `0x7F000003` (never held by a process). Kernel code (`shell_run.c`, at boot) grants it `CAP_SET_APPEARANCE | CAP_SET_ATTENTION` through `settings_grant` and **not** `CAP_SET_SYSTEM`; no UI path can change that. The registry therefore refuses the Aura-mode setting, and the screen shows the refusal. An eventual EL0 Settings client would get its identity and capabilities the same way, from the kernel that launched it, and would use `SYS_SETTINGS`.
+* **What each row is.** Text size: works now (applied at once, and at boot from the saved value). High contrast: works now, **session only** (there is no registry setting for it; the six-setting record and its version are unchanged). Theme, Reduced motion, Focus mode, Aura mode, Notifications: stored preferences only. Nothing animates, there is no dark theme, no notification source, and Aura does not exist. The screen says so.
+* **Honest persistence.** With a mounted AuroraFS a change is saved first and applied only if the registry reports success. A failed save (`SETTINGS_ESTORE`), a refusal (`SETTINGS_EPERM`) or a newer-version record (`SETTINGS_EVERSION`) change nothing and are shown as such. With no usable store the change lasts for the session and the screen says nothing is saved; the Aura-mode row is refused locally.
+* **Evidence.** Host (`shell_settings_test.c`, with a fake registry that can fail, deny and report a newer version) and QEMU (`tests/qemu/settings-ui-tests.sh`: no disk, save, restart and reload, read-only disk, destroyed filesystem), with real injected keyboard events.
+* **Not done.** A corrupt or newer-version *settings record* is covered at the registry level by `settings-tests.sh` and, for the UI, only through the fake registry on the host; the QEMU UI test destroys the whole filesystem instead.

@@ -19,7 +19,7 @@
 #include <index_model.h>
 #include <ui_scene.h>
 
-enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_COUNT };
+enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_COUNT };
 
 /* Stable control identifiers (never reused for another meaning). */
 enum {
@@ -28,7 +28,10 @@ enum {
     SID_ABOUT_CLOSE = 20,
     SID_CORNER = 40, SID_CORNER_CLOSE,
     SID_SPACE_BASE = 30,                /* SID_SPACE_BASE + n selects built-in Space n (0..3) */
-    SID_RESULT_BASE = 100               /* SID_RESULT_BASE + k is the k-th Index result row (k < SHELL_RESULTS) */
+    SID_RESULT_BASE = 100,              /* SID_RESULT_BASE + k is the k-th Index result row (k < SHELL_RESULTS) */
+    SID_SET_VALUE = 200,                /* SID_SET_VALUE + r changes the value of Settings row r (r < SHELL_SET_ROWS) */
+    SID_SET_RESET = 210,                /* SID_SET_RESET + r restores its default */
+    SID_SET_UP = 220, SID_SET_DOWN      /* scroll the Settings list when it does not fit */
 };
 
 #define SHELL_MAX_WIDGETS 64
@@ -36,8 +39,21 @@ enum {
 #define SHELL_SPACES 4
 #define SHELL_RESULTS 8
 #define SHELL_RECENT 8
+#define SHELL_SET_ROWS 7                /* the six registry settings plus the session-only high-contrast switch */
 
 struct shell_caps { uint8_t keyboard, pointer; };      /* what input hardware the kernel actually found */
+
+/* The settings store the shell talks to (the kernel wires it to the typed registry, kernel/settings.c, as the shell's OWN principal). It returns the
+ * registry's SETTINGS_* codes: 0 = saved, negative = refused or not saved (nothing changed). With no store the shell keeps session-only values and
+ * says so. The shell never grants itself a capability: a refusal (SETTINGS_EPERM) is shown as a refusal. */
+struct shell_store {
+    int (*get)(uint32_t id, uint32_t *value);
+    int (*set)(uint32_t id, uint32_t value);
+    int (*reset)(uint32_t id);
+};
+
+/* What the last Settings action did (shown on screen and logged). */
+enum { SM_NONE = 0, SM_SAVED, SM_RESET_SAVED, SM_SESSION, SM_STORE_FAIL, SM_DENIED, SM_VERSION, SM_HC_ON, SM_HC_OFF, SM_AURA_LOCAL };
 
 struct shell {
     uint32_t width, height;
@@ -69,6 +85,14 @@ struct shell {
     char field_txt[IDX_MAX_QUERY + 8];
     char res_txt[SHELL_RESULTS][56];
     uint32_t index_opens;               /* how many results were opened (tests) */
+    /* Settings screen */
+    const struct shell_store *store;    /* NULL = no usable store: changes last for this session only */
+    uint32_t sess[SHELL_SET_ROWS];      /* session values (used when there is no store, and for high contrast always) */
+    uint8_t set_first;                  /* first visible Settings row (the list scrolls when it does not fit) */
+    uint8_t set_msg, set_row;           /* SM_* of the last action and the row it concerned */
+    uint32_t set_seq;                   /* number of Settings actions so far (tests, log) */
+    char set_val[SHELL_SET_ROWS][24];   /* displayed value text per row */
+    char set_lab[SHELL_SET_ROWS][56];   /* displayed row label per row */
 };
 
 #define SHELL_NONE 0xffffffffu
@@ -80,6 +104,12 @@ struct shell {
  * wraps instead of being cut; at the largest scales secondary lines are omitted rather than clipped. Out-of-range values are refused. */
 int  shell_set_text_scale(struct shell *sh, uint32_t pct);
 int  shell_set_contrast(struct shell *sh, int on);
+/* Attach (or detach, with NULL) the settings store; the stored text scale is applied at once. */
+void shell_set_store(struct shell *sh, const struct shell_store *store);
+/* Settings table (read-only facts for tests): row count, registry id (0 = the session-only high-contrast row), number of values. */
+uint32_t shell_setting_id(uint32_t row);
+uint32_t shell_setting_values(uint32_t row, uint32_t *vals, uint32_t max);
+uint32_t shell_setting_default(uint32_t row);
 /* The text size the shell uses for a role whose reference size is `base` px at 100 percent (exposed for tests). */
 void shell_font_for(uint32_t base, uint32_t pct, uint8_t *size, uint8_t *mag);
 
