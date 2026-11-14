@@ -8,8 +8,18 @@
 #include <gfx.h>
 #include <input.h>
 #include <irq.h>
+#include <fs.h>
+#include <settings.h>
 #include <shell.h>
 #include <timer.h>
+
+/* The shell's own identity for the settings registry. Kernel code (this file, at boot) grants it appearance and attention rights, and NOT the
+ * system right: the registry, not the UI, decides, so the Aura-mode setting stays refused. No process can ever hold this principal. */
+#define PRINCIPAL_SHELL 0x7F000003u
+static int store_get(uint32_t id, uint32_t *v) { return settings_get(PRINCIPAL_SHELL, id, v); }
+static int store_set(uint32_t id, uint32_t v) { return settings_set(PRINCIPAL_SHELL, id, v); }
+static int store_reset(uint32_t id) { return settings_reset(PRINCIPAL_SHELL, id); }
+static const struct shell_store STORE = { store_get, store_set, store_reset };
 
 static struct shell SH;
 static int up;
@@ -85,6 +95,14 @@ void shell_loop(struct input_state *in)
     const struct vinput_info *vi = vinput_get_info();
     struct shell_caps caps = { vi->keyboards != 0, vi->pointers != 0 };
     shell_set_caps(&SH, caps);
+    if (fs_mounted()) {                                          /* a usable AuroraFS: the registry loads (or reports why it fell back to defaults) */
+        int st = settings_load();
+        int g = settings_grant(PRINCIPAL_SHELL, CAP_SET_APPEARANCE | CAP_SET_ATTENTION);
+        console_puts("shell: settings store=disk load="); console_dec((uint64_t)st); console_puts(" grant="); console_dec((uint64_t)(g < 0 ? -g : g));
+        console_puts(g == SETTINGS_OK ? " (appearance+attention, no system)\n" : " FAILED\n");
+        if (g == SETTINGS_OK) shell_set_store(&SH, &STORE);
+    } else console_puts("shell: settings store=none (changes last for this session only)\n");
+    console_puts("shell: appearance text="); console_dec(SH.text_pct); console_puts(" contrast="); console_dec(SH.contrast); console_puts("\n");
     present();
     console_puts("shell: ready keyboards="); console_dec((uint64_t)vi->keyboards);
     console_puts(" pointers="); console_dec((uint64_t)vi->pointers); console_puts("\n");
@@ -96,6 +114,7 @@ void shell_loop(struct input_state *in)
 #ifdef AURORA_SHELL_LAYOUT_LOG
     uint32_t lsig = 0;
 #endif
+    uint32_t sseq = SH.set_seq;
     for (;;) {
         vinput_poll(in);
         struct input_event e;
@@ -105,6 +124,11 @@ void shell_loop(struct input_state *in)
 #ifdef AURORA_SHELL_LAYOUT_LOG
         log_layout(&lsig);
 #endif
+        if (SH.set_seq != sseq) {
+            sseq = SH.set_seq;
+            console_puts("shell: setting row="); console_dec(SH.set_row); console_puts(" msg="); console_dec(SH.set_msg);
+            console_puts(" text="); console_dec(SH.text_pct); console_puts(" contrast="); console_dec(SH.contrast); console_puts("\n");
+        }
         if (SH.activations != last_act) { last_act = SH.activations; console_puts("shell: activate "); console_dec(SH.last_activated); console_puts("\n"); }
         if (SH.dirty) present();
         __asm__ volatile ("wfi");

@@ -166,6 +166,10 @@ jobs:
         run: |
           chmod +x tests/qemu/scale-tests.sh
           ./tests/qemu/scale-tests.sh
+      - name: Run native Settings screen tests (the real kernel; no disk, save, restart and reload, read-only disk and destroyed filesystem; real QMP keyboard events; the registry is the authority)
+        run: |
+          chmod +x tests/qemu/settings-ui-tests.sh
+          ./tests/qemu/settings-ui-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

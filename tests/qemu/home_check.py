@@ -81,7 +81,7 @@ def main():
     check("Home: header title 'AuroraOS' and the Study label are drawn (ink pixels)", n_color(h0, 24, 14, 200, 50, INK) > 50 and n_color(h0, 64, 142, 300, 182, INK) > 50)
     check("Home: the uptime label is drawn (muted ink pixels in the header right)", n_color(h0, 760, 20, 1000, 48, MUTED) > 10)
     check("Home: the Home dock item is active (accent), the others are not", px(h0, 410, 704) == ACCENT and px(h0, 520, 704) != ACCENT and px(h0, 640, 704) != ACCENT)
-    check("Home: Spaces and Index tiles use ink text, the unavailable tiles use muted text only", n_color(h0, 544, 148, 960, 272, INK) > 30 and n_color(h0, 544, 284, 960, 476, INK) == 0 and n_color(h0, 544, 284, 960, 476, MUTED) > 30)
+    check("Home: Spaces and Index tiles use ink text, Pages and Aura (unavailable) use muted text only and the Settings tile is a real, ink-text control", n_color(h0, 544, 148, 960, 272, INK) > 30 and n_color(h0, 544, 284, 960, 408, INK) == 0 and n_color(h0, 544, 284, 960, 408, MUTED) > 30 and n_color(h0, 544, 420, 960, 476, INK) > 30)
     check("Home: Back is drawn muted (disabled) with no history", n_color(h0, 280, 680, 392, 728, MUTED) > 10 and n_color(h0, 280, 680, 392, 728, INK) == 0)
     check("Home: the pointer cursor is at the screen centre", cursor_at(512, 384)(h0) or px(h0, 506, 384) == INK)
     check("Home: no focus ring before any key is pressed", n_color(h0, 0, 64, 1024, 768, FOCUS) == 0)
@@ -92,10 +92,10 @@ def main():
     h1 = until("home_tab1", lambda i: px(i, 164, 229) == FOCUS)
     check("SCREEN: a 3 px focus ring surrounds Change Space", all(px(h1, 164, 229 + k) == FOCUS for k in range(3)) and px(h1, 164, 228) != FOCUS)
     seen = []
-    for want in ("16", "11", "12", "2", "3", "4", "40", "10"):
+    for want in ("16", "11", "12", "15", "2", "3", "4", "40", "10"):
         tap("tab"); time.sleep(0.4); ok_ = wait_last("shell: focus=", want, 5); seen.append(ok_)
-    check("Tab order: About, Spaces tile, Index tile, dock Home, Spaces, Index, the Glass Corner handle, then wraps to Change Space; disabled tiles and Back are skipped", all(seen))
-    check("Tab never focused a disabled control (Pages 13, Aura 14, Settings 15, Back 1)", all(("shell: focus=%d" % i + chr(10)) not in log() for i in (13, 14, 15, 1)))
+    check("Tab order: About, Spaces tile, Index tile, Settings tile, dock Home, Spaces, Index, the Glass Corner handle, then wraps to Change Space; the disabled Pages and Aura tiles and Back are skipped", all(seen))
+    check("Tab never focused a disabled control (Pages 13, Aura 14, Back 1)", all(("shell: focus=%d" % i + chr(10)) not in log() for i in (13, 14, 1)))
     tap("tab", "shift"); time.sleep(0.4)
     check("Shift+Tab wraps backwards to the Glass Corner handle (40)", wait_last("shell: focus=", "40", 5))
     check("Shift+Tab can walk back to the Spaces tile (11)", tab_to(11, shift=True))
@@ -128,9 +128,9 @@ def main():
     # ---------------- disabled controls ----------------
     until("ptr_idle", lambda i: True)
     base = acts()
-    click_at(752, 312, "ptr_pages"); click_at(752, 380, "ptr_aura"); click_at(752, 448, "ptr_settings")
+    click_at(752, 312, "ptr_pages"); click_at(752, 380, "ptr_aura")
     time.sleep(1.0)
-    check("clicks on the unavailable Pages, Aura and Settings tiles activate nothing", acts() == base and last("shell: screen=").startswith("Home"))
+    check("clicks on the unavailable Pages and Aura tiles activate nothing", acts() == base and last("shell: screen=").startswith("Home"))
 
     # ---------------- modal ----------------
     check("keyboard focus can reach the About button (id 16)", tab_to(16))

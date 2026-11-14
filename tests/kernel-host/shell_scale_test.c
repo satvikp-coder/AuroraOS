@@ -131,6 +131,8 @@ static void setup_state(int st)
     if (st == 5) click(SID_ABOUT);
     if (st == 6) click(SID_CORNER);
     if (st == 7) { click(SID_DOCK_INDEX); text("zzzz"); }
+    if (st == 9 || st == 10) { click(SID_APP_SETTINGS); }
+    if (st == 10) { click(SID_SET_VALUE + 4); }                          /* Aura mode with no store: the refusal text is the longest status */
 }
 
 int main(void)
@@ -178,12 +180,12 @@ int main(void)
 
     /* ---- every scale x every contrast x every state: nothing clipped, overlapping or out of bounds ---- */
     {
-        static const char *SN[] = { "home", "spaces", "index", "index-s", "index-long", "about", "corner", "no-results", "limited-input" };
+        static const char *SN[] = { "home", "spaces", "index", "index-s", "index-long", "about", "corner", "no-results", "limited-input", "settings", "settings-refusal" };
         int total_bad = 0, combos = 0;
         double worst_std = 99, worst_hc = 99;
         for (int hc = 0; hc <= 1; hc++)
             for (uint32_t p = 75; p <= 200; p++)
-                for (int st = 0; st <= 8; st++) {
+                for (int st = 0; st <= 10; st++) {
                     setup_state(st);
                     shell_set_contrast(&sh, hc);
                     shell_set_text_scale(&sh, p);

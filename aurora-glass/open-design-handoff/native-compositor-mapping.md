@@ -74,7 +74,7 @@ Selectors below are real (checked by the drift test). "Spec" is the portable mod
 | Vault (Files) | `#screen-vault`, `.vault-item`, `.vault-open` | file browser over AuroraFS: sort, filter, multi-select, preview; **Move is reviewed (S2) and Delete needs the hold (S3)**, both through the broker; long lists skip off-screen rows | `vault-model.js` | not started; AuroraFS exists |
 | Passport | `#screen-passport` | per-app permission list; S3 can never be Allow; every change is logged | `passport-model.js` | not started |
 | Trail | `#screen-trail` | every row is a real broker receipt; Undo and Restore report the broker's real result | `trail-model.js` | not started |
-| Settings | `#screen-settings` | one registry, simple and advanced views; each entry is live, stored-only or locked | `settings.js` | **kernel registry exists** (`docs/kernel/settings.md`); no UI |
+| Settings | `#screen-settings` | one registry, simple and advanced views; each entry is live, stored-only or locked | `settings.js` | **kernel registry exists** (`docs/kernel/settings.md`); **partly native (QEMU, Tier 0)**: a native Settings screen shows the six registry settings plus a session-only high-contrast switch, labelled works-now / stored-only; no simple/advanced views, no search inside Settings, no Aura/permission UI |
 | Welcome and shortcut sheet | `#welcome-dialog`, `#shortcuts-dialog`, `.kbd` | first-run tour (skippable, never over another dialog) and a table of only the shortcuts that exist | n/a | not started |
 | Text and languages | `AuroraStrings`, `data-i18n` | message catalogs with `{name}` parameters and plurals; fallback to English; **only English is verified; Hindi and Gujarati are empty placeholders** | `strings-model.js` | not started |
 
