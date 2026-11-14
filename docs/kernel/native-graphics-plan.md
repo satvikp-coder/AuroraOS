@@ -349,3 +349,15 @@ printf 'info qtree\nquit\n' | qemu-system-aarch64 ... -monitor stdio -global vir
 printf 'screendump /tmp/x.ppm\nquit\n' | qemu-system-aarch64 -machine virt,highmem=off -cpu cortex-a53 -m 64M -S -nographic -display none -serial none -monitor stdio -device ramfb   # and virtio-gpu-device
 strings /usr/bin/qemu-system-aarch64 | grep -E 'etc/ramfb|ramfb device requires'
 ```
+
+## 15. The scheduler-aware shell loop (implemented; blocker 1 resolved)
+
+The shell loop no longer starves EL0 processes. Each iteration polls input, applies it, redraws if needed, reaps finished processes and then, **if any process is READY**, calls `sched_run_slice(6)`: a bounded run of at most 6 scheduler ticks (1 ms each while it runs). The existing timer watchdog returns control to the kernel, saving the running process as READY, and the loop goes straight back to the input. With nothing READY the loop sleeps in `wfi` on the 100 Hz tick as before, so a blocked client costs no CPU and an empty system idles.
+
+What had to be understood first (all in `kernel/proc/sched.c`): a context switch is a frame copy followed by the normal exception return; `sched_run` parks the kernel's own frame, runs until nothing is runnable or a tick limit, restores the kernel frame and **stops the timer**. Two properties of `sched_run` would have broken repeated slices, so a separate entry (`SVC #0x5c4f`) was added and `sched_run` itself is unchanged: it **resets the tick count** each call (`SYS_TICKS` would run backwards) and starts the round-robin search at pid 1 each call (two CPU-bound clients would starve the second). `sched_run_slice` keeps both across calls and the shell restarts its own timer before sleeping.
+
+Finished and faulted processes are reaped by the shell loop (`proc_destroy`, kernel code only; no syscall exists for it). Process faults were already contained by the scheduler; they now also leave the shell running.
+
+**Evidence** (`tests/qemu/shell-sched-tests.sh`, six sequential QEMU boots, 45 checks, real injected input, screendump polling; EL0 execution proven by guest `[user pN]` lines printed after the shell became interactive): no clients (baseline), two CPU-bound clients (both progress, preempt each other; Tab-to-screen latency median 31 ms, max 156 ms versus 32 and 42 ms with no client), a yielder plus a client blocked on IPC (the blocked one runs no more; yielder keeps going), a normal exit (code 7) and an EL0 fault (contained, both reaped, shell responsive), 25 clients created and destroyed in sequence (all reaped, none failed), and a display with no input devices (clients still run).
+
+**Not done.** No client talks to the compositor yet. Memory pressure is exercised only by the process table filling during churn. Measurements are QEMU/TCG on one PC and say nothing about real hardware. A no-display boot never reaches the shell loop and therefore never runs clients (unchanged).

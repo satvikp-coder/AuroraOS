@@ -9,6 +9,8 @@
 #include <input.h>
 #include <irq.h>
 #include <fs.h>
+#include <launch.h>
+#include <proc.h>
 #include <settings.h>
 #include <shell.h>
 #include <timer.h>
@@ -20,6 +22,64 @@ static int store_get(uint32_t id, uint32_t *v) { return settings_get(PRINCIPAL_S
 static int store_set(uint32_t id, uint32_t v) { return settings_set(PRINCIPAL_SHELL, id, v); }
 static int store_reset(uint32_t id) { return settings_reset(PRINCIPAL_SHELL, id); }
 static const struct shell_store STORE = { store_get, store_set, store_reset };
+
+#define SHELL_SLICE_TICKS 6        /* scheduler ticks (1 ms each while it runs) handed to EL0 processes per shell iteration */
+#define SHELL_QUANTUM_TICKS 2      /* round-robin quantum among EL0 processes inside a slice */
+
+#ifdef AURORA_SHELL_CLIENTS
+/* Test builds: start EL0 clients from the installer-owned "shclient.elf" before the shell loop, selected by a bit mask:
+ * 1 two CPU-bound spinners, 2 a yielder, 4 a process blocked on IPC, 8 a process that exits after a while, 16 one that faults after a while,
+ * 32 a process that exits and is replaced repeatedly (the loop below recreates it). The mode travels in x0 (kernel-chosen). */
+static const struct { const char *app; uint32_t principal; uint64_t mode; uint32_t bit; } CLIENTS[] = {
+    { "c_spin1", 301, 1, 1 }, { "c_spin2", 302, 1, 1 }, { "c_yield", 303, 2, 2 }, { "c_block", 304, 3, 4 }, { "c_exit", 305, 4, 8 }, { "c_fault", 306, 5, 16 },
+};
+static void launch_clients(void)
+{
+    if (!fs_mounted()) { console_puts("shell: clients: no filesystem, none started\n"); return; }
+    for (unsigned i = 0; i < sizeof CLIENTS / sizeof CLIENTS[0]; i++) {
+        if (!(AURORA_SHELL_CLIENTS & CLIENTS[i].bit)) continue;
+        int pid = 0, detail = 0;
+        int r = launch_register(CLIENTS[i].app, "shclient.elf", CLIENTS[i].principal, CLIENTS[i].mode);
+        if (r == LAUNCH_OK) r = launch_app(CLIENTS[i].app, &pid, &detail);
+        console_puts("shell: client "); console_puts(CLIENTS[i].app);
+        if (r == LAUNCH_OK) { console_puts(" pid="); console_dec((uint64_t)pid); console_puts("\n"); }
+        else { console_puts(" failed: "); console_puts(launch_strerror(r)); console_puts("\n"); }
+    }
+}
+#endif
+
+#if defined(AURORA_SHELL_CLIENTS) && (AURORA_SHELL_CLIENTS & 32)
+/* Test builds: a short-lived client (mode 6, exits after about 20 ticks) is started again every time the previous one is gone, 25 times in total:
+ * repeated process creation and destruction while the shell stays interactive. Failures to start (no slot, no memory) are counted, not fatal. */
+static void churn_step(void)
+{
+    static int pid, left = 25, started, failed;
+    if (!left) return;
+    struct proc *p = pid ? proc_get(pid) : 0;
+    if (p && p->state != PROC_UNUSED) return;                    /* the previous one still exists (running, or waiting to be reaped) */
+    int np = 0, detail = 0;
+    static int registered;
+    int r = LAUNCH_OK;
+    if (!registered) { r = launch_register("c_churn", "shclient.elf", 307, 6); if (r == LAUNCH_OK) registered = 1; }    /* once: the registry refuses a second entry of the same name */
+    if (r == LAUNCH_OK) r = launch_app("c_churn", &np, &detail);
+    left--;
+    if (r == LAUNCH_OK) { pid = np; started++; } else { pid = 0; failed++; }
+    if (!left) { console_puts("shell: churn done started="); console_dec((uint64_t)started); console_puts(" failed="); console_dec((uint64_t)failed); console_puts("\n"); }
+}
+#endif
+
+/* Free the slot of every process that has finished or faulted (kernel code only: there is no syscall for this). */
+static void reap(void)
+{
+    for (int pid = 1; pid <= PROC_MAX; pid++) {
+        struct proc *p = proc_get(pid);
+        if (!p || (p->state != PROC_TERMINATED && p->state != PROC_FAULTED)) continue;
+        console_puts("shell: reaped pid="); console_dec((uint64_t)pid);
+        console_puts(p->state == PROC_FAULTED ? " faulted\n" : " exited code=");
+        if (p->state == PROC_TERMINATED) { console_dec((uint64_t)(uint32_t)p->exit_code); console_puts("\n"); }
+        proc_destroy(pid);
+    }
+}
 
 static struct shell SH;
 static int up;
@@ -106,6 +166,12 @@ void shell_loop(struct input_state *in)
     present();
     console_puts("shell: ready keyboards="); console_dec((uint64_t)vi->keyboards);
     console_puts(" pointers="); console_dec((uint64_t)vi->pointers); console_puts("\n");
+#ifdef AURORA_SHELL_CLIENTS
+    launch_clients();
+#endif
+    sched_set_preempt(1, SHELL_QUANTUM_TICKS);
+    int timer_on = 1;
+    uint32_t slices = 0, slices_logged = 0, last_sec = 0;
     timer_start_periodic(100);
     irq_cpu_enable();
     uint64_t t0 = timer_count(), hz = timer_freq();
@@ -131,6 +197,23 @@ void shell_loop(struct input_state *in)
         }
         if (SH.activations != last_act) { last_act = SH.activations; console_puts("shell: activate "); console_dec(SH.last_activated); console_puts("\n"); }
         if (SH.dirty) present();
+        reap();
+#if defined(AURORA_SHELL_CLIENTS) && (AURORA_SHELL_CLIENTS & 32)
+        churn_step();
+#endif
+        if (sched_has_ready()) {                                 /* EL0 work to do: give it a bounded slice, then come straight back to the input */
+            sched_run_slice(SHELL_SLICE_TICKS);                  /* returns with the timer stopped */
+            timer_on = 0; slices++;
+            uint32_t sec = (uint32_t)((timer_count() - t0) / hz);
+            if (sec != last_sec && slices != slices_logged) {     /* at most one summary line per second */
+                last_sec = sec; slices_logged = slices;
+                const struct sched_stats *st = sched_get_stats();
+                console_puts("shell: sched slices="); console_dec(slices); console_puts(" switches="); console_dec(st->switches);
+                console_puts(" preemptions="); console_dec(st->preemptions); console_puts(" ticks="); console_dec(sched_ticks()); console_puts("\n");
+            }
+            continue;
+        }
+        if (!timer_on) { timer_start_periodic(100); timer_on = 1; }   /* nothing runnable: sleep until the next tick or interrupt */
         __asm__ volatile ("wfi");
     }
 }

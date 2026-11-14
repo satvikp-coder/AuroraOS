@@ -17,8 +17,10 @@
 #include <timer.h>
 
 #define SVC_ENTER_SCHED 0x5c4e
+#define SVC_ENTER_SLICE 0x5c4f   /* a bounded slice for the interactive shell: keeps the tick count and the round-robin position */
 
 static int active, cur_pid;                    /* cur_pid: 0 while no user process owns the CPU */
+static int rr_cursor;                          /* pid that last ran: where the next round-robin search starts when cur_pid is 0 (a new slice) */
 static struct exc_frame kctx;
 static uint64_t ticks, limit, slice;
 static int preempt, need_resched, timed_out;
@@ -66,7 +68,7 @@ static struct proc *current(void) { return cur_pid ? proc_get(cur_pid) : 0; }
 static int pick_next(void)
 {   /* round robin: the first READY process after the current one; the current one (if READY again) comes last */
     for (int i = 1; i <= PROC_MAX; i++) {
-        int pid = ((cur_pid ? cur_pid : PROC_MAX) - 1 + i) % PROC_MAX + 1;
+        int pid = ((cur_pid ? cur_pid : (rr_cursor ? rr_cursor : PROC_MAX)) - 1 + i) % PROC_MAX + 1;
         struct proc *p = proc_get(pid);
         if (p && p->state == PROC_READY) return pid;
     }
@@ -94,7 +96,7 @@ static void switch_to(struct exc_frame *f, int pid)
     struct proc *p = proc_get(pid);
     set_state(p, PROC_RUNNING);
     p->switches_in++; stats.switches++;
-    cur_pid = pid; slice = 0; need_resched = 0;
+    cur_pid = pid; rr_cursor = pid; slice = 0; need_resched = 0;
     set_ttbr0(aspace_ttbr(&p->as));                          /* kernel slots are identical in every table: this code keeps running */
     *f = p->ctx;
     if (p->rx_pending) {                                     /* a woken receiver: finish its receive now, with ITS page tables live */
@@ -121,12 +123,29 @@ uint64_t sched_run(uint64_t limit_ticks)
     return r;
 }
 
+uint64_t sched_run_slice(uint64_t slice_ticks)
+{
+    register uint64_t r __asm__("x0") = slice_ticks;
+    __asm__ volatile ("svc #0x5c4f" : "+r"(r) :: "memory");
+    return r;
+}
+
+int sched_has_ready(void)
+{
+    for (int pid = 1; pid <= PROC_MAX; pid++) { struct proc *p = proc_get(pid); if (p && p->state == PROC_READY) return 1; }
+    return 0;
+}
+
 int sched_handle_kernel_svc(struct exc_frame *f, uint32_t imm)
 {
-    if (imm != SVC_ENTER_SCHED) return 1;
+    if (imm != SVC_ENTER_SCHED && imm != SVC_ENTER_SLICE) return 1;
     if (active) bug("sched_run called while the scheduler is running");
     kctx = *f;
-    limit = f->x[0]; ticks = 0; slice = 0; timed_out = 0; need_resched = 0; cur_pid = 0;
+    if (imm == SVC_ENTER_SLICE) {                            /* a slice of the interactive shell: ticks and the round-robin cursor carry over */
+        if (f->x[0] == 0 || f->x[0] > 1000) bug("sched_run_slice: the slice must be 1..1000 ticks");
+        limit = ticks + f->x[0];
+    } else { limit = f->x[0]; ticks = 0; rr_cursor = 0; }
+    slice = 0; timed_out = 0; need_resched = 0; cur_pid = 0;
     active = 1;
     saved_hook = 0;
     timer_set_tick_hook(tick_hook);

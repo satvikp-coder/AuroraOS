@@ -170,6 +170,10 @@ jobs:
         run: |
           chmod +x tests/qemu/settings-ui-tests.sh
           ./tests/qemu/settings-ui-tests.sh
+      - name: Run scheduler-aware shell tests (EL0 clients run while the real shell is interactive; two CPU-bound clients, yield, block, exit, fault, 25-client churn, no input devices; input latency measured on screendumps)
+        run: |
+          chmod +x tests/qemu/shell-sched-tests.sh
+          ./tests/qemu/shell-sched-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

@@ -81,6 +81,12 @@ int  proc_transition_ok(enum proc_state from, enum proc_state to);
 /* ---- scheduler ---- */
 enum { SCHED_ALL_DONE = 0, SCHED_DEADLOCK = 1, SCHED_TIMEOUT = 2 };
 uint64_t sched_run(uint64_t limit_ticks);        /* from kernel context: run processes until done/blocked/timeout; returns SCHED_* */
+/* The interactive shell's entry: run READY processes for at most `slice_ticks` (1..1000) scheduler ticks (1000 Hz while it runs), then return to the
+ * kernel context with SCHED_TIMEOUT (a process was still runnable; it is READY again and resumes in the next slice), SCHED_ALL_DONE or SCHED_DEADLOCK.
+ * Unlike sched_run, the tick count (SYS_TICKS) and the round-robin position persist across calls, so every runnable process gets its turn. Like
+ * sched_run it stops the timer on return: the caller restarts its own. */
+uint64_t sched_run_slice(uint64_t slice_ticks);
+int      sched_has_ready(void);                  /* 1 if any process is READY (so a slice would do work) */
 void     sched_set_preempt(int enabled, uint32_t quantum_ticks);
 uint64_t sched_ticks(void);
 int      sched_handle_el0(struct exc_frame *f);  /* exceptions from EL0 (kinds 8/9); returns 0 when handled */
