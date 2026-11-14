@@ -63,3 +63,7 @@ secrets/
 
 # OpenDesign upstream checkout (kept separate - do not merge into AuroraOS)
 **/open-design/
+
+# Python bytecode
+__pycache__/
+*.pyc

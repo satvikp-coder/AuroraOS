@@ -139,6 +139,198 @@ SHAPES_ANCHORS = [
     (64, 600, (200, 200, 40), "square-cornered 6 px border: corner pixel"), (69, 650, (200, 200, 40), "...6th rim pixel"), (70, 650, S_BG, "...first inner pixel"),
 ]
 
+# ---- G4: the text image. Independent reference: the glyph DATA is parsed out of kernel/gfx/font_noto_mono.c with regexes, but the
+# UTF-8 decoder, the word wrapper (a paragraph/greedy formulation, not the kernel's state machine), the layout and the blitter are
+# written here from the documented rules in kernel/include/gfx.h and kernel/gfx/gfx_text.c.
+import re as _re
+
+T_BG, T_INK, T_RULE = (250, 250, 246), (20, 20, 30), (150, 150, 150)
+
+
+def parse_atlas(path):
+    src = open(path, encoding="utf-8").read()
+    faces = {}
+    for m in _re.finditer(r'static const struct gfx_font (noto_\w+) = \{ "Noto Sans Mono", (\d+), (\d+), (\d+), (\d+), (\d+), (\d+), (\d+), (\d+),', src):
+        ident = m.group(1)
+        wt, size, adv, asc, desc, line, first, last = (int(m.group(i)) for i in range(2, 10))
+        bits = _re.search(r"static const uint8_t %s_bits\[\d+\] = \{(.*?)\};" % ident, src, _re.S).group(1)
+        bits = bytes(int(x, 16) for x in _re.findall(r"0x([0-9a-f]{2})", bits))
+        gl = _re.search(r"static const struct gfx_glyph %s_glyphs\[\d+\] = \{(.*?)\};" % ident, src, _re.S).group(1)
+        glyphs = [tuple(int(v) for v in g) for g in _re.findall(r"\{ (-?\d+), (-?\d+), (-?\d+), (-?\d+), (-?\d+) \}", gl)]
+        assert len(glyphs) == last - first + 1, ident
+        faces[(wt, size)] = dict(adv=adv, asc=asc, desc=desc, line=line, first=first, last=last, glyphs=glyphs, bits=bits)
+    assert len(faces) == 10, "expected 10 faces, found %d" % len(faces)
+    return faces
+
+
+def utf8_cells(data):
+    """Independent UTF-8 decoding using Python's strict decoder: returns (code point or 0xFFFD, consumed bytes) per cell."""
+    out, i, n = [], 0, len(data)
+    while i < n:
+        b = data[i]
+        if b < 0x80:
+            out.append((b, 1)); i += 1; continue
+        if 0xC2 <= b <= 0xDF:
+            need = 1
+        elif 0xE0 <= b <= 0xEF:
+            need = 2
+        elif 0xF0 <= b <= 0xF4:
+            need = 3
+        else:
+            out.append((0xFFFD, 1)); i += 1; continue
+        try:
+            cp = ord(bytes(data[i:i + need + 1]).decode("utf-8"))   # strict about overlongs, surrogates and range
+            out.append((cp, need + 1)); i += need + 1
+        except (UnicodeDecodeError, TypeError, ValueError):
+            out.append((0xFFFD, 1)); i += 1
+    return out
+
+
+def wrap_lines(cps, cols_max):
+    """Greedy word wrap of a list of code points (rules: kernel/gfx/gfx_text.c). Returns one list of code points per line."""
+    cols_max = max(cols_max, 1)
+    paragraphs, cur = [], []
+    for c in cps:
+        if c == 10:
+            paragraphs.append(cur); cur = []
+        else:
+            cur.append(c)
+    if cur:
+        paragraphs.append(cur)                      # a final empty piece after a trailing newline is not a line
+    lines = []
+    for p in paragraphs:
+        if not p:
+            lines.append([]); continue
+        pos = 0
+        while pos < len(p):
+            end = pos + cols_max
+            if end >= len(p):
+                line, pos = p[pos:], len(p)
+            elif p[end] == 32:
+                line = p[pos:end]
+                pos = end
+                while pos < len(p) and p[pos] == 32:
+                    pos += 1
+            else:
+                sp = [k for k in range(pos, end) if p[k] == 32]
+                brk = None
+                if sp:
+                    last = sp[-1]
+                    start = last
+                    while start - 1 >= pos and p[start - 1] == 32:
+                        start -= 1
+                    if start > pos:
+                        brk = (start, last + 1)
+                if brk:
+                    line, pos = p[pos:brk[0]], brk[1]
+                else:
+                    line, pos = p[pos:end], end
+            while line and line[-1] == 32:
+                line = line[:-1]
+            lines.append(line)
+    return lines
+
+
+class Canvas:
+    def __init__(self, bg):
+        self.px = bytearray(bytes(bg) * (W * H))
+
+    def put(self, x, y, c, clip):
+        if clip[0] <= x < clip[2] and clip[1] <= y < clip[3]:
+            i = (y * W + x) * 3
+            self.px[i:i + 3] = bytes(c)
+
+    def rect_outline(self, x, y, w, h, c):
+        full = (0, 0, W, H)
+        for xx in range(x, x + w):
+            for yy in (y, y + h - 1):
+                self.put(xx, yy, c, full)
+        for yy in range(y, y + h):
+            for xx in (x, x + w - 1):
+                self.put(xx, yy, c, full)
+
+    def cell(self, face, pen, baseline, cp, color, clip):
+        if face["first"] <= cp <= face["last"]:
+            xo, top, w, h, off = face["glyphs"][cp - face["first"]]
+            if w == 0 or h == 0:
+                return
+            st = (w + 7) // 8
+            for r in range(h):
+                for c in range(w):
+                    if face["bits"][off + r * st + (c >> 3)] & (0x80 >> (c & 7)):
+                        self.put(pen + xo + c, baseline - top + r, color, clip)
+            return
+        bh = max(face["asc"] * 3 // 4, 5)
+        left, right, bottom, top = pen + 1, pen + face["adv"] - 2, baseline - 1, baseline - bh
+        if right < left + 2:
+            return
+        for x in range(left, right + 1):
+            self.put(x, top, color, clip); self.put(x, bottom, color, clip)
+        for y in range(top, bottom + 1):
+            self.put(left, y, color, clip); self.put(right, y, color, clip)
+
+    def line(self, face, x, y, cps, color, clip):
+        if y + face["line"] <= clip[1] or y >= clip[3]:
+            return
+        pen = x
+        for cp in cps:
+            if pen >= clip[2]:
+                break
+            if pen + face["adv"] > clip[0]:
+                self.cell(face, pen, y + face["asc"], cp, color, clip)
+            pen += face["adv"]
+
+    def text(self, face, x, y, data, color, clip=None):
+        first = []
+        for c, _ in utf8_cells(data):
+            if c == 10:
+                break
+            first.append(c)
+        self.line(face, x, y, first, color, clip or (0, 0, W, H))
+
+    def block(self, face, box, data, color):
+        bx, by, bw, bh = box
+        clip = (max(bx, 0), max(by, 0), min(bx + bw, W), min(by + bh, H))
+        lines = wrap_lines([c for c, _ in utf8_cells(data)], bw // face["adv"])
+        for k, cps in enumerate(lines):
+            ly = by + k * face["line"]
+            if ly >= clip[3] or ly + face["line"] <= clip[1]:
+                continue
+            self.line(face, bx, ly, cps, color, clip)
+
+
+def text_expected(atlas_path):
+    A = parse_atlas(atlas_path)
+
+    def f(wt, sz):
+        return A[(wt, sz)]
+    cv = Canvas(T_BG)
+    para = b"Wrapping: every word wraps at the box edge, a very-long-word-without-any-spaces-breaks-between-cells,\nand a newline starts a new line.  Two  spaces  survive  inside  lines.\n\nBlank line above."
+    miss = b"Missing: \xe0\xa4\xb9 \xe0\xaa\x97 \x01 \x7f \xc3\xa9 bad:\xff\xc3 end"
+    cv.text(f(700, 24), 32, 16, b"AuroraOS native text", T_INK)
+    y = 64
+    for sz in (12, 14, 16, 18, 24):
+        cv.text(f(400, sz), 32, y, b"The quick brown fox jumps over the lazy dog 0123456789", T_INK)
+        y += f(400, sz)["line"] + 2
+    cv.text(f(700, 16), 32, y, bytes(range(0x20, 0x7F)), T_INK)
+    y += f(700, 16)["line"] + 2
+    cv.text(f(400, 16), 32, y, miss, T_INK)
+    y += f(400, 16)["line"] + 12
+    boxes = ((32, y, 300, 150), (360, y, 120, 200), (520, y, 260, 50))
+    for (bx, by, bw, bh) in boxes:
+        cv.rect_outline(bx - 1, by - 1, bw + 2, bh + 2, T_RULE)
+    cv.block(f(400, 14), boxes[0], para, T_INK)
+    cv.block(f(400, 12), boxes[1], para, T_INK)
+    cv.block(f(700, 18), boxes[2], para, T_INK)
+    yc = y + 220
+    f16 = f(400, 16)
+    cv.text(f16, -25, yc, b"CLIPPED LEFT EDGE", T_INK)
+    cv.text(f16, 940, yc, b"CLIPPED RIGHT EDGE", T_INK)
+    cv.text(f16, 700, -8, b"TOP EDGE", T_INK)
+    cv.text(f16, 32, 760, b"BOTTOM EDGE", T_INK)
+    cv.text(f(400, 18), 32, yc + 40, b"clip rectangle test: only a slice shows", T_INK, (80, yc + 44, 200, yc + 56))
+    return bytes(cv.px), dict(y_boxes=y, y_clip=yc, boxes=boxes)
+
 
 def read_ppm(path):
     with open(path, "rb") as f:
@@ -218,7 +410,7 @@ def main():
     ap.add_argument("--serial", required=True)
     ap.add_argument("--timeout", type=float, default=90.0)
     ap.add_argument("--keep")
-    ap.add_argument("--pattern", choices=("basic", "shapes"), default="basic", help="basic = G2 pattern, shapes = G3 rounded-rectangle image")
+    ap.add_argument("--pattern", choices=("basic", "shapes", "text"), default="basic", help="basic = G2 pattern, shapes = G3 rounded-rectangle image, text = G4 text image")
     a = ap.parse_args()
     passed = failed = 0
 
@@ -231,7 +423,7 @@ def main():
 
     t0 = time.time()
     deadline = t0 + a.timeout
-    line = "gfx: test pattern drawn" if a.pattern == "basic" else "gfx: shapes pattern drawn"
+    line = {"basic": "gfx: test pattern drawn", "shapes": "gfx: shapes pattern drawn", "text": "gfx: text pattern drawn"}[a.pattern]
     got_line = wait_serial(a.serial, line, deadline)
     check("kernel reported the pattern over the serial port (%s)" % line, got_line, "timed out waiting for the line")
     if not got_line:
@@ -239,12 +431,17 @@ def main():
     t_serial = time.time() - t0
 
     qmp = Qmp(a.qmp, deadline)
-    expect_list = EXPECT if a.pattern == "basic" else SHAPES_ANCHORS
+    expect_list = {"basic": EXPECT, "shapes": SHAPES_ANCHORS, "text": []}[a.pattern]
     exp_bytes = None
     if a.pattern == "shapes":
         t_ref = time.time()
         exp_bytes = bytes(v for c in shapes_expected() for v in c)
         print("  note: reference image rendered by the independent Python implementation in %.1fs" % (time.time() - t_ref))
+    elif a.pattern == "text":
+        t_ref = time.time()
+        atlas = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "kernel", "gfx", "font_noto_mono.c")
+        exp_bytes, text_info = text_expected(atlas)
+        print("  note: text reference image rendered by the independent Python implementation in %.1fs (boxes at y=%d)" % (time.time() - t_ref, text_info["y_boxes"]))
     shot = os.path.join(os.path.dirname(os.path.abspath(a.serial)), "screen.ppm")
     attempts, sizes_seen, last_bad = 0, [], []
     img = None
@@ -284,6 +481,15 @@ def main():
             f.write(b"P6\n%d %d\n255\n" % (w, h) + pix)
     for (x, y, c, why) in expect_list:
         check("pixel (%d,%d) %s = %s" % (x, y, why, c), tuple(pix[(y * w + x) * 3:(y * w + x) * 3 + 3]) == c)
+    if a.pattern == "text":
+        check("the screenshot equals the independently rendered text reference image, byte for byte (%d pixels)" % (W * H), pix == exp_bytes)
+        ink = sum(1 for i in range(0, len(pix), 3) if pix[i:i + 3] == bytes(T_INK))
+        check("the image holds a substantial amount of ink (%d pixels) and a background corner" % ink, ink > 3000 and pix[-3:] == bytes(T_BG))
+        rule = sum(1 for i in range(0, len(pix), 3) if pix[i:i + 3] == bytes(T_RULE))
+        want = sum(2 * (bw + 2) + 2 * (bh + 2) - 4 for (_, _, bw, bh) in text_info["boxes"])
+        check("the three box outlines are present, exactly %d rule pixels" % want, rule == want, "got %d" % rule)
+        print("gfx_check: %d passed, %d failed" % (passed, failed))
+        return 0 if failed == 0 else 1
     if a.pattern == "shapes":
         check("the screenshot equals the independently rendered reference image, byte for byte (%d pixels)" % (W * H), pix == exp_bytes)
         distinct = len(set(pix[i:i + 3] for i in range(0, len(pix), 3)))

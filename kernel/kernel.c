@@ -121,7 +121,9 @@ void kernel_main(uint64_t dtb)
 
     /* 3b. Native graphics: configure the display, then draw the diagnostic pattern ourselves. Failure leaves the UART boot untouched. */
     if (dtb && gfx_init() == GFX_OK) {
-#ifdef AURORA_GFX_SHAPES   /* test build: the G3 rounded-rectangle image replaces the G2 pattern (tests/qemu/gfx-tests.sh) */
+#if defined(AURORA_GFX_TEXT)   /* test build: the G4 text image (tests/qemu/gfx-tests.sh) */
+        if (gfx_draw_text_pattern(gfx_get_surface()) == GFX_OK) { gfx_present(0); console_puts("gfx: text pattern drawn\n"); }
+#elif defined(AURORA_GFX_SHAPES)   /* test build: the G3 rounded-rectangle image replaces the G2 pattern (tests/qemu/gfx-tests.sh) */
         if (gfx_draw_shapes_pattern(gfx_get_surface()) == GFX_OK) { gfx_present(0); console_puts("gfx: shapes pattern drawn\n"); }
 #else
         if (gfx_draw_test_pattern(gfx_get_surface()) == GFX_OK) { gfx_present(0); console_puts("gfx: test pattern drawn\n"); }
