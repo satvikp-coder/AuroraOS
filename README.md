@@ -16,7 +16,7 @@ An independent, open-source ARM64 operating system with the **Aurora Glass** UI 
 | Program loader and init | **Working on QEMU, tested in CI**: a narrow static AArch64 ELF subset is loaded from AuroraFS into an isolated EL0 process under an identity chosen by the kernel; the kernel starts an installed `init.elf` as the first user process | `kernel/proc/elf.c`, `kernel/proc/launch.c`, `docs/kernel/loader.md` |
 | Native settings registry | **Working on QEMU, tested in CI**: six typed preferences, capability-checked, persistent on AuroraFS (stored preferences; no hardware is driven) | `kernel/settings.c`, `docs/kernel/settings.md` |
 | Native graphics and shell | **A native Aurora Glass shell on QEMU, tested in CI** (issues #7 and #8): the kernel draws a ramfb framebuffer (fills, rounded rectangles, borders, monospaced bitmap text from Noto Sans Mono, SIL OFL 1.1, **printable ASCII only**), reads a virtio keyboard and tablet, and boots into a native Home with an Aurora Dock, Spaces, Index search, an About dialog, a Glass Corner sheet and an Aurora Horizon rail. QEMU screenshots and injected keyboard and pointer events are verified. QEMU/TCG only, Tier 0 Clear (opaque, no blur), US keyboard layout, no Hindi or Gujarati, state in memory only, a native Settings screen (text size and high contrast work; the other settings are stored preferences only), no real notifications, Pages and Aura not available, nothing on real hardware | issues #7 and #8 (both open), `docs/kernel/native-graphics-plan.md` |
-| Native Aurora Glass UI | **Not started: no code** (needs text, input and composition first) | issue #8 (open) |
+| Native Aurora Glass UI, beyond Tier 0 Clear | **Not built**: application windows, Pages, Aura, Soft Glass, EL0 UI services, non-ASCII text, a clock and real notifications. The shell above is the only native UI; it is kernel-side bring-up. Design for the EL0 boundary: `docs/kernel/el0-ui-service-design.md` (design only) | issue #8 (open) |
 | Aurora Glass **browser prototype** | **Prototype only** (runs in a host browser, controls nothing real) | `aurora-glass/prototype/` |
 | Aura Action Broker | **Mock only**: a tested contract for typed, approved actions. The browser prototype's Aura, Vault, Passport, Trail and Clock go through it, but it is JavaScript in one browser context: not an OS service and not a security boundary | `aurora-glass/prototype/broker.js` |
 | Offline language model, speech | Not started | issues #12, #13 |
@@ -42,7 +42,7 @@ An independent, open-source ARM64 operating system with the **Aurora Glass** UI 
 
 ## Not done yet
 
-Drivers beyond the console and the virtio block device, native graphics and UI, native apps (Notes, Files, Calculator, Clock), Passport/Trail/Vault as native services, an installer service and signed applications (executables are authorised today by installer ownership of the file), the offline model and voice, and any physical-device port. Browser prototype screens are **not** native OS features.
+Drivers beyond the console and the virtio block device, application windows and an EL0 UI service (the native shell is kernel-side), Pages and Aura on the native OS, native apps (Notes, Files, Calculator, Clock), Passport/Trail/Vault as native services, an installer service and signed applications (executables are authorised today by installer ownership of the file), the offline model and voice, and any physical-device port. Browser prototype screens are **not** native OS features.
 
 ## Run it from a fresh checkout
 
@@ -69,6 +69,9 @@ npx http-server aurora-glass/prototype -p 3000   # to look at it yourself
 ./tests/qemu/loader-tests.sh       # programs loaded from a host-provisioned disk (3 QEMU runs)
 ./tests/qemu/settings-tests.sh     # native settings registry (3 QEMU runs)
 ./tests/qemu/e2e-tests.sh          # loader + storage + settings together on one disk
+./tests/qemu/home-tests.sh         # the native shell (Home, Dock, Spaces, Index, About, Glass Corner) with real injected input
+./tests/qemu/scale-tests.sh        # native text scaling and high contrast (4 boots)
+./tests/qemu/settings-ui-tests.sh  # native Settings screen: no disk, save, restart, read-only, destroyed filesystem
 ```
 Always boot `build/kernel.bin` (the ELF gets no device tree). On Windows, run the shell commands inside WSL, not PowerShell.
 
@@ -78,7 +81,8 @@ Always boot `build/kernel.bin` (the ELF gets no device tree). On Windows, run th
 - `docs/kernel/mmu-configuration.md`: reviewed MMU settings, mapping policy and known limits.
 - `docs/kernel/native-graphics-plan.md`: native graphics on QEMU (issue #7): the G1 research (what the kernel has, what QEMU offers, the options compared, risks), the G2 record (fw_cfg + ramfb, framebuffer reservation, verified protocol facts, evidence, cache-coherence limits) the G3 record (rounded rectangles and borders, the exact coverage rule) and the G4 record (font source and licence, reproducible atlas generation, the text engine). QEMU only; ASCII text only; no input or windows yet.
 - `docs/kernel/userspace.md`, `storage.md`, `loader.md`, `settings.md`: processes and syscalls, the filesystem, the program loader and launch policy, the settings registry (each lists its limits).
-- `aurora-glass/open-design-handoff/native-compositor-mapping.md`: what a native compositor and UI toolkit must provide, component by component (a requirements reference: no native graphics exists yet). Its names, colours and numbers are checked against the prototype by `tests/unit/handoff-docs.test.js`.
+- `docs/kernel/el0-ui-service-design.md` (design only, nothing implemented) and `docs/aura/qwen3-local-feasibility.md` (analysis only: no model has been run on AuroraOS or benchmarked).
+- `aurora-glass/open-design-handoff/native-compositor-mapping.md`: what a native compositor and UI toolkit must provide, component by component (a requirements reference; rows marked "QEMU, Tier 0" exist in the kernel-side native shell, the rest do not). Its names, colours and numbers are checked against the prototype by `tests/unit/handoff-docs.test.js`.
 - `docs/agents/AURORA_UI_HANDOFF.md` (current state and next steps), `AURORA_UI_TASKS.md` (milestone log), `AURORA_TESTING.md` (how to test), `AURORA_UI_PERF.md` (measured prototype performance and its limits).
 
 ## Safety
