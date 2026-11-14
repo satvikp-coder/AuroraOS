@@ -14,6 +14,41 @@ static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index" };
 
 const char *shell_screen_name(uint32_t screen) { return screen < SCR_COUNT ? NAMES[screen] : "?"; }
 
+/* ---- Index registry: only real destinations. The model (index_model.c) ranks them; DEST[] says what opening one does. ---- */
+enum { D_SCREEN, D_SPACE, D_ABOUT, D_UNAVAILABLE };
+struct dest { uint8_t kind, arg; };
+static const struct idx_item ITEMS[] = {
+    { "home", "Home", { "desk", "start", 0 }, 1 },
+    { "spaces", "Spaces", { "workspace", "context", 0 }, 1 },
+    { "index", "Index", { "search", "find", "launcher" }, 1 },
+    { "space.study", "Study", { "learn", "school", 0 }, 0 },
+    { "space.work", "Work", { "job", 0, 0 }, 0 },
+    { "space.projects", "Projects", { "build", 0, 0 }, 0 },
+    { "space.personal", "Personal", { "me", 0, 0 }, 0 },
+    { "about", "About AuroraOS", { "version", "info", 0 }, 0 },
+    { "pages", "Pages", { "multitasking", "windows", 0 }, 1 },
+    { "aura", "Aura", { "assistant", "ask", 0 }, 1 },
+    { "settings", "Settings", { "preferences", "options", 0 }, 1 },
+};
+static const struct dest DEST[] = {
+    { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
+    { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
+    { D_ABOUT, 0 }, { D_UNAVAILABLE, 0 }, { D_UNAVAILABLE, 0 }, { D_UNAVAILABLE, 0 },
+};
+#define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
+_Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");
+
+size_t shell_index_count(void) { return NITEMS; }
+const struct idx_item *shell_index_item(size_t i) { return i < NITEMS ? &ITEMS[i] : 0; }
+int shell_index_available(size_t i) { return i < NITEMS && DEST[i].kind != D_UNAVAILABLE; }
+
+static void index_refresh(struct shell *sh)
+{
+    sh->query[sh->qlen] = 0;
+    sh->nres = (uint8_t)idx_search(ITEMS, NITEMS, sh->query, sh->recent, sh->nrecent, sh->res, SHELL_RESULTS);
+    sh->sel = (int8_t)idx_default_active(sh->res, sh->nres);      /* never a typo suggestion: Enter must not open one by itself */
+}
+
 static void scpy(char *d, uint32_t cap, const char *s)
 {
     uint32_t i = 0;
@@ -111,8 +146,29 @@ static void build_spaces(struct shell *sh)
 static void build_index(struct shell *sh)
 {
     card(sh, 40, 96, 944, 520);
-    label(sh, 64, 112, 400, 40, "Index", 24, UI_COL_INK, 1);
-    label(sh, 64, 164, 880, 24, "Search is not available yet.", 16, UI_COL_INK, 0);
+    label(sh, 64, 108, 400, 40, "Index", 24, UI_COL_INK, 1);
+    {   /* the search field: typed text plus a caret at the end (the only editing supported is typing at the end and Backspace) */
+        uint32_t n = 0;
+        if (sh->qlen) { for (uint32_t i = 0; i < sh->qlen && n + 2 < sizeof sh->field_txt; i++) sh->field_txt[n++] = sh->query[i]; sh->field_txt[n++] = '_'; }
+        else { const char *ph = "Type to search"; while (*ph && n + 1 < sizeof sh->field_txt) sh->field_txt[n++] = *ph++; }
+        sh->field_txt[n] = 0;
+        struct ui_widget *f = add(sh, 64, 152, 880, 48, 12, UI_LAYER_CONTENT, UI_LABEL, sh->field_txt, UI_COL_CANVAS, 0xF400u, UI_VISIBLE);
+        if (f) { f->border_w = 2; f->border = UI_COL_FOCUS; f->font_size = 18; f->ink = sh->qlen ? UI_COL_INK : UI_COL_MUTED; }
+    }
+    label(sh, 64, 208, 880, 24, "Up/Down choose, Enter open, Esc clears then goes back.", 14, UI_COL_MUTED, 0);
+    if (!sh->nres) { label(sh, 64, 248, 880, 28, sh->qlen ? "No results." : "Nothing to show.", 16, UI_COL_INK, 0); return; }
+    for (uint32_t k = 0; k < sh->nres; k++) {
+        const struct idx_item *it = &ITEMS[sh->res[k].item];
+        int avail = DEST[sh->res[k].item].kind != D_UNAVAILABLE;
+        char *t = sh->res_txt[k]; uint32_t n = 0;
+        const char *pre = sh->res[k].fuzzy ? "Did you mean: " : "";
+        for (; *pre && n + 1 < sizeof sh->res_txt[k]; pre++) t[n++] = *pre;
+        for (const char *l = it->label; *l && n + 1 < sizeof sh->res_txt[k]; l++) t[n++] = *l;
+        if (!avail) for (const char *u = " (not available yet)"; *u && n + 1 < sizeof sh->res_txt[k]; u++) t[n++] = *u;
+        t[n] = 0;
+        struct ui_widget *b = button(sh, 64, 244 + (int32_t)k * 44, 880, 40, t, SID_RESULT_BASE + k, avail, UI_LAYER_CONTENT);
+        if (b && (int)k == sh->sel && avail) b->active = 1;      /* an unavailable row is never drawn as selected/openable */
+    }
 }
 
 static void build_about(struct shell *sh)
@@ -202,6 +258,7 @@ int shell_go(struct shell *sh, uint32_t screen)
     if (sh->hist_n == SHELL_HISTORY) { for (int i = 1; i < SHELL_HISTORY; i++) sh->hist[i - 1] = sh->hist[i]; sh->hist_n--; }   /* bounded: drop the oldest */
     sh->hist[sh->hist_n++] = sh->screen;
     sh->screen = (uint8_t)screen;
+    if (screen == SCR_INDEX) { sh->qlen = 0; index_refresh(sh); }      /* a fresh search each time Index opens */
     build(sh); sh->dirty = 1;
     return 1;
 }
@@ -210,6 +267,7 @@ int shell_back(struct shell *sh)
 {
     if (!sh->hist_n) return 0;
     sh->screen = sh->hist[--sh->hist_n];
+    if (sh->screen == SCR_INDEX) { sh->qlen = 0; index_refresh(sh); }
     build(sh);
     if (sh->fx.focus < 0) { int32_t hm = shell_find(sh, SID_DOCK_HOME); if (!(hm >= 0 && ui_focus_set(&sh->fx, hm))) ui_focus_next(&sh->fx, 1); }   /* the focused control may not exist here (e.g. Back after the last step) */
     sh->dirty = 1;
@@ -237,6 +295,40 @@ static void set_about(struct shell *sh, int open)
     sh->dirty = 1;
 }
 
+static void push_recent(struct shell *sh, const char *key)
+{
+    uint32_t j = 0;
+    for (uint32_t i = 0; i < sh->nrecent; i++) {                 /* drop an existing copy of the key, keep the rest in order */
+        const char *x = sh->recent[i], *y = key; uint32_t q = 0;
+        while (x[q] && x[q] == y[q]) q++;
+        if (!(x[q] == 0 && y[q] == 0)) sh->recent[j++] = sh->recent[i];
+    }
+    if (j >= SHELL_RECENT) j = SHELL_RECENT - 1;
+    for (uint32_t i = j; i > 0; i--) sh->recent[i] = sh->recent[i - 1];
+    sh->recent[0] = key;
+    sh->nrecent = (uint8_t)(j + 1);
+}
+
+/* Open result row k. Only an available destination opens; unavailable items do nothing. A typo suggestion opens only when chosen
+ * explicitly (a click or Tab+Enter on it): the default selection never points at one. Returns 1 if something opened. */
+static int index_open(struct shell *sh, uint32_t k)
+{
+    if (k >= sh->nres) return 0;
+    uint32_t item = sh->res[k].item;
+    if (item >= NITEMS) return 0;
+    const struct dest *d = &DEST[item];
+    if (d->kind == D_UNAVAILABLE) return 0;
+    push_recent(sh, ITEMS[item].key);
+    sh->index_opens++;
+    switch (d->kind) {
+    case D_SCREEN: shell_go(sh, d->arg); break;
+    case D_SPACE: shell_select_space(sh, d->arg); shell_go(sh, SCR_HOME); break;
+    case D_ABOUT: shell_go(sh, SCR_HOME); set_about(sh, 1); break;
+    default: return 0;
+    }
+    return 1;
+}
+
 static void activate(struct shell *sh, uint32_t id)
 {
     sh->last_activated = id; sh->activations++;
@@ -249,13 +341,42 @@ static void activate(struct shell *sh, uint32_t id)
     case SID_ABOUT_CLOSE: set_about(sh, 0); break;
     default:
         if (id >= SID_SPACE_BASE && id < SID_SPACE_BASE + SHELL_SPACES) shell_select_space(sh, id - SID_SPACE_BASE);
+        else if (id >= SID_RESULT_BASE && id < SID_RESULT_BASE + SHELL_RESULTS) index_open(sh, id - SID_RESULT_BASE);
         break;                                                   /* unknown ids do nothing */
+    }
+}
+
+/* Index input: typed text goes to the search field, Backspace edits, Up/Down choose, Enter opens the choice when no control has focus,
+ * Escape clears a non-empty query. Returns 1 when the event was consumed here. Printable ASCII only; the field never exceeds IDX_MAX_QUERY. */
+static int index_input(struct shell *sh, const struct input_event *e)
+{
+    if (sh->screen != SCR_INDEX || sh->about_open) return 0;
+    if (e->kind == IN_TEXT) {
+        sh->fx.focus = -1;                                       /* typing means the search field has the focus, not a button */
+        if (e->ch >= 0x20 && e->ch <= 0x7e && sh->qlen < IDX_MAX_QUERY) { sh->query[sh->qlen++] = (char)e->ch; index_refresh(sh); }
+        return 1;
+    }
+    if (e->kind != IN_KEY_DOWN) return 0;
+    switch (e->key) {
+    case KEY_BACKSPACE: sh->fx.focus = -1; if (sh->qlen) { sh->qlen--; index_refresh(sh); } return 1;
+    case KEY_DOWN: sh->fx.focus = -1; if (sh->nres) sh->sel = (int8_t)(sh->sel < 0 ? 0 : (sh->sel + 1 < sh->nres ? sh->sel + 1 : sh->nres - 1)); return 1;
+    case KEY_UP: sh->fx.focus = -1; if (sh->nres) sh->sel = (int8_t)(sh->sel > 0 ? sh->sel - 1 : 0); return 1;
+    case KEY_SPACE: return 1;                                    /* the matching IN_TEXT event types the space; Space never activates a control here */
+    case KEY_ENTER:
+        if (sh->fx.focus >= 0) return 0;                         /* a focused control (a result row or a dock button) handles Enter itself */
+        if (!e->repeat && sh->sel >= 0) index_open(sh, (uint32_t)sh->sel);
+        return 1;
+    case KEY_ESC:
+        if (sh->qlen) { sh->qlen = 0; index_refresh(sh); return 1; }
+        return 0;                                                /* empty query: Escape goes back */
+    default: return 0;
     }
 }
 
 int shell_handle(struct shell *sh, const struct input_event *e)
 {
     uint32_t r = SHELL_NONE;
+    if (index_input(sh, e)) { build(sh); sh->dirty = 1; return 1; }   /* rebuild: hit testing must see the layout the user sees */
     switch (e->kind) {
     case IN_KEY_DOWN:
         r = ui_key(&sh->fx, e);
@@ -267,6 +388,7 @@ int shell_handle(struct shell *sh, const struct input_event *e)
     default: return 0;
     }
     if (r != SHELL_NONE && r != UI_NONE) activate(sh, r);
+    build(sh);
     sh->dirty = 1;
     return 1;
 }

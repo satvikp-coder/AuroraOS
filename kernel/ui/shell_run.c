@@ -30,12 +30,22 @@ void shell_boot_draw(void)
     console_puts("shell: home drawn\n");
 }
 
-static void log_state(uint32_t *screen, uint32_t *space, int32_t *focus, uint32_t *modal)
+static void log_state(uint32_t *screen, uint32_t *space, int32_t *focus, uint32_t *modal, uint32_t *opens, uint32_t *qsig)
 {
     if (SH.screen != *screen) { *screen = SH.screen; console_puts("shell: screen="); console_puts(shell_screen_name(SH.screen)); console_puts(" history="); console_dec(SH.hist_n); console_puts("\n"); }
     if (SH.space != *space) { *space = SH.space; console_puts("shell: space="); console_puts(SHELL_SPACE_NAMES[SH.space]); console_puts("\n"); }
     int32_t f = SH.fx.focus >= 0 ? (int32_t)SH.c[SH.fx.focus].id : -1;
     if (f != *focus) { *focus = f; console_puts("shell: focus="); if (f >= 0) console_dec((uint64_t)f); else console_puts("none"); console_puts("\n"); }
+    if (SH.screen == SCR_INDEX) {                                /* a signature of the search state, so only real changes are logged */
+        uint32_t sig = SH.qlen * 131u + (uint32_t)(SH.sel + 2) * 17u + SH.nres;
+        for (uint32_t i = 0; i < SH.qlen; i++) sig = sig * 31u + (uint8_t)SH.query[i];
+        if (sig != *qsig) {
+            *qsig = sig;
+            console_puts("shell: query=["); console_puts(SH.query); console_puts("] results="); console_dec(SH.nres);
+            console_puts(" sel="); if (SH.sel >= 0) console_puts(shell_index_item(SH.res[SH.sel].item)->key); else console_puts("none"); console_puts("\n");
+        }
+    } else *qsig = 0xffffffffu;
+    if (SH.index_opens != *opens) { *opens = SH.index_opens; console_puts("shell: opened="); console_puts(SH.recent[0]); console_puts("\n"); }
     if (SH.about_open != *modal) { *modal = SH.about_open; console_puts(*modal ? "shell: modal open\n" : "shell: modal closed\n"); }
 }
 
@@ -52,13 +62,13 @@ void shell_loop(struct input_state *in)
     irq_cpu_enable();
     uint64_t t0 = timer_count(), hz = timer_freq();
     uint32_t screen = SH.screen, space = SH.space, modal = SH.about_open; int32_t focus = -2;
-    uint32_t last_act = SH.activations;
+    uint32_t last_act = SH.activations, opens = SH.index_opens, qsig = 0xffffffffu;
     for (;;) {
         vinput_poll(in);
         struct input_event e;
         while (input_pop(in, &e)) shell_handle(&SH, &e);
         shell_set_uptime(&SH, (uint32_t)((timer_count() - t0) / hz));
-        log_state(&screen, &space, &focus, &modal);
+        log_state(&screen, &space, &focus, &modal, &opens, &qsig);
         if (SH.activations != last_act) { last_act = SH.activations; console_puts("shell: activate "); console_dec(SH.last_activated); console_puts("\n"); }
         if (SH.dirty) present();
         __asm__ volatile ("wfi");

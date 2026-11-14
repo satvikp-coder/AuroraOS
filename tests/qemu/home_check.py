@@ -157,6 +157,83 @@ def main():
     check("Escape on Spaces goes back (Home, history 2)", wait_last("shell: screen=", "Home history=2"))
     h4 = until("home_late", lambda i: True)
     check("the uptime label changed over time (it is live, not a fixed string)", changed(h0, h4, 760, 20, 1000, 48))
+
+    # ---------------- Index: real typing through the virtio keyboard ----------------
+    QC = {" ": "spc"}
+    def typ(text):
+        for ch in text:
+            tap(QC.get(ch, ch)); time.sleep(0.15)
+    def wait_has(prefix, needle, secs=15):
+        end = time.time() + secs
+        while time.time() < end:
+            v = last(prefix)
+            if v is not None and needle in v: return True
+            time.sleep(0.2)
+        return False
+    def on_screen(name, secs=15):
+        end = time.time() + secs
+        while time.time() < end:
+            v = last("shell: screen=")
+            if v is not None and v.startswith(name): return True
+            time.sleep(0.2)
+        return False
+    def go_index(name):
+        click_at(690, 704, name)
+        return on_screen("Index")
+
+    check("dock Index opens the Index screen", go_index("idx_dock"))
+    x0 = until("index0", lambda i: px(i, 640, 704) == ACCENT)
+    check("SCREEN: Index is the active dock item; the search field shows the muted placeholder; the first result is selected (accent)", px(x0, 640, 704) == ACCENT and n_color(x0, 64, 152, 400, 200, MUTED) > 20 and px(x0, 100, 264) == ACCENT)
+    typ("sp")
+    check("typing 'sp' with the real keyboard: 2-character query, Spaces is the selected result", wait_has("shell: query=", "[sp]") and wait_has("shell: query=", "sel=spaces"))
+    x1 = until("index_sp", lambda i: n_color(i, 64, 152, 400, 200, INK) > 20)
+    check("SCREEN: the typed text is drawn in the field and the first row is still selected", n_color(x1, 64, 152, 400, 200, INK) > 20 and px(x1, 100, 264) == ACCENT)
+    tap("ret")
+    check("Enter opens the selected result (Spaces)", wait_has("shell: opened=", "spaces") and on_screen("Spaces"))
+    check("Spaces is shown (its dock item is active)", until("index_open_spaces", lambda i: px(i, 520, 704) == ACCENT) is not None and True)
+
+    check("back to Index by the dock", go_index("idx_dock2"))
+    typ("pages")
+    check("'pages': one result, selected (Pages)", wait_has("shell: query=", "[pages] results=1") and wait_has("shell: query=", "sel=pages"))
+    x2 = until("index_pages", lambda i: n_color(i, 64, 244, 944, 284, MUTED) > 20)
+    check("SCREEN: the Pages row is drawn muted (unavailable) and says so", n_color(x2, 64, 244, 944, 284, MUTED) > 20 and n_color(x2, 64, 244, 944, 284, INK) == 0)
+    before = last("shell: opened=")
+    tap("ret"); time.sleep(1.0)
+    check("Enter on an unavailable result opens nothing", last("shell: opened=") == before and last("shell: screen=").startswith("Index"))
+    for _ in range(5): tap("backspace"); time.sleep(0.12)
+    check("Backspace x5 empties the query", wait_has("shell: query=", "[] results=8"))
+    typ("hmoe")
+    check("'hmoe' (a typo): one suggestion, nothing selected", wait_has("shell: query=", "[hmoe] results=1") and wait_has("shell: query=", "sel=none"))
+    tap("ret"); time.sleep(1.0)
+    check("Enter does not open a typo suggestion", last("shell: opened=") == before and last("shell: screen=").startswith("Index"))
+    tap("tab")
+    check("Tab focuses the suggestion row (id 100)", wait_last("shell: focus=", "100"))
+    tap("ret")
+    check("choosing the suggestion explicitly opens Home", wait_has("shell: opened=", "home") and on_screen("Home"))
+
+    check("Index again", go_index("idx_dock3"))
+    typ("work")
+    check("'work': Work is the selected result", wait_has("shell: query=", "[work]") and wait_has("shell: query=", "sel=space.work"))
+    tap("ret")
+    check("opening the Work item selects the Space and shows Home", wait_has("shell: opened=", "space.work") and wait_last("shell: space=", "Work") and on_screen("Home"))
+    xh = until("index_home_work", lambda i: px(i, 410, 704) == ACCENT)
+    check("SCREEN: Home shows the Work Space (the label changed from Study)", changed(h0, xh, 64, 142, 300, 182))
+
+    check("Index once more for the pointer and limits", go_index("idx_dock4"))
+    typ("ab")
+    check("'ab': About AuroraOS first", wait_has("shell: query=", "[ab]") and wait_has("shell: query=", "sel=about"))
+    click_at(504, 264, "idx_click_row")
+    check("a pointer click on the first result opens About (modal)", wait_has("shell: opened=", "about") and wait_count("shell: modal open", 2))
+    tap("esc")
+    check("Escape closes the modal", wait_count("shell: modal closed", 2))
+    check("Index again for the limit test", go_index("idx_dock5"))
+    for _ in range(8): typ("aaaaa")
+    check("40 typed characters: the query stops at 32", wait_has("shell: query=", "[" + "a" * 32 + "]") and ("[" + "a" * 33) not in log())
+    tap("esc")
+    check("Escape clears the query and stays on Index", wait_has("shell: query=", "[] results=8") and last("shell: screen=").startswith("Index"))
+    tap("esc")
+    check("Escape again goes back", on_screen("Home"))
+
     check("no panic, no failed self-test, still interactive", "KERNEL PANIC" not in log() and "SELFTEST FAILED" not in log())
     print("home_check: %d passed, %d failed" % (passed, failed))
     return 1 if failed else 0
