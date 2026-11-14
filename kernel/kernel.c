@@ -131,6 +131,9 @@ void kernel_main(uint64_t dtb)
 #endif
         else console_puts("gfx: pattern FAILED\n");
     }
+#if defined(AURORA_BENCH)
+    { extern void gfx_bench_run(void); gfx_bench_run(); }   /* test build: kernel/ui/gfx_bench.c, CPU drawing-time baseline */
+#endif
 
     /* 4. Interrupt controller, timer, and their tests. The platform description must come from the device tree. */
     if (dtb) {
