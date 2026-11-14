@@ -187,6 +187,27 @@ static void build_about(struct shell *sh)
     button(sh, 412, 404, 200, 48, "Close", SID_ABOUT_CLOSE, 1, UI_LAYER_MODAL);
 }
 
+/* Glass Corner: a small handle at the top right (layer CORNER, last in Tab order) that opens a "held items" sheet. There is no
+ * notification source in the OS yet, so the sheet shows an honest empty state; nothing is fabricated. The sheet is modal for input
+ * (focus contained, covered controls inert) but sits clear of the dock and the content, and a click outside it closes it. */
+static void build_corner(struct shell *sh)
+{
+    if (!sh->about_open) {
+        struct ui_widget *g = button(sh, 912, 8, 96, 48, "Held", SID_CORNER, 1, UI_LAYER_CORNER);   /* below the sheet's layer: unreachable while it is open */
+        if (g) g->c.radius = 18;
+    }
+    if (!sh->corner_open) return;
+    struct ui_widget *p = add(sh, 584, 76, 424, 232, 16, UI_LAYER_SHEET, UI_PANEL, 0, UI_COL_SURFACE, 0xF500u, SOLID);
+    if (p) { p->border_w = 2; p->border = UI_COL_FOCUS; }
+    struct ui_widget *t = add(sh, 608, 92, 376, 32, 0, UI_LAYER_SHEET, UI_LABEL, "Held items", UI_COL_SURFACE, 0xF501u, SOLID);
+    if (t) { t->font_size = 18; t->bold = 1; }
+    struct ui_widget *a = add(sh, 608, 132, 376, 28, 0, UI_LAYER_SHEET, UI_LABEL, "Nothing is held right now.", UI_COL_SURFACE, 0xF502u, SOLID);
+    if (a) a->font_size = 16;
+    struct ui_widget *b = add(sh, 608, 164, 376, 24, 0, UI_LAYER_SHEET, UI_LABEL, "No notification source exists yet.", UI_COL_SURFACE, 0xF503u, SOLID);
+    if (b) { b->font_size = 14; b->ink = UI_COL_MUTED; }
+    button(sh, 608, 236, 160, 48, "Close", SID_CORNER_CLOSE, 1, UI_LAYER_SHEET);
+}
+
 /* Rebuild the whole widget array from the state. Focus is kept by stable id when that control still exists and can be focused. */
 static void build(struct shell *sh)
 {
@@ -197,14 +218,21 @@ static void build(struct shell *sh)
     (void)h;
     struct ui_widget *t = add(sh, 24, 14, 300, 36, 0, UI_LAYER_CONTENT, UI_LABEL, "AuroraOS", UI_COL_SURFACE, 0xF301u, SOLID);
     if (t) { t->font_size = 24; t->bold = 1; }
-    struct ui_widget *u = add(sh, 760, 20, 240, 28, 0, UI_LAYER_CONTENT, UI_LABEL, sh->uptime_txt, UI_COL_SURFACE, 0xF302u, SOLID);
+    struct ui_widget *hz = add(sh, 190, 22, 440, 24, 0, UI_LAYER_CONTENT, UI_LABEL, sh->horizon_txt, UI_COL_SURFACE, 0xF304u, SOLID);
+    if (hz) { hz->font_size = 14; hz->ink = UI_COL_MUTED; }
+    struct ui_widget *u = add(sh, 780, 22, 112, 24, 0, UI_LAYER_CONTENT, UI_LABEL, sh->uptime_txt, UI_COL_SURFACE, 0xF302u, SOLID);
     if (u) { u->font_size = 14; u->ink = UI_COL_MUTED; }
-    add(sh, 0, 64, (int32_t)sh->width, 4, 0, UI_LAYER_CONTENT, UI_PANEL, 0, COL_AURA, 0xF303u, SOLID);   /* Aurora Horizon rail: boot checks passed */
+    /* Aurora Horizon: a thin status rail with ONE source. Aura colour = the boot checks passed and both a keyboard and a pointer were found;
+     * muted = the shell is running with limited input. It never animates and never shows anything it did not measure. */
+    int full = sh->caps.keyboard && sh->caps.pointer;
+    scpy(sh->horizon_txt, sizeof sh->horizon_txt, full ? "Horizon: ready" : "Horizon: limited input");
+    add(sh, 0, 64, (int32_t)sh->width, 4, 0, UI_LAYER_CONTENT, UI_PANEL, 0, full ? COL_AURA : UI_COL_MUTED, 0xF303u, SOLID);
     if (sh->screen == SCR_HOME) build_home(sh);
     else if (sh->screen == SCR_SPACES) build_spaces(sh);
     else build_index(sh);
     build_dock(sh);
     if (sh->about_open) build_about(sh);
+    build_corner(sh);
     for (uint32_t i = 0; i < sh->n; i++) sh->c[i] = sh->w[i].c;
     sh->fx.c = sh->c; sh->fx.n = sh->n;
     sh->fx.focus = -1;
@@ -282,6 +310,19 @@ int shell_select_space(struct shell *sh, uint32_t index)
     return 1;
 }
 
+static void set_corner(struct shell *sh, int open)
+{
+    if (open == sh->corner_open || sh->about_open) return;
+    if (open) { sh->corner_open = 1; build(sh); ui_modal_push(&sh->fx, UI_LAYER_SHEET); }
+    else {
+        ui_modal_pop(&sh->fx);
+        sh->corner_open = 0; build(sh);
+        int32_t i = shell_find(sh, SID_CORNER);                  /* the sheet can only be opened from the handle, so focus returns to it */
+        if (i >= 0) ui_focus_set(&sh->fx, i);
+    }
+    sh->dirty = 1;
+}
+
 static void set_about(struct shell *sh, int open)
 {
     if (open == sh->about_open) return;
@@ -339,6 +380,8 @@ static void activate(struct shell *sh, uint32_t id)
     case SID_DOCK_INDEX: case SID_APP_INDEX: shell_go(sh, SCR_INDEX); break;
     case SID_ABOUT: set_about(sh, 1); break;
     case SID_ABOUT_CLOSE: set_about(sh, 0); break;
+    case SID_CORNER: set_corner(sh, 1); break;
+    case SID_CORNER_CLOSE: set_corner(sh, 0); break;
     default:
         if (id >= SID_SPACE_BASE && id < SID_SPACE_BASE + SHELL_SPACES) shell_select_space(sh, id - SID_SPACE_BASE);
         else if (id >= SID_RESULT_BASE && id < SID_RESULT_BASE + SHELL_RESULTS) index_open(sh, id - SID_RESULT_BASE);
@@ -350,7 +393,7 @@ static void activate(struct shell *sh, uint32_t id)
  * Escape clears a non-empty query. Returns 1 when the event was consumed here. Printable ASCII only; the field never exceeds IDX_MAX_QUERY. */
 static int index_input(struct shell *sh, const struct input_event *e)
 {
-    if (sh->screen != SCR_INDEX || sh->about_open) return 0;
+    if (sh->screen != SCR_INDEX || sh->about_open || sh->corner_open) return 0;
     if (e->kind == IN_TEXT) {
         sh->fx.focus = -1;                                       /* typing means the search field has the focus, not a button */
         if (e->ch >= 0x20 && e->ch <= 0x7e && sh->qlen < IDX_MAX_QUERY) { sh->query[sh->qlen++] = (char)e->ch; index_refresh(sh); }
@@ -380,11 +423,15 @@ int shell_handle(struct shell *sh, const struct input_event *e)
     switch (e->kind) {
     case IN_KEY_DOWN:
         r = ui_key(&sh->fx, e);
-        if (r == UI_ESCAPE) { r = SHELL_NONE; if (sh->about_open) set_about(sh, 0); else shell_back(sh); }
+        if (r == UI_ESCAPE) { r = SHELL_NONE; if (sh->about_open) set_about(sh, 0); else if (sh->corner_open) set_corner(sh, 0); else shell_back(sh); }
         break;
     case IN_PTR_MOVE: shell_set_pointer(sh, e->x, e->y); return 1;
     case IN_PTR_DOWN: shell_set_pointer(sh, e->x, e->y); ui_pointer_down(&sh->fx, e->x, e->y); break;
-    case IN_PTR_UP: shell_set_pointer(sh, e->x, e->y); r = ui_pointer_up(&sh->fx, e->x, e->y); break;
+    case IN_PTR_UP:
+        shell_set_pointer(sh, e->x, e->y);
+        if (sh->corner_open && ui_hit(&sh->fx, e->x, e->y) < 0) { set_corner(sh, 0); sh->fx.pressed = -1; break; }   /* click outside the sheet: close it, nothing underneath is activated */
+        r = ui_pointer_up(&sh->fx, e->x, e->y);
+        break;
     default: return 0;
     }
     if (r != SHELL_NONE && r != UI_NONE) activate(sh, r);

@@ -92,12 +92,12 @@ def main():
     h1 = until("home_tab1", lambda i: px(i, 164, 229) == FOCUS)
     check("SCREEN: a 3 px focus ring surrounds Change Space", all(px(h1, 164, 229 + k) == FOCUS for k in range(3)) and px(h1, 164, 228) != FOCUS)
     seen = []
-    for want in ("16", "11", "12", "2", "3", "4", "10"):
+    for want in ("16", "11", "12", "2", "3", "4", "40", "10"):
         tap("tab"); time.sleep(0.4); ok_ = wait_last("shell: focus=", want, 5); seen.append(ok_)
-    check("Tab order: About, Spaces tile, Index tile, dock Home, Spaces, Index, then wraps to Change Space; disabled tiles and Back are skipped", all(seen))
+    check("Tab order: About, Spaces tile, Index tile, dock Home, Spaces, Index, the Glass Corner handle, then wraps to Change Space; disabled tiles and Back are skipped", all(seen))
     check("Tab never focused a disabled control (Pages 13, Aura 14, Settings 15, Back 1)", all(("shell: focus=%d" % i + chr(10)) not in log() for i in (13, 14, 15, 1)))
     tap("tab", "shift"); time.sleep(0.4)
-    check("Shift+Tab wraps backwards to the Index dock item (4)", wait_last("shell: focus=", "4", 5))
+    check("Shift+Tab wraps backwards to the Glass Corner handle (40)", wait_last("shell: focus=", "40", 5))
     check("Shift+Tab can walk back to the Spaces tile (11)", tab_to(11, shift=True))
 
     # ---------------- activation: open Spaces by keyboard ----------------
@@ -233,6 +233,31 @@ def main():
     check("Escape clears the query and stays on Index", wait_has("shell: query=", "[] results=8") and last("shell: screen=").startswith("Index"))
     tap("esc")
     check("Escape again goes back", on_screen("Home"))
+
+
+    # ---------------- Glass Corner and Horizon ----------------
+    c0 = until("corner0", lambda i: True)
+    check("Horizon: both input devices found -> aura rail; the status text is drawn; the Held handle is drawn", px(c0, 500, 65) == AURA and n_color(c0, 190, 22, 420, 46, MUTED) > 20 and n_color(c0, 912, 8, 1008, 56, INK) > 10)
+    click_at(960, 32, "corner_open")
+    check("clicking the Held handle opens the sheet", wait_count("shell: corner open", 1))
+    c1 = until("corner1", lambda i: px(i, 900, 250) == SURFACE and px(i, 584, 200) == FOCUS)
+    check("SCREEN: an opaque white sheet with a focus-coloured border appears top right; the dock is untouched", px(c1, 900, 250) == SURFACE and px(c1, 584, 200) == FOCUS and px(c1, 410, 704) == ACCENT)
+    check("SCREEN: the empty state text is drawn (ink), and the Close button has the focus ring", n_color(c1, 608, 132, 984, 160, INK) > 30 and all(px(c1, 688, 233 + k) == FOCUS for k in range(3)))
+    base = acts()
+    click_at(572, 704, "corner_dock")
+    check("a click on the dock behind the open sheet closes it and activates nothing", wait_count("shell: corner closed", 1) and acts() == base + 0)
+    click_at(960, 32, "corner_open2")
+    wait_count("shell: corner open", 2)
+    tap("esc")
+    check("Escape closes the sheet", wait_count("shell: corner closed", 2))
+    c2 = until("corner2", lambda i: px(i, 900, 250) != SURFACE)
+    check("SCREEN: focus returned to the Held handle (3 px ring above it) and the sheet is gone", px(c2, 960, 6) == FOCUS and px(c2, 584, 200) != FOCUS)
+    tap("ret")
+    check("Enter on the focused handle opens the sheet by keyboard", wait_count("shell: corner open", 3))
+    for _ in range(3): tap("tab"); time.sleep(0.3)
+    check("Tab stays inside the sheet (focus on Close, id 41)", last("shell: focus=") == "41")
+    tap("ret")
+    check("Enter on Close closes it", wait_count("shell: corner closed", 3))
 
     check("no panic, no failed self-test, still interactive", "KERNEL PANIC" not in log() and "SELFTEST FAILED" not in log())
     print("home_check: %d passed, %d failed" % (passed, failed))

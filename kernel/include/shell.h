@@ -26,6 +26,7 @@ enum {
     SID_DOCK_BACK = 1, SID_DOCK_HOME, SID_DOCK_SPACES, SID_DOCK_INDEX,
     SID_CHANGE_SPACE = 10, SID_APP_SPACES, SID_APP_INDEX, SID_APP_PAGES, SID_APP_AURA, SID_APP_SETTINGS, SID_ABOUT,
     SID_ABOUT_CLOSE = 20,
+    SID_CORNER = 40, SID_CORNER_CLOSE,
     SID_SPACE_BASE = 30,                /* SID_SPACE_BASE + n selects built-in Space n (0..3) */
     SID_RESULT_BASE = 100               /* SID_RESULT_BASE + k is the k-th Index result row (k < SHELL_RESULTS) */
 };
@@ -40,7 +41,7 @@ struct shell_caps { uint8_t keyboard, pointer; };      /* what input hardware th
 
 struct shell {
     uint32_t width, height;
-    uint8_t screen, space, about_open, dirty;
+    uint8_t screen, space, about_open, corner_open, dirty;
     uint8_t hist[SHELL_HISTORY], hist_n;
     struct shell_caps caps;
     uint32_t uptime_s;
@@ -53,6 +54,7 @@ struct shell {
     struct ui_ctx fx;
     char uptime_txt[16];
     char space_txt[32];
+    char horizon_txt[40];               /* the Aurora Horizon status text; its only source is the boot result and the input devices found */
     /* Index (search) state: bounded, in memory only */
     char query[IDX_MAX_QUERY + 1];
     uint8_t qlen;
