@@ -54,6 +54,9 @@ def main():
             while time.time() - t0 < 12:
                 if region(shot(), 0, 64, 1024, 660) != before: ok = True; break
             out.append((time.time() - t0) * 1000.0 if ok else float("inf"))
+            if not ok:                     # keep the evidence: what the guest logged about this press, and the last frames
+                fl = [l for l in log().split(chr(10)) if l.startswith("shell: focus=")]
+                print("  NOTE: Tab press %d of %d changed nothing on screen within 12 s; guest focus log tail %s; last slice line: %s" % (len(out), n, fl[-4:], (sched_lines() or ["none"])[-1]))
             time.sleep(0.2)
         return out
     def after_ready():

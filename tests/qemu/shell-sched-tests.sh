@@ -40,11 +40,13 @@ boot() {   # scenario mask [extra qemu args...]
     stop_qemu
 }
 KB="-device virtio-keyboard-device -device virtio-tablet-device"
-boot none 0 $KB
-boot spin 1 $KB
-boot yblock 6 $KB
-boot exitfault 24 $KB
-boot churn 32 $KB
-boot noinput 1
+# SHELL_SCHED_ONLY="spin churn" runs only the named scenarios (debugging); CI runs them all
+want() { [ -z "$SHELL_SCHED_ONLY" ] || case " $SHELL_SCHED_ONLY " in *" $1 "*) return 0;; *) return 1;; esac; }
+want none && boot none 0 $KB
+want spin && boot spin 1 $KB
+want yblock && boot yblock 6 $KB
+want exitfault && boot exitfault 24 $KB
+want churn && boot churn 32 $KB
+want noinput && boot noinput 1
 echo "shell-sched-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]
