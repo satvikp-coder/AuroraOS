@@ -57,7 +57,7 @@ wait_boot() {
 }
 
 echo "== building =="
-BUILD_DIR="$OUT/normal" ./build.sh >/dev/null 2>&1 || { bad "kernel build failed"; echo "gfx-tests: $PASSES passed, $FAILS failed"; exit 1; }
+AURORA_GFX_BASIC=1 BUILD_DIR="$OUT/normal" ./build.sh >/dev/null 2>&1 || { bad "kernel build failed"; echo "gfx-tests: $PASSES passed, $FAILS failed"; exit 1; }
 ok "kernel builds"
 AURORA_GFX_SHAPES=1 BUILD_DIR="$OUT/shapes" ./build.sh >/dev/null 2>&1 || { bad "shapes (G3) kernel build failed"; echo "gfx-tests: $PASSES passed, $FAILS failed"; exit 1; }
 ok "G3 shapes test kernel builds"

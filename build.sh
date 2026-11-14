@@ -70,6 +70,9 @@ fi
 if [ -n "$AURORA_SET_TEST" ]; then
     CFLAGS="$CFLAGS -DAURORA_SET_TEST=1"        # settings registry tests: need a disk provisioned by tests/tools/mkafs
 fi
+if [ -n "$AURORA_GFX_BASIC" ]; then
+    CFLAGS="$CFLAGS -DAURORA_GFX_BASIC=1"       # draw the G2 pixel pattern instead of the native Home (tests/qemu/gfx-tests.sh)
+fi
 if [ -n "$AURORA_GFX_SHAPES" ]; then
     CFLAGS="$CFLAGS -DAURORA_GFX_SHAPES=1"      # draw the G3 shapes diagnostic image instead of the G2 pattern (needs a ramfb display)
 fi
@@ -98,7 +101,7 @@ if [ -n "$AURORA_FS_TEST" ]; then      # EL0 file-access boundary programs: test
 fi
 
 echo "[build] Compiling kernel..."
-for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proc/elf.c kernel/proc/launch.c kernel/settings.c kernel/settingstest.c kernel/loadtest.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/drivers/fwcfg.c kernel/drivers/fwcfg_proto.c kernel/drivers/virtio_mmio.c kernel/drivers/virtio_input.c kernel/input/input_core.c kernel/input/ui_focus.c kernel/ui/ui_scene.c kernel/ui/ui_demo.c kernel/ui/gfx_bench.c kernel/input/input_demo.c kernel/gfx/gfx.c kernel/gfx/gfx_draw.c kernel/gfx/gfx_region.c kernel/gfx/gfx_shape.c kernel/gfx/gfx_text.c kernel/gfx/font_noto_mono.c kernel/blktest.c kernel/fs/afs.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
+for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proc/elf.c kernel/proc/launch.c kernel/settings.c kernel/settingstest.c kernel/loadtest.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/drivers/fwcfg.c kernel/drivers/fwcfg_proto.c kernel/drivers/virtio_mmio.c kernel/drivers/virtio_input.c kernel/input/input_core.c kernel/input/ui_focus.c kernel/ui/ui_scene.c kernel/ui/ui_demo.c kernel/ui/gfx_bench.c kernel/ui/shell.c kernel/ui/shell_run.c kernel/input/input_demo.c kernel/gfx/gfx.c kernel/gfx/gfx_draw.c kernel/gfx/gfx_region.c kernel/gfx/gfx_shape.c kernel/gfx/gfx_text.c kernel/gfx/font_noto_mono.c kernel/blktest.c kernel/fs/afs.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
          kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do
     o="$BUILD_DIR/$(basename "$c" .c).o"
     $CC $CFLAGS -c "$c" -o "$o"

@@ -17,7 +17,7 @@ static int draw_text(const struct gfx_surface *s, const struct ui_widget *w, str
 {
     size_t n = slen(w->text);
     if (!n || inner.w <= 0 || inner.h <= 0) return GFX_OK;
-    const struct gfx_font *f = gfx_font_find(400, w->font_size ? w->font_size : 16);
+    const struct gfx_font *f = gfx_font_find(w->bold ? 700 : 400, w->font_size ? w->font_size : 16);
     if (!f) f = gfx_font_find(400, 16);
     if (!f) return GFX_OK;
     int32_t tw = 0, th = 0;
@@ -30,6 +30,8 @@ static int draw_text(const struct gfx_surface *s, const struct ui_widget *w, str
     return gfx_draw_text(s, f, (int32_t)x, (int32_t)y, w->text, n, w->ink, &inner);
 }
 
+static int32_t clamp32(int64_t v) { return v > 1000000000 ? 1000000000 : v < -1000000000 ? -1000000000 : (int32_t)v; }   /* kernel-owned geometry, but never overflow */
+
 static int draw_widget(const struct gfx_surface *s, const struct ui_widget *w)
 {
     struct gfx_rect r = { w->c.x, w->c.y, w->c.w, w->c.h };
@@ -38,8 +40,9 @@ static int draw_widget(const struct gfx_surface *s, const struct ui_widget *w)
     int rc = gfx_fill_round_rect(s, r, w->c.radius, fill);
     if (rc != GFX_OK) return rc;
     if (w->border_w) { rc = gfx_stroke_round_rect(s, r, w->c.radius, w->border_w, w->border); if (rc != GFX_OK) return rc; }
-    struct gfx_rect inner = { r.x + w->border_w, r.y + w->border_w, r.w - 2 * (int32_t)w->border_w, r.h - 2 * (int32_t)w->border_w };
+    struct gfx_rect inner = { clamp32((int64_t)r.x + w->border_w), clamp32((int64_t)r.y + w->border_w), clamp32((int64_t)r.w - 2 * (int64_t)w->border_w), clamp32((int64_t)r.h - 2 * (int64_t)w->border_w) };
     if (w->kind == UI_BUTTON && w->active) { struct ui_widget t = *w; t.ink = UI_COL_SURFACE; return draw_text(s, &t, inner); }
+    if (w->kind == UI_BUTTON && !(w->c.flags & UI_ENABLED)) { struct ui_widget t = *w; t.ink = UI_COL_MUTED; return draw_text(s, &t, inner); }   /* a disabled control is visibly muted */
     return draw_text(s, w, inner);
 }
 
@@ -57,11 +60,11 @@ int ui_scene_draw(const struct gfx_surface *s, const struct ui_widget *w, uint32
     }
     if (focus && focus->focus >= 0 && (uint32_t)focus->focus < n) {
         const struct ui_widget *f = &w[focus->focus];
-        struct gfx_rect r = { f->c.x - UI_FOCUS_RING, f->c.y - UI_FOCUS_RING, f->c.w + 2 * UI_FOCUS_RING, f->c.h + 2 * UI_FOCUS_RING };
-        if (f->c.w > 0 && f->c.h > 0) { rc = gfx_stroke_round_rect(s, r, f->c.radius + UI_FOCUS_RING, UI_FOCUS_RING, UI_COL_FOCUS); if (rc != GFX_OK) return rc; }
+        struct gfx_rect r = { clamp32((int64_t)f->c.x - UI_FOCUS_RING), clamp32((int64_t)f->c.y - UI_FOCUS_RING), clamp32((int64_t)f->c.w + 2 * UI_FOCUS_RING), clamp32((int64_t)f->c.h + 2 * UI_FOCUS_RING) };
+        if (f->c.w > 0 && f->c.h > 0) { rc = gfx_stroke_round_rect(s, r, clamp32((int64_t)f->c.radius + UI_FOCUS_RING), UI_FOCUS_RING, UI_COL_FOCUS); if (rc != GFX_OK) return rc; }
     }
     if (draw_pointer) {
-        struct gfx_rect o = { px - 6, py - 6, 12, 12 }, i = { px - 4, py - 4, 8, 8 };
+        struct gfx_rect o = { clamp32((int64_t)px - 6), clamp32((int64_t)py - 6), 12, 12 }, i = { clamp32((int64_t)px - 4), clamp32((int64_t)py - 4), 8, 8 };
         rc = gfx_fill_rect(s, o, UI_COL_INK); if (rc != GFX_OK) return rc;
         rc = gfx_fill_rect(s, i, UI_COL_SURFACE); if (rc != GFX_OK) return rc;
     }

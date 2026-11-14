@@ -158,6 +158,10 @@ jobs:
         run: |
           chmod +x tests/qemu/ui-tests.sh
           ./tests/qemu/ui-tests.sh
+      - name: Run native Home tests (the real kernel, no test flags; Home, Dock, Spaces and the About modal driven by QMP keyboard and pointer events and verified on screendump pixels; no-input, no-display and UART-only fallbacks; 128 and 512 MiB guests)
+        run: |
+          chmod +x tests/qemu/home-tests.sh
+          ./tests/qemu/home-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

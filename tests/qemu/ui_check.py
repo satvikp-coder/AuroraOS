@@ -121,7 +121,7 @@ def main():
     move(400, 712); until("ui_ptr_home", cursor_at(400, 712))
     btn(True); move(900, 400); until("ui_ptr_away", cursor_at(900, 400)); btn(False); time.sleep(1.0)
     check("press on Home, drag away, release elsewhere: not a click", count("ui: activate ") == acts)
-    move(320, 740); until("ui_ptr_gap", cursor_at(320, 740))
+    move(400, 685); until("ui_ptr_gap", cursor_at(400, 685))
     btn(True); btn(False); time.sleep(0.8)
     check("click on the dock background (no button) does nothing", count("ui: activate ") == acts)
     move(892, 124); until("ui_ptr_help", cursor_at(892, 124))
