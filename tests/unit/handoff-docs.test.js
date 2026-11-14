@@ -21,7 +21,7 @@ const uniq = (a) => [...new Set(a)];
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 console.log("Mapping doc: every named thing exists");
-test("the document has content and a status banner that limits native graphics to the QEMU first-pixels stage", () => { assert.ok(doc.length > 5000); assert.ok(/Native graphics is at the first-pixels stage, on QEMU only/.test(doc)); assert.ok(/printable ASCII only \(stages G2 to G4\)/.test(doc)); assert.ok(/no Indic or other non-ASCII text, no input stack, no window composition and no UI toolkit/.test(doc)); assert.ok(!/No native graphics exists today/.test(doc)); });
+test("the document has content and a status banner that limits native graphics to the QEMU first-pixels stage", () => { assert.ok(doc.length > 5000); assert.ok(/Native graphics and a first native Aurora Glass shell exist on QEMU only/.test(doc)); assert.ok(/printable ASCII only/.test(doc)); assert.ok(/no application windows or EL0 UI services, no persisted shell state and no real notification source/.test(doc)); assert.ok(!/No native graphics exists today/.test(doc)); });
 test("every `.class` is used in the prototype", () => {
   const bad = uniq(spans.filter((s) => /^\.[a-z][\w-]*$/.test(s))).filter((s) => !new RegExp("(^|[^\\w-])" + escRe(s.slice(1)) + "($|[^\\w-])").test(source));
   assert.deepStrictEqual(bad, []);
@@ -82,8 +82,10 @@ test("the quoted behaviour limits are the real ones (500 ms long press, 10 px to
   assert.ok(/title: 120, body: 20000, notes: 200/.test(nm)); assert.ok(/200 notes, 120 characters of title, 20,000 characters of body/.test(doc));
 });
 test("the doc never claims a native implementation exists for a UI row", () => {
-  const rowsUi = doc.split("\n").filter((l) => /^\| [A-Z]/.test(l) && /(not started|kernel|mock only)/.test(l));
+  const rowsUi = doc.split("\n").filter((l) => /^\| [A-Z]/.test(l) && /(not started|kernel|mock only|exists natively|partly native)/.test(l));
   assert.ok(rowsUi.length >= 20);
+  // a native claim is allowed only where it is scoped to QEMU Tier 0 (verified by tests/qemu/home-tests.sh)
+  rowsUi.filter((l) => /exists natively|partly native/.test(l)).forEach((l) => assert.ok(/QEMU, Tier 0/.test(l), "native claim without a QEMU Tier 0 scope: " + l.slice(0, 60)));
   assert.ok(!/\|\s*(done|working|implemented|complete)\s*\|\s*$/im.test(doc));
 });
 
