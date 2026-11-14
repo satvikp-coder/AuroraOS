@@ -147,3 +147,16 @@ Replies and events use the same 64-byte mailbox. Because a mailbox holds only 4 
 4. Only then decide on shared pages (blockers 2 and 3).
 
 Nothing above authorises or starts any of these steps by itself.
+
+## 14. Status of phase P1 (updated)
+
+The **pure protocol module** is implemented: `kernel/include/ui_proto.h`, `kernel/ui/ui_proto.c`, tested on the host (`tests/kernel-host/ui_proto_test.c`, ASan/UBSan, plus `mutate_ui_proto.py`). It is linked into the kernel build but **nothing calls it yet**: no syscall, no scheduler integration, no client. Differences from the proposal above, made while implementing it:
+
+* `SET_RECT` is **rejected** when it does not fit the surface (zero size, negative, overflow, beyond the size class), not clamped.
+* Sizes are classes (small 256x160, medium 480x320, large 720x420), not arbitrary pixels; text is printable ASCII only; a title and each text are at most 24 and 40 bytes; 16 widgets per surface; at most 4 surfaces per client instance and 8 in total.
+* Ownership is `(pid, generation, principal)`; a dead, stale or foreign handle all answer `ESTALE`, so a client cannot tell them apart. A new generation or principal in a pid slot is treated as a new instance and the previous instance's surfaces are dropped first.
+* The 16-bit handle serial wraps after 65,535 reuses of one slot (never 0); ownership is still checked on every use.
+* Replies: every handled request produces one `STATUS`; at most 2 may be unconsumed, after which further requests are dropped with no reply (`EBUSY`). The kernel must call `uip_reply_consumed` when the client receives a reply and `uip_client_gone` when an instance exits or faults.
+* Events (`EVENT_KEY`, `EVENT_POINTER`, `CLOSE_REQUEST`) are built by `uip_route_*`, which return the single intended recipient. Pointer press-grab (delivering a drag to the surface that received the press) is not implemented.
+* Not done: the syscall or endpoint that carries these messages, the compositor drawing the visible model, any EL0 client. (The scheduler-aware shell loop, blocker 1, is done: `native-graphics-plan.md` section 15.)
+
