@@ -73,6 +73,13 @@ def main():
         path = os.path.join(a.tmp, "%d_%d_%s.ppm" % (a.pct, a.contrast, name)); q.cmd("screendump", filename=path, format="ppm"); return read_ppm(path)
     def px(img, x, y):
         w, h, d = img; o = (y * w + x) * 3; return tuple(d[o:o + 3])
+    def shot_until(name, pred, secs=15):
+        """the guest logs a state change just before it presents the frame, so poll until the expected pixels show up"""
+        end = time.time() + secs
+        while True:
+            img = shot(name)
+            if pred(img) or time.time() > end: return img
+            time.sleep(0.3)
     def colors(img):
         w, h, d = img
         return {tuple(d[o:o + 3]) for o in range(0, w * h * 3, 3)}
@@ -127,7 +134,8 @@ def main():
     # ---------------- keyboard focus ring ----------------
     tap("tab")
     check("Tab focuses the first control (Change Space, 10)", wait_last("shell: focus=", "10"))
-    h1 = shot("home_tab")
+    x, y, w, h = L[10]
+    h1 = shot_until("home_tab", lambda i: px(i, x + w // 2, y - 2) == rgb(T["focus"]))
     x, y, w, h = L[10]
     ring = rgb(T["focus"])
     check("a 3 px focus ring in the mode's focus colour is drawn above the focused control", all(px(h1, x + w // 2, y - k) == ring for k in (1, 2, 3)) and px(h1, x + w // 2, y - 4) != ring)
@@ -136,7 +144,7 @@ def main():
 
     # ---------------- dock navigation by pointer ----------------
     check("clicking the dock Spaces item opens Spaces", click_ctrl(3) and wait_last("shell: screen=", "Spaces history=1"))
-    s1 = shot("spaces")
+    s1 = shot_until("spaces", lambda i: px(i, layout()[30][0] + 14, layout()[30][1] + 4) == rgb(T["accent"]) if 30 in layout() else False)
     check("Spaces: palette only, nothing spills, four Space buttons present", palette_ok(s1) and not band_clean(s1, layout()) and all(i in layout() for i in (30, 31, 32, 33)))
     L = layout()
     check("Spaces: the Study button is drawn active", px(s1, L[30][0] + 14, L[30][1] + 4) == rgb(T["accent"]) and px(s1, L[31][0] + 14, L[31][1] + 4) != rgb(T["accent"]))
@@ -170,7 +178,7 @@ def main():
     check("clicking the dock Home item shows Home again", (last("shell: screen=") or "").startswith("Home"))
     click_ctrl(16)
     check("About opens", wait_count("shell: modal open", 1))
-    m1 = shot("about")
+    m1 = shot_until("about", lambda i: px(i, 3, 3) == rgb(T["scrim"]))
     check("About: palette only; the scrim covers the page (corner pixel is the scrim colour)", palette_ok(m1) and px(m1, 3, 3) == rgb(T["scrim"]) and px(m1, 1020, 764) == rgb(T["scrim"]))
     L = layout()
     acts0 = count("shell: activate ")
@@ -183,7 +191,7 @@ def main():
     # ---------------- Glass Corner ----------------
     click_ctrl(40)
     check("the Held handle opens the Glass Corner sheet", wait_count("shell: corner open", 1))
-    c1 = shot("corner")
+    c1 = shot_until("corner", lambda i: any(px(i, x, 200) == rgb(T["focus"]) for x in range(560, 1010, 2)))
     check("Corner: palette only, sheet border in the focus colour", palette_ok(c1) and any(px(c1, x, y) == rgb(T["focus"]) for x in range(560, 1010, 2) for y in range(70, 340)))
     L = layout()
     check("Corner: the Close button is inside the screen, above the dock, and spills nothing", 41 in L and L[41][1] + L[41][3] <= 640 and not band_clean(c1, {41: L[41]}))
