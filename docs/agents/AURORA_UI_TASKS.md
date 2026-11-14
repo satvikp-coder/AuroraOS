@@ -543,7 +543,7 @@ what was fixed in the handoff. Never record a review that did not happen.
 | G1 research | done (PR #54) | `docs/kernel/native-graphics-plan.md` sections 1 to 9 |
 | G2 first pixels (fw_cfg + ramfb) | **done on QEMU** (PR #55) | `tests/qemu/gfx-tests.sh`, `tests/kernel-host/fwcfg_test.c`, `gfx_test.c`; plan section 10 |
 | G3 rounded rectangles, borders, clipping | **done on QEMU** (PR #56) | byte-exact screenshot comparison, `gfx_shape_test.c`; plan section 11 |
-| G4 text | next (Noto Sans Mono, OFL 1.1; verify the licence and source before any asset is added) | not started |
+| G4 text (printable ASCII) | **done on QEMU** (PR #58) | byte-exact screenshot comparison, `gfx_text_test.c`, atlas generator and licence in `tools/fontgen/` and `third_party/fonts/NotoSansMono/`; plan section 12 |
 | G5 input and focus, G6 composition | not started | not started |
 
-Issue #7 and issue #8 stay open. Native text, input, windows and the native Aurora Glass UI do not exist; the browser prototype remains the executable specification only.
+Issue #7 and issue #8 stay open. Native input, windows, non-ASCII text and the native Aurora Glass UI do not exist; the browser prototype remains the executable specification only.

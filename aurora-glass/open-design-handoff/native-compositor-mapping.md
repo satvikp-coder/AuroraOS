@@ -5,7 +5,7 @@
 **Target:** a future native AuroraOS compositor and UI toolkit, **Tier 0 Clear first**, on QEMU ARM64 `virt` only.
 **Last reconciled with the prototype:** after M8 (A to H). `tests/unit/handoff-docs.test.js` fails if this file names a class, token or colour the prototype does not have.
 
-> This is a **requirements reference**, not a description of anything that exists natively. **Native graphics is at the first-pixels stage, on QEMU only (issue #7, stages G2 and G3): a ramfb framebuffer with clear, filled rectangles, lines, rounded rectangles and borders, opaque and not anti-aliased. There is no text rendering, no input stack, no window composition and no UI toolkit.** The kernel has a UART console, memory
+> This is a **requirements reference**, not a description of anything that exists natively. **Native graphics is at the first-pixels stage, on QEMU only (issue #7, stages G2 and G3): a ramfb framebuffer with clear, filled rectangles, lines, rounded rectangles, borders and monospaced bitmap text for printable ASCII only (stages G2 to G4), all opaque and not anti-aliased. There is no Indic or other non-ASCII text, no input stack, no window composition and no UI toolkit.** The kernel has a UART console, memory
 > management, processes, virtio-blk, AuroraFS and a settings registry; it has no font renderer, no input stack and no compositor, and the native Aurora Glass UI (issue #8) is not started. Nothing
 > in the prototype may be embedded in the kernel or compositor, and a browser feature must never be described as a native one.
 
@@ -34,7 +34,7 @@ scrolled at the same frame interval (`docs/agents/AURORA_UI_PERF.md`). That says
 
 ## 3. Primitives the compositor must provide
 
-Derived from what the prototype actually draws and does. Only the first two rows exist natively, and only on QEMU: solid fill/clear (stage G2) and rounded rectangle with border (stage G3, opaque, not anti-aliased, `docs/kernel/native-graphics-plan.md` sections 10 and 11). Nothing else here exists natively yet.
+Derived from what the prototype actually draws and does. Only the first three rows exist natively, and only on QEMU: solid fill/clear (stage G2), rounded rectangle with border (stage G3) and text drawing for printable ASCII in one monospaced bitmap family at five sizes in regular and bold (stage G4); all opaque, not anti-aliased, with no shaping (`docs/kernel/native-graphics-plan.md` sections 10 to 12). Hindi and Gujarati text is not available. Nothing else here exists natively yet.
 
 | Primitive | Needed by | Detail |
 |---|---|---|
