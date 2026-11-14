@@ -323,7 +323,7 @@ ASCII only. 1-bit glyphs at five sizes: hard-edged, hinting-free, so small text 
 
 **Not done.** Nothing in the UI changes scale or contrast yet (the Settings screen is the next step), and neither persists. The QEMU tests select the appearance with the test-only build flags `AURORA_SHELL_TEXT_PCT` and `AURORA_SHELL_CONTRAST`; the shipped kernel starts at 100 percent, standard contrast. No screen reader. No claim about real hardware.
 
-**Evidence.** Host (ASan/UBSan) `shell_scale_test.c`, 41 checks including an audit of 2,268 layouts (every scale 75 to 200, both palettes, nine states) against an independent word-wrap oracle and an independent WCAG contrast calculation; the earlier shell (138), scene (25), focus (62) and input (45) tests pass unchanged. QEMU `tests/qemu/scale-tests.sh`: four boots (200, 200 high contrast, 75, 150 high contrast), each 36 or 38 checks driven by real QMP key and pointer events, with every screendump pixel required to belong to the mode's palette and a 2 px band around every control required to be clean of text.
+**Evidence.** Host (ASan/UBSan) `shell_scale_test.c`, 40 checks including an audit of 2,268 layouts (every scale 75 to 200, both palettes, nine states) against an independent word-wrap oracle and an independent WCAG contrast calculation; the earlier shell (138), scene (25), focus (62) and input (45) tests pass unchanged. QEMU `tests/qemu/scale-tests.sh`: four boots (200, 200 high contrast, 75, 150 high contrast), each 36 or 38 checks driven by real QMP key and pointer events, with every screendump pixel required to belong to the mode's palette and a 2 px band around every control required to be clean of text.
 
 ## Appendix: commands that produced the **[verified]** facts
 

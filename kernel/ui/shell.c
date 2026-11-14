@@ -458,7 +458,6 @@ static void index_scaled(struct shell *sh, const struct geo *g, int opt)
         y += bh + 4;
     }
     if (sh->nres > rows) {                                                         /* the list is longer than the room: say which part is shown */
-        char *t = sh->res_txt[0]; (void)t;
         static char note[40];
         uint32_t n = 0; const char *a = "Showing "; while (*a) note[n++] = *a++;
         uint32_t v = (uint32_t)first + 1; note[n++] = (char)('0' + v); note[n++] = '-'; v = (uint32_t)(first + rows); note[n++] = (char)('0' + v);
