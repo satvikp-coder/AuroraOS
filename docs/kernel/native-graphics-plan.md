@@ -244,7 +244,8 @@ QEMU only. Fixed 1024x768 XRGB8888 (the surface API carries width, height, strid
 | G2 | **done on QEMU**, as above |
 | G3 | **done on QEMU**, section 11 |
 | G4 | **done on QEMU for printable ASCII**, section 12 |
-| G5 and G6 | not started |
+| G5 | **done on QEMU**, section 13 |
+| G6 | **layered scene done on QEMU**, section 13; application windows and an EL0 compositor service not started |
 
 ## 11. G3 as implemented: rounded rectangles, borders and exact clipping (QEMU/TCG only)
 
@@ -297,6 +298,18 @@ One UTF-8 code point is one cell. Strict decoding (overlong forms, surrogates an
 ### Limits (not hidden)
 
 ASCII only. 1-bit glyphs at five sizes: hard-edged, hinting-free, so small text is rougher than anti-aliased text would be. Indic scripts need shaping, which is not planned yet. No kerning or proportional layout (monospace only). No text input or editing, no selection, no accessibility interface. QEMU/TCG only; performance unmeasured.
+
+## 13. G5, G6 and the first native shell as implemented (QEMU/TCG only)
+
+**Input (PRs #60, #61).** `kernel/drivers/virtio_input.c` drives virtio-input (device ID 18, modern virtio-mmio only) by probing every device-tree slot; capabilities come from the device configuration space (key bitmap, tablet axis ranges: QEMU 11.1 reports 0..32767). The eventq is filled with 16 device-writable 8-byte buffers and polled; used-ring ids are range- and ownership-checked and a device that breaks the ring protocol is reset. `kernel/drivers/virtio_mmio.c` holds the one thing blk and input share (declare and map the device tree's virtio window once); queues stay in each driver. `kernel/input/input_core.c` is pure: modifiers, a documented US layout (no caps lock), 64-bit pointer scaling, a bounded queue. `kernel/input/ui_focus.c` is pure: z-ordered hit testing with rounded shapes, absorbing covers, Tab/arrow focus, Enter/Space activation (repeat ignored), press-and-release click rule, a bounded modal stack with focus restore.
+
+**Scene and shell (PRs #62, #64, #65, #66).** `kernel/ui/ui_scene.c` draws opaque widgets in (layer, order); `kernel/ui/shell.c` (pure, host-tested) owns screens, a bounded navigation history, layout and dispatch for Home, Dock, Spaces, Index (`index_model.c`, an independent port of the browser ranking model), About, the Glass Corner sheet and the Horizon rail; `kernel/ui/shell_run.c` is the kernel loop (`wfi` between 100 Hz ticks, a `shell:` log for tests). The real kernel boots into it when a display exists; test and demo builds keep their own screens. The UI is not an authorisation mechanism and performs no privileged action. A future EL0 compositor service keeps the scene/focus API and replaces the kernel-side shell; applications will never receive the framebuffer, the scene array or the focus context.
+
+**Evidence.** Host (ASan/UBSan): input 45, ui-focus 62, ui-scene 25, shell 138, index-model 49. QEMU: `input-tests.sh` 17, `ui-tests.sh` 8, `home-tests.sh` 15 (with `home_check.py` 78 checks of real QMP key and pointer events against guest log lines and screendump pixels), `gfx-tests.sh` 55. Host tests found real defects (non-interactive surfaces being activatable; focus not restored after a pointer-opened sheet; stale layout after typing) that were fixed, not worked around.
+
+**Measured (see `native-graphics-performance.md`).** On QEMU/TCG (i7-1355U, QEMU 11.1.0): 1024x768 clear about 2-5 ms; a 100-control full-frame redraw about 7-12 ms median; a one-widget damaged redraw about 0.05-0.1 ms; run-to-run variation about 2x. Nothing about real hardware.
+
+**Not done.** Application windows, an EL0 UI service, non-ASCII text, text editing beyond end-typing and Backspace, text scaling, a high-contrast mode, persistence, a real clock, notifications, interrupt-driven input (polled), the statusq (LEDs), caps lock, real-hardware cache coherence.
 
 ## Appendix: commands that produced the **[verified]** facts
 

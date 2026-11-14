@@ -544,6 +544,10 @@ what was fixed in the handoff. Never record a review that did not happen.
 | G2 first pixels (fw_cfg + ramfb) | **done on QEMU** (PR #55) | `tests/qemu/gfx-tests.sh`, `tests/kernel-host/fwcfg_test.c`, `gfx_test.c`; plan section 10 |
 | G3 rounded rectangles, borders, clipping | **done on QEMU** (PR #56) | byte-exact screenshot comparison, `gfx_shape_test.c`; plan section 11 |
 | G4 text (printable ASCII) | **done on QEMU** (PR #58) | byte-exact screenshot comparison, `gfx_text_test.c`, atlas generator and licence in `tools/fontgen/` and `third_party/fonts/NotoSansMono/`; plan section 12 |
-| G5 input and focus, G6 composition | not started | not started |
+| G5 input and focus | **done on QEMU** (PRs #60, #61) | `input_test.c` 45, `ui_focus_test.c` 62, `input-tests.sh` 17 (real QMP events, guest log and screendump pixels) |
+| G6 layered scene, benchmark | **done on QEMU** (PRs #62, #63) | `ui_scene_test.c` 25, `ui-tests.sh` 8; `docs/kernel/native-graphics-performance.md` |
+| Native shell: Home, Dock, Spaces, About | **done on QEMU** (PR #64) | `shell_test.c`, `home-tests.sh` |
+| Native shell: Index | **done on QEMU** (PR #65) | `index_model_test.c` 49, real-keyboard scenarios in `home_check.py` |
+| Native shell: Glass Corner, Horizon | **done on QEMU** (PR #66) | `shell_test.c` 138, `home_check.py` 78 |
 
-Issue #7 and issue #8 stay open. Native input, windows, non-ASCII text and the native Aurora Glass UI do not exist; the browser prototype remains the executable specification only.
+Issue #7 and issue #8 stay open. What remains before either can honestly close: application windows and an EL0 UI boundary, text scaling and a high-contrast mode, non-ASCII text, persisted shell state, a real clock, Pages and Ask destinations, real held items. The browser prototype remains the executable specification only.
