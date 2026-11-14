@@ -31,6 +31,15 @@ static int cy(uint32_t id) { int32_t i = shell_find(&sh, id); return i < 0 ? -1 
 static void click(uint32_t id) { ptr(IN_PTR_DOWN, cx(id), cy(id)); ptr(IN_PTR_UP, cx(id), cy(id)); }
 static uint32_t focus_id(void) { return sh.fx.focus >= 0 ? sh.c[sh.fx.focus].id : SHELL_NONE; }
 
+
+static void text(const char *t) { for (; *t; t++) { struct input_event e = { IN_TEXT, 0, 30, 0, (uint8_t)*t, 0, 0 }; shell_handle(&sh, &e); } }
+static void kdown(uint16_t k) { key(k, 0, 0); }
+static void to_index(void) { fresh(); click(SID_DOCK_INDEX); }
+static int result_is(uint32_t k, const char *keyname)
+{
+    return k < sh.nres && strcmp(shell_index_item(sh.res[k].item)->key, keyname) == 0;
+}
+
 int main(void)
 {
     printf("shell host tests\n");
@@ -117,7 +126,7 @@ int main(void)
     CHECK("press on empty canvas, release on a button: not a click", sh.activations == 0);
     ptr(IN_PTR_DOWN, cx(SID_APP_INDEX), cy(SID_APP_INDEX)); ptr(IN_PTR_UP, cx(SID_APP_INDEX), cy(SID_APP_INDEX));
     CHECK("press and release on Index: opens Index", sh.screen == SCR_INDEX && sh.activations == 1);
-    ptr(IN_PTR_DOWN, 300, 300); ptr(IN_PTR_UP, 300, 300);
+    ptr(IN_PTR_DOWN, 50, 300); ptr(IN_PTR_UP, 50, 300);
     CHECK("click on a card background does nothing", sh.activations == 1);
 
     /* --- modal --- */
@@ -170,6 +179,112 @@ int main(void)
     fresh(); struct shell_caps nop = { 0, 0 }; shell_set_caps(&sh, nop); draw();
     CHECK("no keyboard and no pointer: Home still renders, no pointer cursor, status says so", guards_ok() && px(sh.px, sh.py) != 0x00FFFFFFu);
     CHECK("... and nothing crashes when events still arrive", (tab(), enter(), sh.activations <= 1));
+
+
+    /* ================= Index (native search) ================= */
+    to_index();
+    CHECK("Index opens with an empty query, all registry items up to the row limit, and the first one selected", sh.screen == SCR_INDEX && sh.qlen == 0 && sh.nres == SHELL_RESULTS && sh.sel == 0 && result_is(0, "home"));
+    CHECK("the registry lists only real destinations and marks Pages, Aura and Settings unavailable", !shell_index_available(8) && !shell_index_available(9) && !shell_index_available(10) && shell_index_available(0) && shell_index_available(1) && shell_index_available(2) && shell_index_available(7));
+    text("sp");
+    CHECK("typing 'sp' narrows the results; Spaces ranks first (prefix) and is selected", sh.qlen == 2 && strcmp(sh.query, "sp") == 0 && result_is(0, "spaces") && sh.sel == 0);
+    enter();
+    CHECK("Enter with nothing focused opens the selected result (Spaces)", sh.screen == SCR_SPACES && sh.index_opens == 1);
+    to_index(); text("WORK");
+    CHECK("the query is case-insensitive; the exact match 'Work' ranks first", result_is(0, "space.work"));
+    enter();
+    CHECK("opening the Work item selects that Space and shows Home", sh.screen == SCR_HOME && sh.space == 1 && strcmp(sh.space_txt, "Work") == 0);
+    click(SID_DOCK_INDEX);
+    CHECK("opened items become recent: Work is first for an empty query now", result_is(0, "space.work") && sh.nrecent == 1);
+    CHECK("each time Index opens it starts with a fresh query", sh.qlen == 0);
+    text("home"); enter(); to_index(); text("about"); enter();
+    CHECK("the About item opens Home and the About modal", sh.screen == SCR_HOME && sh.about_open && focus_id() == SID_ABOUT_CLOSE);
+    key(KEY_ESC, 0, 0);
+
+    /* editing */
+    to_index(); text("abc"); kdown(KEY_BACKSPACE);
+    CHECK("Backspace removes the last character", sh.qlen == 2 && strcmp(sh.query, "ab") == 0);
+    kdown(KEY_BACKSPACE); kdown(KEY_BACKSPACE); kdown(KEY_BACKSPACE); kdown(KEY_BACKSPACE);
+    CHECK("Backspace on an empty query does nothing", sh.qlen == 0 && sh.query[0] == 0);
+    text("zz"); kdown(KEY_ESC);
+    CHECK("Escape with text clears the query and stays on Index", sh.screen == SCR_INDEX && sh.qlen == 0);
+    kdown(KEY_ESC);
+    CHECK("Escape with an empty query goes back", sh.screen == SCR_HOME);
+    to_index(); text("a b");
+    CHECK("a typed space is part of the query", sh.qlen == 3 && strcmp(sh.query, "a b") == 0);
+    uint32_t opens = sh.index_opens; key(KEY_SPACE, 0, 0);
+    CHECK("the Space KEY never activates anything on Index", sh.index_opens == opens && sh.screen == SCR_INDEX);
+
+    to_index(); text("ho"); tab(); opens = sh.index_opens;
+    CHECK("Tab focuses a result row and the Space KEY does not open it (Space types; only Enter opens)", focus_id() == SID_RESULT_BASE && (key(KEY_SPACE, 0, 0), sh.index_opens == opens && sh.screen == SCR_INDEX));
+
+    /* limits and hostile input */
+    to_index();
+    { char big[200]; memset(big, 'a', 199); big[199] = 0; text(big); }
+    CHECK("the query is capped at IDX_MAX_QUERY characters", sh.qlen == IDX_MAX_QUERY && strlen(sh.query) == IDX_MAX_QUERY && strlen(sh.field_txt) <= sizeof sh.field_txt - 1);
+    { uint8_t bad[] = { 0, 1, 31, 127, 128, 200, 255 }; to_index();
+      for (unsigned i = 0; i < sizeof bad; i++) { struct input_event e = { IN_TEXT, 0, 30, 0, bad[i], 0, 0 }; shell_handle(&sh, &e); }
+      CHECK("control, DEL and non-ASCII text events are ignored", sh.qlen == 0); }
+    CHECK("text typed on Home goes nowhere", (fresh(), text("abc"), sh.qlen == 0 && sh.screen == SCR_HOME));
+    to_index(); text("zzzzq");
+    CHECK("no match: no results, a 'No results.' message, and Enter does nothing", sh.nres == 0 && sh.sel == -1 && (enter(), sh.screen == SCR_INDEX && sh.index_opens == 0));
+    uint32_t rng = 12345; int inv = 1;
+    to_index();
+    for (int i = 0; i < 3000; i++) {
+        rng = rng * 1103515245u + 12345u; uint32_t v = (rng >> 16) & 0xffff;
+        if (v % 7 == 0) kdown(KEY_BACKSPACE); else if (v % 7 == 1) kdown(KEY_DOWN); else if (v % 7 == 2) kdown(KEY_UP);
+        else if (v % 7 == 3) { struct input_event e = { IN_TEXT, 0, 30, 0, (uint8_t)(v & 0xff), 0, 0 }; shell_handle(&sh, &e); }
+        else { struct input_event e = { IN_TEXT, 0, 30, 0, (uint8_t)('a' + v % 26), 0, 0 }; shell_handle(&sh, &e); }
+        if (sh.screen != SCR_INDEX) { inv = 0; break; }
+        if (sh.qlen > IDX_MAX_QUERY || sh.nres > SHELL_RESULTS || sh.sel < -1 || sh.sel >= (int)sh.nres + (sh.nres == 0) || sh.n > SHELL_MAX_WIDGETS || sh.query[sh.qlen] != 0) inv = 0;
+        if (i % 50 == 0) { surf(); if (shell_draw(&sh, &S) != GFX_OK || !guards_ok()) inv = 0; }
+    }
+    CHECK("3000 rapid random edits/selections: invariants hold (query bound, result bound, selection bound, widget bound, in-surface drawing)", inv);
+
+    /* selection by keyboard */
+    to_index(); text("s");
+    kdown(KEY_DOWN);
+    CHECK("Down moves the selection", sh.sel == 1);
+    kdown(KEY_UP); kdown(KEY_UP);
+    CHECK("Up stops at the first result", sh.sel == 0);
+    for (int i = 0; i < 30; i++) kdown(KEY_DOWN);
+    CHECK("Down stops at the last result", sh.sel == (int)sh.nres - 1);
+
+    /* unavailable destinations */
+    to_index(); text("pages");
+    CHECK("'pages' finds the Pages entry, labelled not available yet", sh.nres == 1 && result_is(0, "pages") && strstr(sh.res_txt[0], "(not available yet)") != 0);
+    CHECK("... it is disabled: not focusable and visibly muted", !(sh.c[shell_find(&sh, SID_RESULT_BASE)].flags & UI_ENABLED));
+    CHECK("... and even when selected it is not drawn as an active (openable) row", sh.sel == 0 && sh.w[shell_find(&sh, SID_RESULT_BASE)].active == 0);
+    enter(); click(SID_RESULT_BASE);
+    CHECK("Enter and a click on an unavailable result open nothing", sh.screen == SCR_INDEX && sh.index_opens == 0 && sh.nrecent == 0);
+
+    /* typo suggestions are never the default */
+    to_index(); text("hmoe");
+    CHECK("a typo of an app name yields a suggestion labelled 'Did you mean', not selected", sh.nres == 1 && sh.res[0].fuzzy && sh.sel == -1 && strncmp(sh.res_txt[0], "Did you mean: Home", 18) == 0);
+    enter();
+    CHECK("Enter does NOT open a typo suggestion", sh.screen == SCR_INDEX && sh.index_opens == 0);
+    tab(); CHECK("Tab can focus the suggestion", focus_id() == SID_RESULT_BASE);
+    enter();
+    CHECK("choosing it explicitly (Tab then Enter) opens it", sh.screen == SCR_HOME && sh.index_opens == 1);
+
+    /* pointer and focus */
+    to_index(); text("spa"); click(SID_RESULT_BASE);
+    CHECK("a pointer click on a result opens it", sh.screen == SCR_SPACES);
+    to_index(); text("ind"); tab();
+    CHECK("Tab moves focus to the first result row", focus_id() == SID_RESULT_BASE);
+    to_index(); text("zzzzq"); click(SID_DOCK_HOME);
+    CHECK("the dock still works from Index", sh.screen == SCR_HOME);
+
+    /* history / Back */
+    to_index(); text("xyz"); click(SID_DOCK_HOME); click(SID_DOCK_BACK);
+    CHECK("returning to Index by Back starts a fresh search", sh.screen == SCR_INDEX && sh.qlen == 0);
+
+    /* rendering */
+    to_index(); text("sp"); surf(); shell_draw(&sh, &S);
+    CHECK("SCREEN: the selected result row is accent-filled", px(100, 264) == 0x003478F6u);
+    { uint32_t ink = 0; for (int y = 152; y < 200; y++) for (int x = 64; x < 400; x++) ink += px(x, y) == 0x00142136u; CHECK("SCREEN: typed text is drawn in the field", ink > 20); }
+    to_index(); surf(); shell_draw(&sh, &S);
+    { uint32_t muted = 0; for (int y = 152; y < 200; y++) for (int x = 64; x < 400; x++) muted += px(x, y) == 0x0052627Au; CHECK("SCREEN: an empty field shows the muted placeholder", muted > 20); }
+    CHECK("all Index renders stayed inside the surface", guards_ok());
 
     printf("shell: %d passed, %d failed\n", passed, failed);
     free(base);

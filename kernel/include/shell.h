@@ -16,6 +16,7 @@
 #include <gfx.h>
 #include <input.h>
 #include <ui_focus.h>
+#include <index_model.h>
 #include <ui_scene.h>
 
 enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_COUNT };
@@ -25,12 +26,15 @@ enum {
     SID_DOCK_BACK = 1, SID_DOCK_HOME, SID_DOCK_SPACES, SID_DOCK_INDEX,
     SID_CHANGE_SPACE = 10, SID_APP_SPACES, SID_APP_INDEX, SID_APP_PAGES, SID_APP_AURA, SID_APP_SETTINGS, SID_ABOUT,
     SID_ABOUT_CLOSE = 20,
-    SID_SPACE_BASE = 30                 /* SID_SPACE_BASE + n selects built-in Space n (0..3) */
+    SID_SPACE_BASE = 30,                /* SID_SPACE_BASE + n selects built-in Space n (0..3) */
+    SID_RESULT_BASE = 100               /* SID_RESULT_BASE + k is the k-th Index result row (k < SHELL_RESULTS) */
 };
 
 #define SHELL_MAX_WIDGETS 48
 #define SHELL_HISTORY 8
 #define SHELL_SPACES 4
+#define SHELL_RESULTS 8
+#define SHELL_RECENT 8
 
 struct shell_caps { uint8_t keyboard, pointer; };      /* what input hardware the kernel actually found */
 
@@ -49,6 +53,17 @@ struct shell {
     struct ui_ctx fx;
     char uptime_txt[16];
     char space_txt[32];
+    /* Index (search) state: bounded, in memory only */
+    char query[IDX_MAX_QUERY + 1];
+    uint8_t qlen;
+    struct idx_result res[SHELL_RESULTS];
+    uint8_t nres;
+    int8_t sel;                         /* highlighted result, -1 = none */
+    const char *recent[SHELL_RECENT];   /* keys of opened items, most recent first */
+    uint8_t nrecent;
+    char field_txt[IDX_MAX_QUERY + 8];
+    char res_txt[SHELL_RESULTS][56];
+    uint32_t index_opens;               /* how many results were opened (tests) */
 };
 
 #define SHELL_NONE 0xffffffffu
@@ -67,6 +82,10 @@ int  shell_back(struct shell *sh);
 int  shell_select_space(struct shell *sh, uint32_t index);                  /* refuses index >= SHELL_SPACES */
 /* Draw the whole frame (clear + scene + focus ring + pointer). */
 int  shell_draw(struct shell *sh, const struct gfx_surface *s);
+/* Index destinations (a fixed registry of REAL destinations; unavailable ones are listed but never open anything). */
+size_t shell_index_count(void);
+const struct idx_item *shell_index_item(size_t i);
+int  shell_index_available(size_t i);
 const char *shell_screen_name(uint32_t screen);
 int32_t shell_find(const struct shell *sh, uint32_t id);                     /* index of the widget with this id, or -1 */
 
