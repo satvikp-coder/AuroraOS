@@ -17,6 +17,7 @@ cc $CFLAGS -o "$OUT/gfx_text_test" "$ROOT/tests/kernel-host/gfx_text_test.c" "$R
 cc $CFLAGS -o "$OUT/input_test" "$ROOT/tests/kernel-host/input_test.c" "$ROOT/kernel/input/input_core.c"
 cc $CFLAGS -o "$OUT/ui_focus_test" "$ROOT/tests/kernel-host/ui_focus_test.c" "$ROOT/kernel/input/ui_focus.c"
 cc $CFLAGS -o "$OUT/ui_scene_test" "$ROOT/tests/kernel-host/ui_scene_test.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c"
+cc $CFLAGS -o "$OUT/shell_test" "$ROOT/tests/kernel-host/shell_test.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c"
 "$OUT/fdt_pmm_test"
 "$OUT/policy_test"
 "$OUT/elf_test"
@@ -27,3 +28,4 @@ cc $CFLAGS -o "$OUT/ui_scene_test" "$ROOT/tests/kernel-host/ui_scene_test.c" "$R
 "$OUT/input_test"
 "$OUT/ui_focus_test"
 "$OUT/ui_scene_test"
+"$OUT/shell_test"

@@ -38,7 +38,8 @@ struct ui_widget {
     const char *text;                   /* NUL-terminated ASCII, may be NULL/empty; clipped to the widget, never overflows */
     uint32_t fill, border, ink;         /* 0x00RRGGBB; border thickness 0 = none via border_w */
     uint8_t border_w;
-    uint8_t font_size;                  /* 12/14/16/18/24, regular weight; 0 = 16 */
+    uint8_t font_size;                  /* 12/14/16/18/24; 0 = 16 */
+    uint8_t bold;                       /* 1 = bold weight */
 };
 
 /* Draw every visible widget in (layer, index) order, then the focus ring of the focused widget, then the pointer.

@@ -25,7 +25,7 @@ static char status[32] = "Active: Home";
 
 static void set(int i, int x, int y, int w, int h, int r, uint8_t layer, uint8_t kind, const char *t, uint32_t fill, uint32_t id, uint8_t flags)
 {
-    struct ui_widget k = { { x, y, w, h, r, id, flags, layer }, kind, 0, t, fill, UI_COL_MUTED, UI_COL_INK, 0, 0 };
+    struct ui_widget k = { { x, y, w, h, r, id, flags, layer }, kind, 0, t, fill, UI_COL_MUTED, UI_COL_INK, 0, 0, 0 };
     WD[i] = k;
 }
 
@@ -33,7 +33,7 @@ static void sync_ctrls(void) { for (int i = 0; i < W_COUNT; i++) CT[i] = WD[i].c
 
 static void build(void)
 {
-    const uint8_t FOC = UI_VISIBLE | UI_ENABLED | UI_FOCUSABLE, SOLID = UI_VISIBLE | UI_ENABLED;
+    const uint8_t FOC = UI_VISIBLE | UI_ENABLED | UI_FOCUSABLE, SOLID = UI_VISIBLE;
     set(W_HEADER, 0, 0, 1024, 56, 0, UI_LAYER_CONTENT, UI_LABEL, "AuroraOS  Tier 0 Clear", UI_COL_SURFACE, 90, SOLID);
     set(W_STATUS, 40, 100, 400, 48, 12, UI_LAYER_CONTENT, UI_LABEL, status, UI_COL_SURFACE, 91, SOLID);
     set(W_CARD, 40, 170, 944, 420, 16, UI_LAYER_CONTENT, UI_PANEL, 0, UI_COL_SURFACE, 92, SOLID);

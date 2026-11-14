@@ -36,6 +36,16 @@ static uint64_t boot_dtb;
 uint64_t boot_dtb_address(void) { return boot_dtb; }
 const struct fdt_info *boot_fdt_info(void) { return &boot_info; }
 
+/* The shell (native Aurora Glass Home) runs only in the real kernel: every diagnostic/test-pattern/demo build keeps its own screen. */
+#if !defined(AURORA_GFX_TEXT) && !defined(AURORA_GFX_SHAPES) && !defined(AURORA_GFX_BASIC) && !defined(AURORA_UI_DEMO) && !defined(AURORA_INPUT_TEST) && !defined(AURORA_BENCH)
+#define AURORA_SHELL_BUILD 1
+#else
+#define AURORA_SHELL_BUILD 0
+#endif
+extern void shell_boot_draw(void);
+extern void shell_loop(struct input_state *in);
+static struct input_state g_input __attribute__((unused));   /* only the real kernel (AURORA_SHELL_BUILD) and the plain probe use it */
+
 static void halt_forever(void) { for (;;) __asm__ volatile ("msr daifset, #0xf\n wfi"); }
 
 static void fatal(const char *msg)
@@ -124,12 +134,16 @@ void kernel_main(uint64_t dtb)
     if (dtb && gfx_init() == GFX_OK) {
 #if defined(AURORA_GFX_TEXT)   /* test build: the G4 text image (tests/qemu/gfx-tests.sh) */
         if (gfx_draw_text_pattern(gfx_get_surface()) == GFX_OK) { gfx_present(0); console_puts("gfx: text pattern drawn\n"); }
+        else console_puts("gfx: pattern FAILED\n");
 #elif defined(AURORA_GFX_SHAPES)   /* test build: the G3 rounded-rectangle image replaces the G2 pattern (tests/qemu/gfx-tests.sh) */
         if (gfx_draw_shapes_pattern(gfx_get_surface()) == GFX_OK) { gfx_present(0); console_puts("gfx: shapes pattern drawn\n"); }
-#else
-        if (gfx_draw_test_pattern(gfx_get_surface()) == GFX_OK) { gfx_present(0); console_puts("gfx: test pattern drawn\n"); }
-#endif
         else console_puts("gfx: pattern FAILED\n");
+#elif defined(AURORA_GFX_BASIC)   /* test build: the G2 pixel pattern (tests/qemu/gfx-tests.sh) */
+        if (gfx_draw_test_pattern(gfx_get_surface()) == GFX_OK) { gfx_present(0); console_puts("gfx: test pattern drawn\n"); }
+        else console_puts("gfx: pattern FAILED\n");
+#else
+        shell_boot_draw();   /* the real kernel: the native Aurora Glass Home appears as soon as the display is up */
+#endif
     }
 #if defined(AURORA_BENCH)
     { extern void gfx_bench_run(void); gfx_bench_run(); }   /* test build: kernel/ui/gfx_bench.c, CPU drawing-time baseline */
@@ -164,10 +178,9 @@ void kernel_main(uint64_t dtb)
             extern void input_demo_run(const void *fdt, uint32_t seconds);   /* test build: input_demo.c */
             input_demo_run((const void *)(uintptr_t)dtb, AURORA_INPUT_TEST);
 #else
-            static struct input_state in_probe;
             const struct gfx_surface *gs = gfx_get_surface();
-            input_init(&in_probe, gs ? gs->width : GFX_FB_WIDTH, gs ? gs->height : GFX_FB_HEIGHT);
-            int ir = vinput_init((const void *)(uintptr_t)dtb, &in_probe);
+            input_init(&g_input, gs ? gs->width : GFX_FB_WIDTH, gs ? gs->height : GFX_FB_HEIGHT);
+            int ir = vinput_init((const void *)(uintptr_t)dtb, &g_input);
             const struct vinput_info *vi = vinput_get_info();
             console_puts("input: devices="); console_dec(ir < 0 ? 0 : (uint64_t)ir);
             console_puts(" keyboards="); console_dec((uint64_t)vi->keyboards);
@@ -198,5 +211,8 @@ void kernel_main(uint64_t dtb)
     irqtest_fault();
     proctest_fault();
     console_puts("Boot complete, idling.\n");
+#if AURORA_SHELL_BUILD
+    if (gfx_get_surface()) shell_loop(&g_input);   /* with a display the kernel stays interactive (never returns); without one it idles on the UART */
+#endif
     halt_forever();
 }
