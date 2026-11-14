@@ -150,6 +150,10 @@ jobs:
           python3 --version
           qemu-system-aarch64 --version | head -1
           ./tests/qemu/gfx-tests.sh
+      - name: Run native input tests (virtio keyboard and tablet; QMP injects events, the guest log and QEMU screendump pixels are verified)
+        run: |
+          chmod +x tests/qemu/input-tests.sh
+          ./tests/qemu/input-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

@@ -16,6 +16,7 @@
 #include <fs.h>
 #include <console.h>
 #include <gfx.h>
+#include <input.h>
 #include <gic.h>
 #include <irq.h>
 #include <irqtest.h>
@@ -151,6 +152,22 @@ void kernel_main(uint64_t dtb)
         if (br == BLK_OK) console_puts("Block device ready\n");
         else if (br == BLK_ENODEV) console_puts("[blk] no block device attached\n");
         else { console_puts("[blk] block device present but unusable: "); console_puts(blk_strerror(br)); console_puts("\n"); }
+        /* 4c. Input: virtio keyboard/tablet are optional. No input device is a normal boot. */
+        {
+#if defined(AURORA_INPUT_TEST)
+            extern void input_demo_run(const void *fdt, uint32_t seconds);   /* test build: input_demo.c */
+            input_demo_run((const void *)(uintptr_t)dtb, AURORA_INPUT_TEST);
+#else
+            static struct input_state in_probe;
+            const struct gfx_surface *gs = gfx_get_surface();
+            input_init(&in_probe, gs ? gs->width : GFX_FB_WIDTH, gs ? gs->height : GFX_FB_HEIGHT);
+            int ir = vinput_init((const void *)(uintptr_t)dtb, &in_probe);
+            const struct vinput_info *vi = vinput_get_info();
+            console_puts("input: devices="); console_dec(ir < 0 ? 0 : (uint64_t)ir);
+            console_puts(" keyboards="); console_dec((uint64_t)vi->keyboards);
+            console_puts(" pointers="); console_dec((uint64_t)vi->pointers); console_puts("\n");
+#endif
+        }
         blktest_run();
         if (blktest_summary()) { console_puts("BLOCK SELFTEST FAILED\n"); halt_forever(); }
         fstest_run();
