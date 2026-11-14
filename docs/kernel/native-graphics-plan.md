@@ -174,7 +174,7 @@ The Tier 0 pipeline must **not** include alpha blending, blur or gradients; thos
 
 ## 10. G2 as implemented (QEMU `virt` + ramfb only)
 
-**Status: implemented and verified in QEMU on QEMU 11.1.0 under TCG (`-cpu cortex-a53`). Nothing here has run on real hardware, KVM or any accelerator.** The kernel finds fw_cfg, configures ramfb with a DMA write, draws a diagnostic pattern itself, and QEMU's own `screendump` is parsed to prove the pixels. Stage G3 onward is not done.
+**Status: implemented and verified in QEMU on QEMU 11.1.0 under TCG (`-cpu cortex-a53`). Nothing here has run on real hardware, KVM or any accelerator.** The kernel finds fw_cfg, configures ramfb with a DMA write, draws a diagnostic pattern itself, and QEMU's own `screendump` is parsed to prove the pixels. Stage G3 is section 11; G4 onward is not done.
 
 ### What exists
 
@@ -242,7 +242,34 @@ QEMU only. Fixed 1024x768 XRGB8888 (the surface API carries width, height, strid
 |---|---|
 | G1 | done |
 | G2 | **done on QEMU**, as above |
-| G3 to G6 | not started |
+| G3 | **done on QEMU**, section 11 |
+| G4 to G6 | not started |
+
+## 11. G3 as implemented: rounded rectangles, borders and exact clipping (QEMU/TCG only)
+
+**Status: implemented and verified on QEMU. Opaque pixels only: no anti-aliasing, alpha, blur or gradients (those are Tier 1 and later).**
+
+API (`kernel/include/gfx.h`, code in `kernel/gfx/gfx_shape.c`): `gfx_fill_round_rect(surface, rect, radius, colour)`, `gfx_stroke_round_rect(surface, rect, radius, border, colour)`, `gfx_round_clamp_radius`. Everything is integer arithmetic (int64), no libm and no floating point.
+
+### The coverage rule (exact, documented in the source)
+
+A pixel belongs to a rounded rectangle iff its **centre** (x + 1/2, y + 1/2) is inside the rectangle and, when it lies in a corner quadrant, no farther than the radius from that corner's circle centre. The corner circle centres sit at (rx + r, ry + r), (rx + w - r, ry + r), (rx + r, ry + h - r), (rx + w - r, ry + h - r) in pixel-edge coordinates. In doubled coordinates: `dx = 2x + 1 - 2cx`, `dy = 2y + 1 - 2cy`, inside iff `dx*dx + dy*dy <= (2r)^2`. The renderer turns this into an exact span per row with an integer square root, so each row costs one root, not a per-pixel test.
+
+- **Radius** is clamped to `[0, min(w, h) / 2]`. Radius 0 is a plain rectangle. A square with radius w/2 is a circle; a wide rectangle with radius h/2 is a pill. Radius 1 trims nothing (every pixel centre of a 2x2 or larger shape is within 1 of its corner centre).
+- **Border** of width b is drawn **inside** the rectangle: the outer shape minus the shape inset by b on every side with radius `max(r - b, 0)`. The corner centres coincide, so the border has even thickness and border + inner fill equals the outer fill exactly, with no gap and no overlap. A border at least half as thick as the shape fills it completely. `border <= 0` draws nothing.
+- **Clipping** clips each row span to the surface; nothing outside is written and a shape that starts far off-screen costs only its visible rows. Padding between rows is never written. Non-positive sizes draw nothing. Invalid surfaces are refused through `gfx_surface_check` before any write.
+- **Overflow:** the largest intermediate is `(2r)^2` with `r <= INT32_MAX / 2`, below 2^62; UBSan runs with `INT32_MIN/MAX` rectangles, radii and borders.
+
+### Evidence
+
+- `tests/kernel-host/gfx_shape_test.c`, **44 checks** under ASan/UBSan: hand-drawn ASCII art for 4x4 r2, 5x5 r2, 8x8 r4, a 10x5 pill and an 8x8 ring; **4,680 fills and 17,836 borders compared pixel by pixel against an independent per-pixel oracle** (the oracle tests each pixel centre with no square roots and no spans); 312 clipped placements (partly or wholly off-screen); three non-tight strides with padding checks and guard canaries; mirror symmetry in x and y; monotonic area in the radius; border + inner = outer; nesting; circle area within 1 percent of pi r^2; extreme values; invalid surfaces.
+- `tests/qemu/gfx-tests.sh` (now **50 checks**) builds a test kernel with `AURORA_GFX_SHAPES=1` that draws the G3 image (`gfx_draw_shapes_pattern`: fills, a border-only shape, a pill, a circle, a fill with border, two shapes clipped at opposite screen corners, a clamped huge radius, 1x1 to 8x8 tiny shapes, a square-cornered border, a border thicker than half, a 1 px outline). `gfx_check.py --pattern shapes` re-renders the **whole 1024x768 image with its own independent per-pixel Python implementation** and requires the QEMU screenshot to match it **byte for byte**, plus 29 hand-derived anchor pixels. It is re-checked after the full boot.
+- **Mutation checks** (the byte-exact comparison must fail): circle half-width one too small, floor instead of ceil on the left edge, non-concentric border radius, radius clamp one too large, wrong centre for the bottom corners, right border span off by one. All six were caught.
+- Normal kernels do not contain the shapes image; the G2 screenshot expectations are unchanged.
+
+### Limits
+
+QEMU/TCG only. No anti-aliasing: edges are hard, which is the Tier 0 contract. The shapes are not yet connected to any UI element. Performance is unmeasured. Text (G4), input (G5) and window composition (G6) are not started.
 
 ## Appendix: commands that produced the **[verified]** facts
 

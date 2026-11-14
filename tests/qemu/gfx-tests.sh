@@ -59,6 +59,8 @@ wait_boot() {
 echo "== building =="
 BUILD_DIR="$OUT/normal" ./build.sh >/dev/null 2>&1 || { bad "kernel build failed"; echo "gfx-tests: $PASSES passed, $FAILS failed"; exit 1; }
 ok "kernel builds"
+AURORA_GFX_SHAPES=1 BUILD_DIR="$OUT/shapes" ./build.sh >/dev/null 2>&1 || { bad "shapes (G3) kernel build failed"; echo "gfx-tests: $PASSES passed, $FAILS failed"; exit 1; }
+ok "G3 shapes test kernel builds"
 
 run_display() {   # name ram expected_fb_base
     name="$1"; ram="$2"; fb="$3"
@@ -84,6 +86,19 @@ run_display() {   # name ram expected_fb_base
 run_display ram256 256M 4fd00000
 run_display ram128 128M 47d00000
 run_display ram512 512M 5fd00000
+
+echo "== G3: rounded rectangles and borders, byte-exact against an independent reference =="
+L="$OUT/shapes.log"; S="$OUT/shapes.sock"
+start_qemu "$OUT/shapes/kernel.bin" "$L" "$S" 256M -device ramfb
+python3 "$SCRIPT_DIR/gfx_check.py" --pattern shapes --qmp "$S" --serial "$L" --timeout 120 --keep "$OUT/shapes-first.ppm" > "$OUT/shapes.check.log" 2>&1
+rc=$?; sed 's/^/    /' "$OUT/shapes.check.log" | grep -E "FAIL|note:|gfx_check:"
+if [ "$rc" -eq 0 ]; then ok "shapes: screenshot equals the independent reference image byte for byte"; else bad "shapes: screenshot verification failed (see $OUT/shapes.check.log)"; fi
+expect "$L" "^gfx: shapes pattern drawn" "shapes: kernel reported the shapes pattern"
+wait_boot "$L" 240
+expect_not "$L" "KERNEL PANIC|SELFTEST FAILED|Kernel halted|gfx: pattern FAILED" "shapes: no panic, no failed self-test, no failed drawing"
+python3 "$SCRIPT_DIR/gfx_check.py" --pattern shapes --qmp "$S" --serial "$L" --timeout 30 > "$OUT/shapes.check2.log" 2>&1
+if [ "$?" -eq 0 ]; then ok "shapes: screenshot still identical after the whole boot"; else bad "shapes: screenshot changed after boot"; fi
+stop_qemu
 
 echo "== no display device: a normal boot =="
 L="$OUT/nodisplay.log"

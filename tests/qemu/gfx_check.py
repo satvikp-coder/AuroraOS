@@ -51,6 +51,95 @@ EXPECT = [
 PALETTE = {BG, PANEL, BLACK, RED, GREEN, BLUE, YELLOW, CYAN, MAGENTA}
 
 
+# ---- G3: the shapes image. An independent integer implementation of the documented coverage rule (kernel/gfx/gfx_shape.c):
+# a pixel belongs to a rounded rectangle iff its centre is inside and, in a corner quadrant, within the corner circle:
+# (2x+1-2cx)^2 + (2y+1-2cy)^2 <= (2r)^2. Written per pixel (no square roots, no spans) so it shares no code or algorithm with the kernel.
+S_BG = (16, 24, 40)
+
+
+def _clamp_r(w, h, r):
+    return 0 if (w <= 0 or h <= 0 or r <= 0) else min(r, min(w, h) // 2)
+
+
+def _inside(x, y, rx, ry, w, h, r):
+    if w <= 0 or h <= 0 or x < rx or x >= rx + w or y < ry or y >= ry + h:
+        return False
+    r = _clamp_r(w, h, r)
+    if r == 0:
+        return True
+    if x < rx + r:
+        cx = rx + r
+    elif x >= rx + w - r:
+        cx = rx + w - r
+    else:
+        return True
+    if y < ry + r:
+        cy = ry + r
+    elif y >= ry + h - r:
+        cy = ry + h - r
+    else:
+        return True
+    dx, dy = 2 * x + 1 - 2 * cx, 2 * y + 1 - 2 * cy
+    return dx * dx + dy * dy <= 4 * r * r
+
+
+def _fill(img, rx, ry, w, h, r, color):
+    for y in range(max(ry, 0), min(ry + h, H)):
+        for x in range(max(rx, 0), min(rx + w, W)):
+            if _inside(x, y, rx, ry, w, h, r):
+                img[y * W + x] = color
+
+
+def _stroke(img, rx, ry, w, h, r, b, color):
+    if b <= 0:
+        return
+    r = _clamp_r(w, h, r)
+    ir = max(r - b, 0)
+    for y in range(max(ry, 0), min(ry + h, H)):
+        for x in range(max(rx, 0), min(rx + w, W)):
+            if _inside(x, y, rx, ry, w, h, r) and not _inside(x, y, rx + b, ry + b, w - 2 * b, h - 2 * b, ir):
+                img[y * W + x] = color
+
+
+def shapes_expected():
+    """The whole 1024x768 image the G3 kernel must draw, as a list of (r, g, b) tuples."""
+    img = [S_BG] * (W * H)
+    WH, ORG, CY, GR, DG, WHITE, RD, MG, YL = (240, 240, 240), (255, 128, 0), (0, 160, 255), (0, 200, 80), (60, 60, 60), (255, 255, 255), (255, 0, 0), (255, 0, 255), (255, 255, 0)
+    _fill(img, 64, 64, 400, 240, 32, WH)
+    _stroke(img, 512, 64, 448, 240, 48, 8, ORG)
+    _fill(img, 64, 352, 400, 96, 48, CY)
+    _fill(img, 512, 352, 192, 192, 96, GR)
+    _fill(img, 736, 352, 224, 192, 24, DG)
+    _stroke(img, 736, 352, 224, 192, 24, 4, WHITE)
+    _fill(img, -60, -60, 100, 80, 30, RD)
+    _fill(img, 944, 688, 160, 120, 40, MG)
+    _fill(img, 64, 496, 120, 64, 1000, YL)
+    for (x, w, r) in ((240, 1, 5), (256, 2, 1), (272, 3, 1), (288, 5, 2), (312, 8, 4)):
+        _fill(img, x, 496, w, w, r, WHITE)
+    _stroke(img, 64, 600, 300, 100, 0, 6, (200, 200, 40))
+    _stroke(img, 400, 600, 100, 100, 50, 50, (40, 200, 200))
+    _stroke(img, 540, 600, 120, 100, 30, 1, WHITE)
+    return img
+
+
+# Hand-derived facts that do not depend on either implementation (worked out from the coverage rule by hand).
+SHAPES_ANCHORS = [
+    (1000, 20, S_BG, "background, top right"), (20, 740, S_BG, "background, bottom left"),
+    (264, 184, (240, 240, 240), "shape A centre"), (64, 64, S_BG, "shape A: the rounded-off corner pixel"),
+    (96, 64, (240, 240, 240), "shape A: top edge where the corner arc ends"), (64, 184, (240, 240, 240), "shape A: left edge, straight part"),
+    (736, 184, S_BG, "shape B (border only): the middle is background"), (516, 184, (255, 128, 0), "shape B: inside the 8 px rim"),
+    (519, 184, (255, 128, 0), "shape B: last rim pixel"), (520, 184, S_BG, "shape B: first pixel past the rim"),
+    (608, 448, (0, 200, 80), "shape D (circle) centre"), (512, 352, S_BG, "shape D: bounding-box corner is outside the circle"),
+    (736, 352, S_BG, "shape E: rounded corner"), (737, 400, (255, 255, 255), "shape E: white 4 px rim"), (741, 400, (60, 60, 60), "shape E: fill past the rim"),
+    (0, 0, (255, 0, 0), "clipped shape at the top-left corner"), (39, 19, S_BG, "clipped shape: its rounded bottom-right corner"),
+    (30, 10, (255, 0, 0), "clipped shape: inside"), (40, 5, S_BG, "just right of the clipped shape"),
+    (944, 688, S_BG, "clipped bottom-right shape: its rounded top-left corner"), (1023, 767, (255, 0, 255), "clipped bottom-right shape: the last screen pixel is inside it"),
+    (1000, 740, (255, 0, 255), "clipped bottom-right shape: inside"),
+    (240, 496, (255, 255, 255), "1x1 shape is one pixel"), (241, 496, S_BG, "...and only one"),
+    (64, 600, (200, 200, 40), "square-cornered 6 px border: corner pixel"), (69, 650, (200, 200, 40), "...6th rim pixel"), (70, 650, S_BG, "...first inner pixel"),
+]
+
+
 def read_ppm(path):
     with open(path, "rb") as f:
         data = f.read()
@@ -129,6 +218,7 @@ def main():
     ap.add_argument("--serial", required=True)
     ap.add_argument("--timeout", type=float, default=90.0)
     ap.add_argument("--keep")
+    ap.add_argument("--pattern", choices=("basic", "shapes"), default="basic", help="basic = G2 pattern, shapes = G3 rounded-rectangle image")
     a = ap.parse_args()
     passed = failed = 0
 
@@ -141,13 +231,20 @@ def main():
 
     t0 = time.time()
     deadline = t0 + a.timeout
-    got_line = wait_serial(a.serial, "gfx: test pattern drawn", deadline)
-    check("kernel reported the test pattern over the serial port", got_line, "timed out waiting for the line")
+    line = "gfx: test pattern drawn" if a.pattern == "basic" else "gfx: shapes pattern drawn"
+    got_line = wait_serial(a.serial, line, deadline)
+    check("kernel reported the pattern over the serial port (%s)" % line, got_line, "timed out waiting for the line")
     if not got_line:
         print("gfx_check: %d passed, %d failed" % (passed, failed)); return 1
     t_serial = time.time() - t0
 
     qmp = Qmp(a.qmp, deadline)
+    expect_list = EXPECT if a.pattern == "basic" else SHAPES_ANCHORS
+    exp_bytes = None
+    if a.pattern == "shapes":
+        t_ref = time.time()
+        exp_bytes = bytes(v for c in shapes_expected() for v in c)
+        print("  note: reference image rendered by the independent Python implementation in %.1fs" % (time.time() - t_ref))
     shot = os.path.join(os.path.dirname(os.path.abspath(a.serial)), "screen.ppm")
     attempts, sizes_seen, last_bad = 0, [], []
     img = None
@@ -161,7 +258,10 @@ def main():
         if (w, h) not in sizes_seen:
             sizes_seen.append((w, h))
         if (w, h) == (W, H):
-            bad = [(x, y, c, why) for (x, y, c, why) in EXPECT if tuple(pix[(y * w + x) * 3:(y * w + x) * 3 + 3]) != c]
+            bad = [(x, y, c, why) for (x, y, c, why) in expect_list if tuple(pix[(y * w + x) * 3:(y * w + x) * 3 + 3]) != c]
+            if exp_bytes is not None and pix != exp_bytes:
+                n = sum(1 for i in range(0, len(pix), 3) if pix[i:i + 3] != exp_bytes[i:i + 3])
+                bad.append((0, 0, (0, 0, 0), "%d pixels differ from the reference image" % n))
             last_bad = bad
             if not bad:
                 img = (w, h, pix); break
@@ -182,8 +282,14 @@ def main():
     if a.keep:
         with open(a.keep, "wb") as f:
             f.write(b"P6\n%d %d\n255\n" % (w, h) + pix)
-    for (x, y, c, why) in EXPECT:
+    for (x, y, c, why) in expect_list:
         check("pixel (%d,%d) %s = %s" % (x, y, why, c), tuple(pix[(y * w + x) * 3:(y * w + x) * 3 + 3]) == c)
+    if a.pattern == "shapes":
+        check("the screenshot equals the independently rendered reference image, byte for byte (%d pixels)" % (W * H), pix == exp_bytes)
+        distinct = len(set(pix[i:i + 3] for i in range(0, len(pix), 3)))
+        check("the image has the %d expected distinct colours" % len(set(shapes_expected())), distinct == len(set(shapes_expected())), "got %d" % distinct)
+        print("gfx_check: %d passed, %d failed" % (passed, failed))
+        return 0 if failed == 0 else 1
     # Whole-image checks: only the nine pattern colours exist (no stale RAM, no stride skew), and each has a sensible size.
     counts = {}
     for i in range(0, len(pix), 3):
