@@ -15,6 +15,7 @@
 #include <blk.h>
 #include <fs.h>
 #include <console.h>
+#include <gfx.h>
 #include <gic.h>
 #include <irq.h>
 #include <irqtest.h>
@@ -94,6 +95,8 @@ void kernel_main(uint64_t dtb)
         if (boot_info.reserved[i].nomap && vmm_add_nomap(boot_info.reserved[i].addr, boot_info.reserved[i].size)) bad = 1;
     }
     if (bad) fatal("could not apply memory reservations");
+    /* 2b. Optional display (QEMU ramfb): reserve its framebuffer now, while contiguous pages are still free. No display is a normal boot. */
+    if (dtb) (void)gfx_reserve((const void *)(uintptr_t)dtb);
     struct pmm_stats st; pmm_get_stats(&st);
     console_puts("Physical memory manager ready\n");
     print_range("RAM          ", pmm_ram_base(), pmm_ram_end());
@@ -115,6 +118,12 @@ void kernel_main(uint64_t dtb)
     int failures = selftest_summary();
     if (failures) { console_puts("MEMORY MANAGEMENT SELFTEST FAILED\n"); halt_forever(); }
     console_puts("Memory management OK\n");
+
+    /* 3b. Native graphics: configure the display, then draw the diagnostic pattern ourselves. Failure leaves the UART boot untouched. */
+    if (dtb && gfx_init() == GFX_OK) {
+        if (gfx_draw_test_pattern(gfx_get_surface()) == GFX_OK) { gfx_present(0); console_puts("gfx: test pattern drawn\n"); }
+        else console_puts("gfx: test pattern FAILED\n");
+    }
 
     /* 4. Interrupt controller, timer, and their tests. The platform description must come from the device tree. */
     if (dtb) {

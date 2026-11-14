@@ -1,7 +1,6 @@
 # AuroraOS native graphics: research and plan (issue #7, stage G1)
 
-**Status: research only. No kernel code changed and nothing was drawn.** The kernel has a UART console and nothing else for output. Everything below targets
-QEMU `virt` only, run under `-cpu cortex-a53`; **nothing here was run on real hardware** and no claim is made about real hardware, GPUs or phones.
+**Status: G1 research (sections 1 to 9) plus the G2 implementation record (section 10).** Sections 1 to 9 were written before any code and are kept as written; where section 10 verified a `[spec, recalled]` item, section 10 is authoritative. Everything targets QEMU `virt` only, run under `-cpu cortex-a53`; **nothing here was run on real hardware** and no claim is made about real hardware, GPUs or phones.
 
 How each statement is known (marked in the text):
 
@@ -128,7 +127,7 @@ void gfx_present(struct gfx_rect damage);  /* no-op for ramfb; TRANSFER_TO_HOST_
 
 **A virtio-gpu backend follows as its own stage**, when explicit presentation, damage rectangles and virtio-input are needed (G5). **What would change this recommendation:** if the fw_cfg DMA path proves troublesome in G2, or if extracting the virtio transport turns out to be cheap, go to virtio-gpu first and skip ramfb.
 
-## 6. G2 design (not implemented)
+## 6. G2 design (as proposed in G1; what was built is section 10)
 
 | Question | Proposal |
 |---|---|
@@ -165,13 +164,85 @@ The Tier 0 pipeline must **not** include alpha blending, blur or gradients; thos
 7. **Performance is unmeasured.** A CPU fill of 3 MiB per frame at this clock rate on TCG has not been timed; G2 should record a real number, labelled as QEMU/TCG, before anything depends on it.
 8. **The `virt` machine may change between QEMU versions.** Slot assignment, the default 640x480 placeholder and the fw_cfg window were observed on QEMU 11.1.0 only.
 
-## 9. Open decisions for the owner
+## 9. Open decisions for the owner (resolved by the owner before G2: 1024x768 XRGB8888; Noto Sans Mono under the OFL 1.1 for G4, licence to be verified before any asset is added; kernel-side components first, an EL0 compositor later; no virtio transport refactor until virtio-gpu or virtio-input needs it; ramfb is the bring-up display and a QEMU-only Tier 0 fallback)
 
 1. Resolution for G2 (proposed 1024x768) and whether to support more than one.
 2. The font source and licence for G4.
 3. Whether the compositor lives in the kernel at first or goes straight to an EL0 server (the process and IPC model exists).
 4. Whether to extract a shared virtio transport soon (it helps `virtio-gpu` and `virtio-input`) or only when G5 needs it.
 5. Keep ramfb only as a bring-up path, or keep it supported long-term.
+
+## 10. G2 as implemented (QEMU `virt` + ramfb only)
+
+**Status: implemented and verified in QEMU on QEMU 11.1.0 under TCG (`-cpu cortex-a53`). Nothing here has run on real hardware, KVM or any accelerator.** The kernel finds fw_cfg, configures ramfb with a DMA write, draws a diagnostic pattern itself, and QEMU's own `screendump` is parsed to prove the pixels. Stage G3 onward is not done.
+
+### What exists
+
+| Piece | File | Notes |
+|---|---|---|
+| Device-tree discovery | `kernel/mm/fdt.c` `fdt_fwcfg_mmio()` | the walker used for virtio-mmio now takes a compatible string; fw_cfg is `qemu,fw-cfg-mmio`; zero size and address wrap are rejected |
+| Pure protocol helpers | `kernel/drivers/fwcfg_proto.c`, `kernel/include/fwcfg.h` | big-endian helpers, directory walk through an ops table, DMA descriptor (a plain 16-byte array, no host byte order assumed), ramfb configuration builder; host-tested with a fake device |
+| MMIO driver | `kernel/drivers/fwcfg.c` | `fwcfg_probe` (read-only, runs before the MMU), `fwcfg_map`, `fwcfg_lookup`, `fwcfg_dma_write` with a bounded wait |
+| Renderer | `kernel/gfx/gfx_draw.c`, `kernel/include/gfx.h` | `struct gfx_surface` (pixels, size_bytes, width, height, stride_bytes, format), clear, pixel, clipped fill, h/v lines, the test pattern; every size computed in 64 bits; padding between rows is never written |
+| Placement | `kernel/gfx/gfx_region.c` | highest contiguous run of free pages in RAM, found through a callback so it can be host-tested |
+| Backend | `kernel/gfx/gfx.c` | `gfx_reserve` (early), `gfx_init`, `gfx_get_surface`, `gfx_present`, `gfx_shutdown` |
+| Boot wiring | `kernel/kernel.c` | `gfx_reserve` after the device-tree reservations and before `vmm_init`; `gfx_init` and the pattern after the memory self-tests |
+
+### Boot sequence and memory
+
+1. `gfx_reserve(fdt)` runs **before** `vmm_init` because the allocator has no contiguous allocation and page-table setup consumes pages. It reads fw_cfg (safe with the MMU off), requires the signature `QEMU`, the DMA feature bit and `etc/ramfb` in the directory, then asks `gfx_region_find` for the highest 3 MiB run of pages that are neither reserved nor allocated, and reserves it with `pmm_reserve_range`.
+2. **No display means nothing is reserved**, and the boot prints `gfx: disabled (<reason>)` and carries on.
+3. After the MMU is on, `gfx_init` registers the fw_cfg page with the mapping policy and maps it as Device memory, clears the framebuffer to black, and sends the 28-byte ramfb configuration with one fw_cfg DMA write. Any failure disables graphics; the region stays reserved (the allocator cannot un-reserve).
+4. The framebuffer is ordinary Normal write-back RAM, already mapped read/write and never executable by the identity map. **It is never mapped into an EL0 address space.**
+5. With 128, 256 and 512 MiB of RAM the framebuffer is the top 3 MiB: `0x47d00000`, `0x4fd00000`, `0x5fd00000`. A reservation conflict (device-tree reservation, kernel image) moves it down to the next free run; if none exists graphics is disabled.
+6. Single CPU, one framebuffer, one caller at a time; there is no locking.
+
+Side effect on an existing test: `selftest.c` assumed the last RAM page is free (`never-allocated page`). It now searches downward for a page that is genuinely neither allocated nor reserved; the assertion itself is unchanged.
+
+### Protocol facts: what was verified, and against what
+
+The G1 `[spec, recalled]` items are now checked against the QEMU documentation (https://www.qemu.org/docs/master/specs/fw_cfg.html), QEMU's `hw/display/ramfb.c` (current master), and the behaviour of the installed QEMU 11.1.0.
+
+| Item | Value | Source / evidence |
+|---|---|---|
+| MMIO registers | data `+0x00`, selector `+0x08` (16-bit), DMA address `+0x10` (64-bit); window `0x18` | fw_cfg spec; the device-tree node reports `reg = <0x9020000 0x18>` |
+| Byte order | selector and DMA register **big-endian**; data register string-preserving (the driver reads bytes); feature bitmap (`0x0001`) **little-endian** | fw_cfg spec; a host test pins the little-endian reading |
+| Signature | key `0x0000` reads `QEMU`; the DMA register reads back `0x51454d5520434647` ("QEMU CFG") | spec; checked at run time by `fwcfg_probe` |
+| Features | bit 1 = DMA | spec |
+| Directory | key `0x0019`: big-endian count, then 64-byte entries `{be32 size, be16 select, be16 reserved, char name[56]}` | spec; the run finds `etc/ramfb` this way |
+| DMA descriptor | `{be32 control, be32 length, be64 address}`; control bits: error 1, read 2, skip 4, select 8, write 16; selector in the upper 16 bits; completion = control reads 0, error = bit 0 | spec; the DMA write is accepted by QEMU 11.1.0 |
+| ramfb file | `etc/ramfb`, 28 bytes, **write** with DMA: `{be64 addr, be32 fourcc, be32 flags, be32 width, be32 height, be32 stride}` | `ramfb.c` (`RAMFBCfg`, `QEMU_PACKED`); size 28 |
+| Pixel format | fourcc `XR24` = `0x34325258` = DRM `XRGB8888`; in memory the bytes are B, G, R, X (a little-endian `0x00RRGGBB`) | `ramfb.c` converts the fourcc to a pixman format; verified by pure red, green and blue swatches reading back as red, green and blue in the screenshot, so no channel swap was needed |
+| Limits QEMU enforces | width and height at least 16; a zero stride means tight; **QEMU does not check that a non-zero stride is at least `width*4`, so the driver does**; a framebuffer that does not fit in guest RAM makes QEMU keep its placeholder | `ramfb.c`; a mutation with a wrong stride produced the 640x480 placeholder |
+
+Constants are written independently against the documented interface; no QEMU code was copied.
+
+### Evidence (tests/qemu/gfx-tests.sh, 45 checks, all passing)
+
+- **Pixels:** `tests/qemu/gfx_check.py` drives QMP `screendump` (headless `-display none`, private unix socket) and parses the PPM with the standard library. It requires 1024x768 (the 640x480 placeholder QEMU shows before any guest configures it fails the size check), **52 exact pixel assertions** (background, panel edges, both rules, three primary swatches, four corner markers and their boundaries, two clipped fills that start off-screen), **exact pixel counts for all nine colours**, and that the image contains no other colour. 67 checks per run.
+- **Timing:** QEMU samples guest RAM on its own refresh. In the runs the first screendump after the serial line (2 to 4 s after QEMU started) already matched. The checker still polls on image content with a bounded deadline rather than sleeping.
+- **RAM sizes:** 128, 256 and 512 MiB each verified, then re-verified **after the whole boot** (all EL0 and filesystem self-tests) so nothing overwrote the framebuffer.
+- **No display:** a normal boot without `-device ramfb` reports `gfx: disabled (no ramfb display: file not in the fw_cfg directory)`, reserves nothing (exactly 768 fewer reserved pages than with ramfb), and passes memory, interrupt and userspace tests. A boot with only `virtio-gpu-device` also disables graphics without a crash. ramfb together with a virtio-blk disk works.
+- **Host tests (ASan/UBSan, `tests/kernel-host/run.sh`):** `fwcfg_test` 54 checks (directory bounds, duplicate and unterminated names, every endianness conversion, DMA status decoding, ramfb limits) and `gfx_test` 101 checks (size arithmetic including 8192x8192 and `INT32_MIN/MAX` rectangles, clipping, non-tight strides, guard canaries before and after every buffer, placement in fragmented RAM, the same pixel expectations as the screenshot). Plus 10 checks for the fw_cfg device-tree walker.
+- **Mutation checks** (a deliberately broken kernel must fail the screenshot test): red/blue swapped in `gfx_rgb`, wrong ramfb stride, wrong ramfb height, configuration never sent, a fill one pixel short, negative-origin clipping dropped. All were caught.
+
+### Cache coherence and memory ordering (not proven on hardware)
+
+- The device tree marks fw_cfg `dma-coherent`: the device reads the DMA descriptor from, and writes its result to, the same memory the CPU sees. The driver therefore does no cache maintenance for the descriptor, only a `dsb sy` between writing it and writing the DMA address register, and again while polling.
+- The framebuffer is Normal write-back memory and there is no non-cacheable attribute in MAIR. QEMU TCG does not model caches, so **a pass under TCG does not show that a cache-incoherent scan-out engine would see the pixels.** Anything that is not coherent (real display hardware, some accelerated setups) would need `dc cvac` of each damaged range in `gfx_present`, or a non-cacheable mapping. That is not implemented and not claimed.
+- `gfx_present` is a barrier only: ramfb has no present step and tearing is possible.
+
+### Known limits of G2
+
+QEMU only. Fixed 1024x768 XRGB8888 (the surface API carries width, height, stride and format, but the backend only configures this size). No double buffering, no damage handling, no input, no text. Performance is unmeasured. The diagnostic pattern is drawn at every boot of a display-attached kernel; it is a test image, not a desktop.
+
+### Status of the later stages
+
+| Stage | State |
+|---|---|
+| G1 | done |
+| G2 | **done on QEMU**, as above |
+| G3 to G6 | not started |
 
 ## Appendix: commands that produced the **[verified]** facts
 

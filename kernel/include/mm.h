@@ -52,6 +52,7 @@ int fdt_platform_parse(const void *fdt, struct fdt_platform *out);
 /* virtio-mmio transports described by the device tree (count returned, or a negative FDT_ERR_*). */
 struct fdt_virtio { uint64_t base, size; uint32_t intid; };
 int fdt_virtio_mmio(const void *fdt, struct fdt_virtio *out, int max);
+int fdt_fwcfg_mmio(const void *fdt, struct fdt_virtio *out, int max);   /* QEMU fw_cfg MMIO nodes (compatible "qemu,fw-cfg-mmio") */
 
 /* ---- Physical page allocator ---------------------------------------- */
 #define PMM_MAX_RAM   (1UL << 30)                 /* managed RAM cap: 1 GiB */
