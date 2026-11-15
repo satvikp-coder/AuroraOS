@@ -83,11 +83,17 @@ def main():
     def px(img, x, y):
         w, h, d = img; o = (y * w + x) * 3; return tuple(d[o:o + 3])
     def shot_until(name, pred, secs=15):
-        """the guest logs a state change just before it presents the frame, so poll until the expected pixels show up"""
+        """the guest logs a state change just before it presents the frame, and the frame is drawn in LAYERS (page, scrim, dialog): a screenshot can catch a
+        half-drawn frame that already satisfies a pixel test (in high contrast the scrim is black, so a frame with the scrim but without the dialog still passes
+        'scrim corners and palette'). So the expected pixels must show up in two consecutive screenshots that are identical below the header."""
         end = time.time() + secs
         while True:
             img = shot(name)
-            if pred(img) or time.time() > end: return img
+            if pred(img):
+                time.sleep(0.25)
+                img2 = shot(name)
+                if pred(img2) and img[2][64 * 1024 * 3:] == img2[2][64 * 1024 * 3:]: return img2
+            if time.time() > end: return img
             time.sleep(0.3)
     def colors(img):
         w, h, d = img
