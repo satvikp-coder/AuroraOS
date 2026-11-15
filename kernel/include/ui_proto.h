@@ -76,6 +76,7 @@ enum {
 #define UIP_PER_CLIENT 4            /* per process instance */
 #define UIP_MAX_CLIENTS 8           /* = PROC_MAX; clients are indexed by pid 1..8 */
 #define UIP_MAX_OUTSTANDING 2       /* unconsumed replies per client before further requests are dropped */
+#define UIP_CHROME_H 28             /* the compositor draws a title strip of this height ABOVE every surface; clients never draw in it */
 #define UIP_LAYER_CONTENT 0         /* client surfaces live ONLY in the content band: below the dock, corner, sheets, scrim, modals and toasts */
 
 /* surface size classes: pixels */

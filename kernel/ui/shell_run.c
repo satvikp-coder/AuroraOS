@@ -14,6 +14,7 @@
 #include <settings.h>
 #include <shell.h>
 #include <timer.h>
+#include <ui_sys.h>
 
 /* The shell's own identity for the settings registry. Kernel code (this file, at boot) grants it appearance and attention rights, and NOT the
  * system right: the registry, not the UI, decides, so the Aura-mode setting stays refused. No process can ever hold this principal. */
@@ -30,8 +31,13 @@ static const struct shell_store STORE = { store_get, store_set, store_reset };
 /* Test builds: start EL0 clients from the installer-owned "shclient.elf" before the shell loop, selected by a bit mask:
  * 1 two CPU-bound spinners, 2 a yielder, 4 a process blocked on IPC, 8 a process that exits after a while, 16 one that faults after a while,
  * 32 a process that exits and is replaced repeatedly (the loop below recreates it). The mode travels in x0 (kernel-chosen). */
-static const struct { const char *app; uint32_t principal; uint64_t mode; uint32_t bit; } CLIENTS[] = {
-    { "c_spin1", 301, 1, 1 }, { "c_spin2", 302, 1, 1 }, { "c_yield", 303, 2, 2 }, { "c_block", 304, 3, 4 }, { "c_exit", 305, 4, 8 }, { "c_fault", 306, 5, 16 },
+static const struct { const char *app; const char *file; uint32_t principal; uint64_t mode; uint32_t bit; int ui; } CLIENTS[] = {
+    { "c_spin1", "shclient.elf", 301, 1, 1, 0 }, { "c_spin2", "shclient.elf", 302, 1, 1, 0 }, { "c_yield", "shclient.elf", 303, 2, 2, 0 },
+    { "c_block", "shclient.elf", 304, 3, 4, 0 }, { "c_exit", "shclient.elf", 305, 4, 8, 0 }, { "c_fault", "shclient.elf", 306, 5, 16, 0 },
+    /* EL0 UI clients (uiclient.elf): 64 a demo surface, 128 a second demo surface, 256 a hostile client, 512 a client that faults after drawing,
+     * 1024 a client WITHOUT the UI capability. The kernel grants the capability here (kernel code): the clients cannot. */
+    { "c_ui1", "uiclient.elf", 401, 1, 64, 1 }, { "c_ui2", "uiclient.elf", 402, 2, 128, 1 }, { "c_uibad", "uiclient.elf", 403, 3, 256, 1 },
+    { "c_uifault", "uiclient.elf", 404, 4, 512, 1 }, { "c_uinocap", "uiclient.elf", 405, 5, 1024, 0 },
 };
 static void launch_clients(void)
 {
@@ -39,7 +45,8 @@ static void launch_clients(void)
     for (unsigned i = 0; i < sizeof CLIENTS / sizeof CLIENTS[0]; i++) {
         if (!(AURORA_SHELL_CLIENTS & CLIENTS[i].bit)) continue;
         int pid = 0, detail = 0;
-        int r = launch_register(CLIENTS[i].app, "shclient.elf", CLIENTS[i].principal, CLIENTS[i].mode);
+        if (CLIENTS[i].ui && ui_sys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: ui_sys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
+        int r = launch_register(CLIENTS[i].app, CLIENTS[i].file, CLIENTS[i].principal, CLIENTS[i].mode);
         if (r == LAUNCH_OK) r = launch_app(CLIENTS[i].app, &pid, &detail);
         console_puts("shell: client "); console_puts(CLIENTS[i].app);
         if (r == LAUNCH_OK) { console_puts(" pid="); console_dec((uint64_t)pid); console_puts("\n"); }
@@ -77,11 +84,40 @@ static void reap(void)
         console_puts("shell: reaped pid="); console_dec((uint64_t)pid);
         console_puts(p->state == PROC_FAULTED ? " faulted\n" : " exited code=");
         if (p->state == PROC_TERMINATED) { console_dec((uint64_t)(uint32_t)p->exit_code); console_puts("\n"); }
+        ui_sys_client_gone(pid, p->gen);                         /* its surfaces and queued events go with it */
         proc_destroy(pid);
     }
 }
 
 static struct shell SH;
+
+static const char *client_name(uint8_t pid) { struct proc *p = proc_get(pid); return p && p->name[0] ? p->name : 0; }   /* the kernel's name for the process, never the client's */
+
+/* Input first goes to the compositor logic here: a modal or sheet withholds everything from clients; Tab and Escape always belong to the shell
+ * (and take focus back from a client); a press on a client surface gives that surface focus; keys go only to the FOCUSED surface's owner. Returns 1 if
+ * the event was consumed and the shell must not see it. */
+static int route_client(const struct input_event *e)
+{
+    int blocked = SH.about_open || SH.corner_open;
+    switch (e->kind) {
+    case IN_PTR_MOVE:
+        if (!blocked) ui_sys_pointer(e->x, e->y, 0, 0);
+        return 0;                                                /* the shell still tracks the cursor */
+    case IN_PTR_DOWN: case IN_PTR_UP: {
+        int down = e->kind == IN_PTR_DOWN;
+        if (!blocked && ui_sys_pointer(e->x, e->y, down ? 1 : 2, 1)) { shell_set_pointer(&SH, e->x, e->y); SH.dirty = 1; return 1; }
+        if (down) ui_sys_focus_clear();                          /* a press anywhere else returns focus to the shell */
+        return 0;
+    }
+    case IN_KEY_DOWN: case IN_KEY_UP: case IN_TEXT:
+        if (blocked || !ui_sys_has_focus()) return 0;
+        if (e->kind != IN_TEXT && (e->key == KEY_TAB || e->key == KEY_ESC)) { if (e->kind == IN_KEY_DOWN) ui_sys_focus_clear(); return 0; }
+        if (e->kind == IN_TEXT) return 1;                        /* clients get key codes, not text */
+        ui_sys_key(e->key, e->mods, e->kind == IN_KEY_DOWN, e->repeat);
+        return 1;
+    default: return 0;
+    }
+}
 static int up;
 
 static void present(void)
@@ -95,6 +131,8 @@ void shell_boot_draw(void)
     const struct gfx_surface *s = gfx_get_surface();
     if (!s) return;
     shell_init(&SH, s->width, s->height);
+    ui_sys_init(40, 96 + UIP_CHROME_H, 944, 520 - UIP_CHROME_H);          /* the area client surfaces may occupy: inside the content band, clear of the header and dock */
+    shell_set_clients(&SH, ui_sys_state(), client_name);
 #ifdef AURORA_SHELL_TEXT_PCT
     shell_set_text_scale(&SH, AURORA_SHELL_TEXT_PCT);          /* test builds only: the preference store is not wired to the shell yet */
 #endif
@@ -180,11 +218,12 @@ void shell_loop(struct input_state *in)
 #ifdef AURORA_SHELL_LAYOUT_LOG
     uint32_t lsig = 0;
 #endif
-    uint32_t sseq = SH.set_seq;
+    uint32_t sseq = SH.set_seq, cdig = 0;
     for (;;) {
         vinput_poll(in);
         struct input_event e;
-        while (input_pop(in, &e)) shell_handle(&SH, &e);
+        while (input_pop(in, &e)) { if (!route_client(&e)) shell_handle(&SH, &e); }
+        { uint32_t d = uip_digest(ui_sys_state()); if (d != cdig) { cdig = d; SH.dirty = 1; } }     /* a client committed, appeared, vanished or changed focus */
         shell_set_uptime(&SH, (uint32_t)((timer_count() - t0) / hz));
         log_state(&screen, &space, &focus, &modal, &opens, &qsig, &corner);
 #ifdef AURORA_SHELL_LAYOUT_LOG

@@ -695,6 +695,8 @@ static void settings_flow(struct shell *sh, const struct geo *g, int opt)
 }
 
 
+static void build_clients(struct shell *sh);
+
 static void build_scaled(struct shell *sh)
 {
     struct geo g = make_geo(sh);
@@ -709,9 +711,45 @@ static void build_scaled(struct shell *sh)
         else index_scaled(sh, &g, opt);
         if (sh->lay_bottom <= g.bottom) break;
     }
+    build_clients(sh);
     dock_scaled(sh, &g);
     if (sh->about_open) about_scaled(sh, &g);
     corner_scaled(sh, &g);
+}
+
+/* EL0 client surfaces: compositor-owned chrome above each placed surface (name from the kernel, a focus colour only the compositor uses), a body, and the
+ * client's COMMITTED widgets as inert labels and panels. Clients cannot name a layer or a pixel: everything is in the content band, inside the
+ * rectangle the compositor allotted, and the validated geometry keeps every widget inside the body. */
+static void build_clients(struct shell *sh)
+{
+    if (!sh->clients) return;
+    const struct pal *P = PAL(sh);
+    for (int slot = 0; slot < UIP_MAX_SURFACES; slot++) {
+        const struct uip_surface *c = uip_surface(sh->clients, slot);
+        if (!c || !c->placed) continue;
+        int32_t w = UIP_SIZE_W[c->size_class], h = UIP_SIZE_H[c->size_class];
+        int focused = sh->clients->focus == slot;
+        const char *nm = sh->client_name ? sh->client_name(c->owner_pid) : 0;
+        struct ui_widget *ch = add(sh, c->sx, c->sy - UIP_CHROME_H, w, UIP_CHROME_H, 0, UI_LAYER_CONTENT, UI_LABEL, nm ? nm : "app", focused ? P->focus : P->muted, 0xF600u + (uint32_t)slot, SOLID);
+        if (ch) { ch->font_size = 14; ch->bold = 1; ch->ink = 0x00FFFFFFu; }
+        struct ui_widget *body = add(sh, c->sx, c->sy, w, h, 0, UI_LAYER_CONTENT, UI_PANEL, 0, P->surface, 0xF620u + (uint32_t)slot, SOLID);
+        if (body) { body->border_w = 2; body->border = focused ? P->focus : P->border; }
+        for (int k = 0; k < UIP_WIDGETS; k++) {
+            const struct uip_widget *g = &c->vis[k];
+            if (!g->has_rect) continue;                                           /* text without a rectangle has no place to go */
+            struct ui_widget *wd = add(sh, c->sx + g->x, c->sy + g->y, g->w, g->h, 0, UI_LAYER_CONTENT, g->has_text ? UI_LABEL : UI_PANEL, g->has_text ? g->text : 0,
+                                       g->role == 2 ? P->canvas : P->surface, 0xF640u + (uint32_t)(slot * UIP_WIDGETS + k), SOLID);
+            if (!wd) return;
+            wd->font_size = 14; wd->ink = (g->style & 2) ? P->muted : P->ink; wd->bold = (g->style & 1) ? 1 : 0;
+            if (g->role == 1 || g->role == 3) { wd->border_w = 1; wd->border = P->border; }
+        }
+    }
+}
+
+void shell_set_clients(struct shell *sh, const struct uip_state *st, const char *(*name_of)(uint8_t pid))
+{
+    sh->clients = st; sh->client_name = name_of;
+    sh->dirty = 1;
 }
 
 /* Rebuild the whole widget array from the state. Focus is kept by stable id when that control still exists and can be focused. */
@@ -739,6 +777,7 @@ static void build(struct shell *sh)
     else if (sh->screen == SCR_SPACES) build_spaces(sh);
     else if (sh->screen == SCR_SETTINGS) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; settings_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; settings_flow(sh, &g, 0); } }
     else build_index(sh);
+    build_clients(sh);
     build_dock(sh);
     if (sh->about_open) build_about(sh);
     build_corner(sh);

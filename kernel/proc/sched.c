@@ -15,6 +15,7 @@
 #include <mm.h>
 #include <proc.h>
 #include <timer.h>
+#include <ui_sys.h>
 
 #define SVC_ENTER_SCHED 0x5c4e
 #define SVC_ENTER_SLICE 0x5c4f   /* a bounded slice for the interactive shell: keeps the tick count and the round-robin position */
@@ -211,6 +212,9 @@ static void do_syscall(struct exc_frame *f, struct proc *p)
         return;
     case SYS_SETTINGS:
         f->x[0] = (uint64_t)settings_syscall(p, f->x[0], f->x[1], f->x[2]);
+        return;
+    case SYS_UI:
+        f->x[0] = (uint64_t)ui_syscall(p, f->x[0], f->x[1], f->x[2], f->x[3], f->x[4]);
         return;
     case SYS_GETPID: f->x[0] = (uint64_t)p->pid; return;
     case SYS_TICKS:  f->x[0] = ticks; return;
