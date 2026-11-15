@@ -64,6 +64,14 @@ def main():
             if line.startswith("shell: ctrl "):
                 v = line.split()[2:]; c[int(v[0])] = tuple(int(x) for x in v[1:5])
         return c
+    def wait_layout(cid, secs=15):
+        """the UART log can lag the framebuffer: wait until the layout block that contains control cid has been written"""
+        end = time.time() + secs
+        while time.time() < end:
+            L_ = layout()
+            if cid in L_: return L_
+            time.sleep(0.25)
+        return layout()
 
     q = Qmp(a.qmp, dl)
     check("the shell reached the interactive state", wait_serial(a.serial, "shell: ready keyboards=1 pointers=1", dl))
@@ -181,7 +189,7 @@ def main():
     check("About opens", wait_count("shell: modal open", 1))
     m1 = shot_until("about", lambda i: px(i, 3, 3) == rgb(T["scrim"]) and px(i, 1020, 764) == rgb(T["scrim"]) and palette_ok(i))
     check("About: palette only; the scrim covers the page (corner pixel is the scrim colour)", palette_ok(m1) and px(m1, 3, 3) == rgb(T["scrim"]) and px(m1, 1020, 764) == rgb(T["scrim"]))
-    L = layout()
+    L = wait_layout(20)
     acts0 = count("shell: activate ")
     click_ctrl(3); time.sleep(0.6)
     check("About: the Close button (20) exists, and a click on the dock behind the scrim activates nothing", 20 in L and count("shell: activate ") == acts0 and (last("shell: screen=") or "").startswith("Home"))
@@ -194,7 +202,7 @@ def main():
     check("the Held handle opens the Glass Corner sheet", wait_count("shell: corner open", 1))
     c1 = shot_until("corner", lambda i: any(px(i, x, 200) == rgb(T["focus"]) for x in range(560, 1010, 2)))
     check("Corner: palette only, sheet border in the focus colour", palette_ok(c1) and any(px(c1, x, y) == rgb(T["focus"]) for x in range(560, 1010, 2) for y in range(70, 340)))
-    L = layout()
+    L = wait_layout(41)
     check("Corner: the Close button is inside the screen, above the dock, and spills nothing", 41 in L and L[41][1] + L[41][3] <= 640 and not band_clean(c1, {41: L[41]}))
     tap("esc")
     check("Escape closes the sheet and focus returns to the handle (40)", wait_count("shell: corner closed", 1) and wait_last("shell: focus=", "40"))
