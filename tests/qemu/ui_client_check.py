@@ -66,6 +66,12 @@ def main():
         return [(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)), int(m.group(6))) for m in re.finditer(r"ui: surface slot=(\d+) pid=(\d+) at (\d+),(\d+) size (\d+)x(\d+)", log())]
     def lines_of(pid): return [l for l in after_ready().split(chr(10)) if l.startswith("[user p%d] " % pid)]
     def events_of(pid): return [l for l in lines_of(pid) if " ev " in l]
+    def shell_focus(): return (re.findall(r"shell: focus=(\w+)", log()) or [None])[-1]
+    def tab_to(fid, tries=14):
+        for _ in range(tries):
+            if shell_focus() == str(fid): return True
+            tap("tab"); time.sleep(0.4)
+        return shell_focus() == str(fid)
     def surf_of(pid):
         for s in surfaces():
             if s[1] == pid: return s
@@ -82,9 +88,10 @@ def main():
         return out
 
     sc = a.scenario
+    need = ("c_ui1", "c_ui2", "c_uibad", "c_uinocap") if sc == "ui" else ("c_ui1", "c_uifault")
+    wait_for(lambda: all(n in pids() for n in need), 120)         # the kernel starts the clients one by one AFTER the shell is ready
     P = pids()
     if sc == "ui":
-        need = ("c_ui1", "c_ui2", "c_uibad", "c_uinocap")
         check("all four EL0 UI clients were started by the kernel loader", all(n in P for n in need))
         u1, u2, ub, un = (P.get(n, 0) for n in need)
         check("EL0 execution and IPC: both demo clients created, drew and committed a surface (kernel replies 0)", wait_for(lambda: any("surface committed=0" in l for l in lines_of(u1)) and any("surface committed=0" in l for l in lines_of(u2)), 120))
@@ -137,7 +144,7 @@ def main():
         # ---- a modal withholds input ----
         click(x1 + 120, y1 + 120)
         shot_until(lambda i: px(i, x1 + 3, y1 - 14) == FOCUS)
-        tap("tab"); time.sleep(0.5); tap("tab"); time.sleep(0.5)
+        check("Tab from a focused client lands in the shell and reaches the About button (id 16)", tab_to(16))
         tap("ret")
         check("the About modal opens from the keyboard while a client had focus", wait_for(lambda: "shell: modal open" in log(), 30))
         e1, e2, p1 = len(events_of(u1)), len(events_of(u2)), len([l for l in lines_of(u1) if "ev ptr" in l])
@@ -158,12 +165,14 @@ def main():
         check("both drew a surface", wait_for(lambda: surf_of(u1) is not None and surf_of(uf) is not None, 120))
         s1, sf = surf_of(u1), surf_of(uf)
         img = shot_until(lambda i: px(i, sf[2] + 3, sf[3] - 14) == MUTED and px(i, s1[2] + 3, s1[3] - 14) == MUTED, 60)
+        img0 = img                                                      # the frame that still shows the soon-to-fault surface
         seen = px(img, sf[2] + 3, sf[3] - 14) == MUTED
         check("SCREEN: the soon-to-fault client's surface was visible (compositor chrome)", seen or "FAULT at EL0" in after_ready())
         check("the kernel contained the EL0 fault and carried on", wait_for(lambda: "FAULT at EL0" in after_ready() and "process stopped, kernel continues" in after_ready(), 120))
         check("the shell reaped the faulted process", wait_for(lambda: "faulted" in after_ready() and "shell: reaped pid=%d" % uf in after_ready(), 30))
-        img = shot_until(lambda i: px(i, sf[2] + 3, sf[3] - 14) != MUTED and px(i, sf[2] + sf[4] // 2, sf[3] + sf[5] - 6) != WHITE, 30)
-        check("SCREEN: the faulted client's surface is gone: no chrome, no white body where it was", px(img, sf[2] + 3, sf[3] - 14) != MUTED and px(img, sf[2] + sf[4] // 2, sf[3] + sf[5] - 6) != WHITE)
+        check("the compositor dropped the faulted client's surface when it was reaped (guest log)", wait_for(lambda: ("ui: client gone pid=%d surfaces dropped=1" % uf) in after_ready(), 30))
+        img = shot_until(lambda i: px(i, sf[2] + 3, sf[3] - 14) != MUTED and region(i, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]) != region(img0, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]), 30)
+        check("SCREEN: the faulted client's surface is gone: its chrome strip is no longer drawn and the area no longer matches what it showed (the Home page is visible again)", px(img, sf[2] + 3, sf[3] - 14) != MUTED and region(img, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]) != region(img0, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]))
         check("SCREEN: the other client's surface survived", px(img, s1[2] + 3, s1[3] - 14) == MUTED and px(img, s1[2] + s1[4] // 2, s1[3] + s1[5] - 6) == WHITE)
         click(s1[2] + 100, s1[3] + 100)
         check("the survivor still gets input after the other client's fault", wait_for(lambda: any("ev ptr" in l for l in lines_of(u1)), 30))

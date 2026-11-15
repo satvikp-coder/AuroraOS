@@ -50,7 +50,10 @@ static void q_push(uint8_t pid, uint64_t gen, const uint8_t *ev, uint32_t n)
 void ui_sys_client_gone(int pid, uint64_t gen)
 {
     if (pid < 1 || pid > UIP_MAX_CLIENTS) return;
+    int dropped = 0;
+    for (int i = 0; i < UIP_MAX_SURFACES; i++) if (G.s[i].live && G.s[i].owner_pid == (uint8_t)pid && G.s[i].owner_gen == gen) dropped++;
     uip_client_gone(&G, (uint8_t)pid, gen);
+    if (dropped) { console_puts("ui: client gone pid="); console_dec((uint64_t)pid); console_puts(" surfaces dropped="); console_dec((uint64_t)dropped); console_puts("\n"); }
     if (Q[pid].gen == gen) q_reset(&Q[pid], 0);
 }
 
@@ -93,6 +96,7 @@ int64_t ui_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64
     }
     if (op == SYS_UI_POLL) {
         if (a2 < 14) return AE_EINVAL;
+        if (!user_writable(a1, (size_t)a2)) return AE_EFAULT;            /* a bad buffer is always EFAULT, whether or not an event is waiting */
         struct evq *q = &Q[p->pid];
         if (q->gen != p->gen) q_reset(q, p->gen);
         if (!q->count) return AE_EAGAIN;
