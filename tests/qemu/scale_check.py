@@ -56,7 +56,8 @@ def main():
         return False
     def layout():
         t = log()
-        i = t.rfind("shell: layout begin"); j = t.find("shell: layout end", i)
+        j = t.rfind("shell: layout end")                  # the last COMPLETE block: the serial file may be read while the guest is mid-write
+        i = t.rfind("shell: layout begin", 0, j) if j >= 0 else -1
         c = {}
         if i < 0 or j < 0: return c
         for line in t[i:j].split(chr(10)):
@@ -178,7 +179,7 @@ def main():
     check("clicking the dock Home item shows Home again", (last("shell: screen=") or "").startswith("Home"))
     click_ctrl(16)
     check("About opens", wait_count("shell: modal open", 1))
-    m1 = shot_until("about", lambda i: px(i, 3, 3) == rgb(T["scrim"]))
+    m1 = shot_until("about", lambda i: px(i, 3, 3) == rgb(T["scrim"]) and px(i, 1020, 764) == rgb(T["scrim"]) and palette_ok(i))
     check("About: palette only; the scrim covers the page (corner pixel is the scrim colour)", palette_ok(m1) and px(m1, 3, 3) == rgb(T["scrim"]) and px(m1, 1020, 764) == rgb(T["scrim"]))
     L = layout()
     acts0 = count("shell: activate ")
