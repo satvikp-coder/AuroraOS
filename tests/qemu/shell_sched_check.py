@@ -75,7 +75,7 @@ def main():
         check("Tab changes the screen every time (baseline latency median %.0f ms, max %.0f ms)" % (statistics.median(lat), max(lat)), all_changed(lat))
         print("  LATENCY none median_ms=%.0f max_ms=%.0f" % (statistics.median(lat), max(lat)))
     elif sc in ("spin", "noinput"):
-        check("both CPU-bound clients were started", "shell: client c_spin1 pid=" in log() and "shell: client c_spin2 pid=" in log())
+        check("both CPU-bound clients were started (the kernel launches them one by one AFTER the shell is ready, so wait for both)", wait_for(lambda: "shell: client c_spin1 pid=" in log() and "shell: client c_spin2 pid=" in log(), 120))
         check("EL0 execution is visible after the shell is interactive: both spinners print heartbeats", wait_for(lambda: len(users(1)) >= 2 and len(users(2)) >= 2, 90))
         n1, n2 = len(users(1)), len(users(2))
         time.sleep(8)
