@@ -113,7 +113,7 @@ def main():
         check("nothing is left to run: no further slice summaries once the clients are gone", len(sched_lines()) == n)
     elif sc == "churn":
         check("25 short-lived clients were created, ran, exited and were reaped while the shell stayed up", wait_for(lambda: "shell: churn done started=25 failed=0" in log(), 300))
-        check("every one of them was reaped (25 reap lines for exit code 0)", after_ready().count("exited code=0") >= 25)
+        check("every one of them was reaped (25 reap lines for exit code 0; \"churn done\" is logged when the 25th is LAUNCHED, so wait for its reap)", wait_for(lambda: after_ready().count("exited code=0") >= 25, 90))
         lat = latency(4)
         check("the shell is responsive afterwards", all_changed(lat))
         check("no scheduler bug was reported", "KERNEL BUG" not in log())
