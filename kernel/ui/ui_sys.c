@@ -2,6 +2,7 @@
 #include <console.h>
 #include <launch.h>
 #include <ui_sys.h>
+#include <broker_kernel.h>
 
 #define MAX_GRANTS 8
 
@@ -94,6 +95,7 @@ int64_t ui_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64
         if (rl && a4) { uint32_t n = rl < (uint32_t)a4 ? rl : (uint32_t)a4; (void)copy_to_user(a3, r, n); }
         return code == UIP_OK ? 0 : AE_UI_BASE + code;
     }
+    if (op == SYS_UI_AURA) return broker_syscall_aura(p, a1, a2, a3);      /* a request to the Action Broker: the policy decides, the shell executes */
     if (op == SYS_UI_POLL) {
         if (a2 < 14) return AE_EINVAL;
         if (!user_writable(a1, (size_t)a2)) return AE_EFAULT;            /* a bad buffer is always EFAULT, whether or not an event is waiting */
