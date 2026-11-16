@@ -53,7 +53,7 @@ def main():
             if row and not inb: n += 1
             inb = row
         return n
-    name = {"allow": "c_nav", "deny": "c_navbad", "crash": "c_navcrash"}[a.scenario]
+    name = {"allow": "c_nav", "deny": "c_navbad", "crash": "c_navcrash", "flood": "c_navflood"}[a.scenario]
     check("the client was started by the kernel loader", wait_for(lambda: ("shell: client %s pid=" % name) in log(), 120))
     m = re.search(r"shell: client %s pid=(\d+)" % name, log()); pid = int(m.group(1)) if m else 0
     if a.scenario != "deny": check("the kernel (not the client) granted the navigate right", ("shell: navigate right granted to %s" % name) in log())
@@ -94,6 +94,20 @@ def main():
             check("SCREEN: still the Home screen (the Current Space card is drawn)", bands(shot(), 64, 480, 100, 180) >= 2)
         check("the guest logged the broker decisions with the kernel-attested pid", ("aura: request pid=%d decision=%s" % (pid, "allow_now" if ok else "deny")) in log())
         check("text size and appearance were never touched by any request", "shell: setting row=" not in log())
+    elif a.scenario == "flood":
+        check("the flooding client finished its loop", wait_for(lambda: ans("flood final request") is not None, 240))
+        ok_, busy, other, ticks_ = (ans("flood " + k) for k in ("allowed", "busy", "other", "ticks"))
+        check("it was rate-limited: allowed requests <= 2 + elapsed ticks / 100 (allowed %s, ticks %s)" % (ok_, ticks_), ok_ is not None and ticks_ and 1 <= ok_ <= 2 + ticks_ // 100)
+        check("most of its requests were refused with EAGAIN (busy %s) and NONE failed any other way (other %s): a refused request never burned a nonce" % (busy, other), busy is not None and busy > ok_ and other == 0)
+        check("its final request after the loop was accepted (0x100)", ans("flood final request") == ALLOW)
+        m2 = re.search(r"shell: client c_nav pid=(\d+)", log()); pid2 = int(m2.group(1)) if m2 else 0
+        def ans2(w):
+            for l in after_ready().split(chr(10)):
+                mm = re.match(r"\[user p%d\] %s=(-?\d+)" % (pid2, re.escape(w)), l)
+                if mm: return int(mm.group(1))
+            return None
+        check("the well-behaved client was NOT starved: its open pages and open settings were allowed", wait_for(lambda: ans2("aura open settings") is not None, 240) and ans2("aura open pages") == ALLOW and ans2("aura open settings") == ALLOW)
+        check("the shell executed the well-behaved client's navigation (Done lines for its pid)", log().count("aura: executed pid=%d state=1" % pid2) >= 2)
     else:
         check("the request was ALLOWED by the policy and queued (client got 0x100)", wait_for(lambda: ans("aura crash ask open settings") == ALLOW, 120))
         check("the client then really faulted (the kernel contained it)", wait_for(lambda: "FAULT at EL0" in after_ready(), 60))

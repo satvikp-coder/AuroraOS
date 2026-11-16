@@ -39,7 +39,7 @@ static const struct { const char *app; const char *file; uint32_t principal; uin
      * 1024 a client WITHOUT the UI capability. The kernel grants the capability here (kernel code): the clients cannot. */
     /* 2048: a client that HOLDS the navigate right (granted here, by kernel code) and asks the broker to navigate; 4096: one that holds nothing;
      * 8192: one that asks and then faults at once (its request must not outlive it). */
-    { "c_nav", "uiclient.elf", 406, 6, 2048, 0 }, { "c_navbad", "uiclient.elf", 407, 7, 4096, 0 }, { "c_navcrash", "uiclient.elf", 408, 8, 8192, 0 },
+    { "c_nav", "uiclient.elf", 406, 6, 2048, 0 }, { "c_navbad", "uiclient.elf", 407, 7, 4096, 0 }, { "c_navcrash", "uiclient.elf", 408, 8, 8192, 0 }, { "c_navflood", "uiclient.elf", 409, 9, 16384, 0 },
     { "c_ui1", "uiclient.elf", 401, 1, 64, 1 }, { "c_ui2", "uiclient.elf", 402, 2, 128, 1 }, { "c_uibad", "uiclient.elf", 403, 3, 256, 1 },
     { "c_uifault", "uiclient.elf", 404, 4, 512, 1 }, { "c_uinocap", "uiclient.elf", 405, 5, 1024, 0 },
 };
@@ -52,7 +52,7 @@ static void launch_clients(void)
         if (CLIENTS[i].ui && ui_sys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: ui_sys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
         int r = launch_register(CLIENTS[i].app, CLIENTS[i].file, CLIENTS[i].principal, CLIENTS[i].mode);
         if (r == LAUNCH_OK) r = launch_app(CLIENTS[i].app, &pid, &detail);
-        if (r == LAUNCH_OK && (CLIENTS[i].bit == 2048 || CLIENTS[i].bit == 8192)) { int g = broker_grant_navigate(pid); console_puts("shell: navigate right granted to "); console_puts(CLIENTS[i].app); console_puts(g == 0 ? "\n" : " FAILED\n"); }
+        if (r == LAUNCH_OK && (CLIENTS[i].bit == 2048 || CLIENTS[i].bit == 8192 || CLIENTS[i].bit == 16384)) { int g = broker_grant_navigate(pid); console_puts("shell: navigate right granted to "); console_puts(CLIENTS[i].app); console_puts(g == 0 ? "\n" : " FAILED\n"); }
         console_puts("shell: client "); console_puts(CLIENTS[i].app);
         if (r == LAUNCH_OK) { console_puts(" pid="); console_dec((uint64_t)pid); console_puts("\n"); }
         else { console_puts(" failed: "); console_puts(launch_strerror(r)); console_puts("\n"); }
@@ -243,6 +243,10 @@ void shell_loop(struct input_state *in)
     uint32_t sseq = SH.set_seq, cdig = 0;
     uint64_t pg_q = 0, pg_digest = 0; int pg_logged = 0;
     for (;;) {
+        /* Execute broker-approved requests of EL0 clients that are STILL the same live instance BEFORE reading input, and show the result at once: the user's
+         * next click is then resolved against the screen they actually see, and a press that began on the old layout is dropped (an EL0 navigation must never
+         * redirect a click onto a control of a screen the user has not seen). */
+        if (broker_drain(&SH) > 0) { SH.fx.pressed = -1; if (SH.dirty) present(); }
         vinput_poll(in);
         struct input_event e;
         while (input_pop(in, &e)) { if (!route_client(&e)) shell_handle(&SH, &e); }
@@ -264,7 +268,6 @@ void shell_loop(struct input_state *in)
         }
         if (SH.activations != last_act) { last_act = SH.activations; console_puts("shell: activate "); console_dec(SH.last_activated); console_puts("\n"); }
         if (SH.dirty) present();
-        broker_drain(&SH);                                        /* execute the broker-approved requests of EL0 clients that are STILL the same live instance */
         reap();
 #if defined(AURORA_SHELL_CLIENTS) && (AURORA_SHELL_CLIENTS & 32)
         churn_step();

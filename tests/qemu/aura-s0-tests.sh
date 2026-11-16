@@ -5,6 +5,7 @@
 #   allow  a client that holds the navigate right: Open Pages and Open Settings really change the screen; everything else it asks is refused
 #   deny   a client that holds no right: every navigation is denied and the shell never moves
 #   crash  a client that asks and faults at once: the queued request must not outlive it
+#   flood  a client asking for navigation in a tight loop next to a well-behaved one: rate-limited, no nonce burned, nobody starved
 # Real QMP key events are not needed here; evidence is guest "[user pN]" and "aura:" lines plus screendump pixels. TCG only.
 # Usage: ./tests/qemu/aura-s0-tests.sh
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -45,5 +46,6 @@ want() { [ -z "$AURA_S0_ONLY" ] || case " $AURA_S0_ONLY " in *" $1 "*) return 0;
 want allow && boot allow 2048
 want deny && boot deny 4096
 want crash && boot crash 8192
+want flood && boot flood 18432
 echo "aura-s0-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]

@@ -8,6 +8,7 @@
  *   5 NOCAP    has no UI capability: its CREATE must be refused
  *   6 NAV      holds the navigate right (granted by kernel code): asks the Action Broker to navigate and to do things it must refuse
  *   7 NAVBAD   holds no right: every request is denied
+ *   9 NAVFLOOD holds the right and asks for navigation in a tight loop (the broker must rate-limit it and never burn its nonce)
  *   8 NAVCRASH holds the right, asks the broker to open Settings and faults immediately: the request must not outlive it
  * Output goes through SYS_WRITE (the kernel tags each line "[user pN] "), so a log line proves what the process saw at EL0.
  */
@@ -88,10 +89,18 @@ static void expect(const char *name, i64 got, i64 want)
 void __attribute__((section(".text._start"))) _start(u64 mode)
 {
     u32 h = 0;
+    if (mode == 9) {                                                      /* flood: tight loop of navigation requests */
+        u64 t0 = ticks(), nonce = 1; int ok = 0, busy = 0, other = 0;
+        while (ticks() - t0 < 1500) { i64 r = aura_ask("open home", nonce); if (r == 0x100) { ok++; nonce++; } else if (r == -5) busy++; else other++; }
+        sayi("flood allowed=", ok); sayi("flood busy=", busy); sayi("flood other=", other); sayi("flood ticks=", (i64)(ticks() - t0));
+        { i64 r; do { r = aura_ask("open home", nonce); yield(); } while (r == -5); sayi("flood final request=", r); }   /* the next nonce in sequence still works once the gap has passed: none was burned */
+        for (;;) yield();
+    }
     if (mode == 6 || mode == 7 || mode == 8) {
         u64 t0 = ticks(); while (ticks() - t0 < 200) burn(2000);        /* let the shell settle on Home first */
         if (mode == 8) { sayi("aura crash ask open settings=", aura_ask("open settings", 1)); *(volatile u64 *)0 = 1; quit(99); }
         sayi("aura open pages=", aura_ask("open pages", 1));
+        { u64 w = ticks(); while (ticks() - w < 30) burn(2000); }            /* the shell executes a queued request between slices; one outstanding request per client */
         sayi("aura replay of nonce 1=", aura_ask("open pages", 1));
         sayi("aura delete everything=", aura_ask("delete everything", 2));
         sayi("aura make text bigger=", aura_ask("make text bigger", 3));
