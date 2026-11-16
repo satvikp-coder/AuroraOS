@@ -73,12 +73,12 @@ def main():
     def stable():
         a1 = shot(); time.sleep(0.4); a2 = shot()
         return a2 if region(a1, 0, 70, 1024, 660) == region(a2, 0, 70, 1024, 660) else shot()
-    def complete(secs=20):
+    def complete(secs=20, need=9):
         """a frame with the Pages card complete (>= 9 text bands) and identical to the next one: a screenshot can catch a half-drawn frame"""
         end = time.time() + secs
         while True:
             a1 = shot(); time.sleep(0.4); a2 = shot()
-            if bands(a2, 56, 960, 100, 520) >= 9 and region(a1, 0, 70, 1024, 660) == region(a2, 0, 70, 1024, 660): return a2
+            if bands(a2, 56, 960, 100, 520) >= need and region(a1, 0, 70, 1024, 660) == region(a2, 0, 70, 1024, 660): return a2
             if time.time() > end: return a2
     SID_PAGES_APP, SID_DOCK_BACK, SID_DOCK_HOME, SID_DOCK_INDEX, SID_PAGES_HOME = 13, 1, 2, 4, 230
 
@@ -96,13 +96,13 @@ def main():
         last = pages_lines()[-1]
         check("the table has exactly the four client processes, in pid order", re.match(r"shell: pages n=4 (\d+)/c_spin1/\w+ (\d+)/c_spin2/\w+ (\d+)/c_yield/\w+ (\d+)/c_block/\w+", last) is not None)
         time.sleep(1.0)
-        img1 = stable()
+        img1 = complete()
         import shutil; shutil.copy(path, os.path.join(a.tmp, "pages_live.ppm"))
         check("SCREEN: the Pages card is drawn: a title, a subtitle, a header, four process rows and a summary are separate text bands (9+ with the Home button)", bands(img1, 56, 960, 100, 520) >= 9)
         check("SCREEN: the process rows hold real text (many dark pixels per row band)", ink_count(img1, 56, 200, 960, 420) > 1500)
         check("SCREEN: Home's content (the Current Space card text) is gone", ink_count(img1, 64, 112, 400, 136) < 10 or bands(img1, 56, 960, 100, 520) >= 9)
         time.sleep(3.0)
-        img2 = stable()
+        img2 = complete()
         check("SCREEN: the numbers are LIVE: the rows changed while the page stayed open (the spinners accumulate ticks)", region(img1, 56, 150, 960, 330) != region(img2, 56, 150, 960, 330))
         n_now = len([l for l in after_ready().split(chr(10)) if l.startswith("[user p")])
         time.sleep(3)
@@ -143,7 +143,7 @@ def main():
         tap("ret")
         check("Enter opens Pages", wait_screen("Pages"))
         check("the guest snapshot is empty", wait_for(lambda: any(l.startswith("shell: pages n=0") for l in pages_lines()), 30))
-        img = stable()
+        img = complete(need=3)
         import shutil; shutil.copy(path, os.path.join(a.tmp, "pages_empty.ppm"))
         check("SCREEN: only the title, subtitle, empty-state line and Home button are drawn (no process rows): at most 5 text bands", 3 <= bands(img, 56, 960, 100, 520) <= 5)
         check("no panic or kernel bug", all(s not in log() for s in ("KERNEL PANIC", "KERNEL BUG", "SELFTEST FAILED")))
