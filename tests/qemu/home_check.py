@@ -236,7 +236,7 @@ def main():
 
 
     # ---------------- Glass Corner and Horizon ----------------
-    c0 = until("corner0", lambda i: True)
+    c0 = until("corner0", lambda i: px(i, 500, 65) == AURA and n_color(i, 190, 22, 420, 46, MUTED) > 20 and n_color(i, 912, 8, 1008, 56, INK) > 10)      # wait for a COMPLETE frame: a screenshot can catch a half-drawn one
     check("Horizon: both input devices found -> aura rail; the status text is drawn; the Held handle is drawn", px(c0, 500, 65) == AURA and n_color(c0, 190, 22, 420, 46, MUTED) > 20 and n_color(c0, 912, 8, 1008, 56, INK) > 10)
     click_at(960, 32, "corner_open")
     check("clicking the Held handle opens the sheet", wait_count("shell: corner open", 1))

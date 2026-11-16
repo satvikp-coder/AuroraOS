@@ -15,6 +15,7 @@
 #include <shell.h>
 #include <timer.h>
 #include <ui_sys.h>
+#include <broker_kernel.h>
 
 /* The shell's own identity for the settings registry. Kernel code (this file, at boot) grants it appearance and attention rights, and NOT the
  * system right: the registry, not the UI, decides, so the Aura-mode setting stays refused. No process can ever hold this principal. */
@@ -36,6 +37,9 @@ static const struct { const char *app; const char *file; uint32_t principal; uin
     { "c_block", "shclient.elf", 304, 3, 4, 0 }, { "c_exit", "shclient.elf", 305, 4, 8, 0 }, { "c_fault", "shclient.elf", 306, 5, 16, 0 },
     /* EL0 UI clients (uiclient.elf): 64 a demo surface, 128 a second demo surface, 256 a hostile client, 512 a client that faults after drawing,
      * 1024 a client WITHOUT the UI capability. The kernel grants the capability here (kernel code): the clients cannot. */
+    /* 2048: a client that HOLDS the navigate right (granted here, by kernel code) and asks the broker to navigate; 4096: one that holds nothing;
+     * 8192: one that asks and then faults at once (its request must not outlive it). */
+    { "c_nav", "uiclient.elf", 406, 6, 2048, 0 }, { "c_navbad", "uiclient.elf", 407, 7, 4096, 0 }, { "c_navcrash", "uiclient.elf", 408, 8, 8192, 0 },
     { "c_ui1", "uiclient.elf", 401, 1, 64, 1 }, { "c_ui2", "uiclient.elf", 402, 2, 128, 1 }, { "c_uibad", "uiclient.elf", 403, 3, 256, 1 },
     { "c_uifault", "uiclient.elf", 404, 4, 512, 1 }, { "c_uinocap", "uiclient.elf", 405, 5, 1024, 0 },
 };
@@ -48,6 +52,7 @@ static void launch_clients(void)
         if (CLIENTS[i].ui && ui_sys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: ui_sys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
         int r = launch_register(CLIENTS[i].app, CLIENTS[i].file, CLIENTS[i].principal, CLIENTS[i].mode);
         if (r == LAUNCH_OK) r = launch_app(CLIENTS[i].app, &pid, &detail);
+        if (r == LAUNCH_OK && (CLIENTS[i].bit == 2048 || CLIENTS[i].bit == 8192)) { int g = broker_grant_navigate(pid); console_puts("shell: navigate right granted to "); console_puts(CLIENTS[i].app); console_puts(g == 0 ? "\n" : " FAILED\n"); }
         console_puts("shell: client "); console_puts(CLIENTS[i].app);
         if (r == LAUNCH_OK) { console_puts(" pid="); console_dec((uint64_t)pid); console_puts("\n"); }
         else { console_puts(" failed: "); console_puts(launch_strerror(r)); console_puts("\n"); }
@@ -131,6 +136,7 @@ void shell_boot_draw(void)
     const struct gfx_surface *s = gfx_get_surface();
     if (!s) return;
     shell_init(&SH, s->width, s->height);
+    broker_init();
     ui_sys_init(40, 96 + UIP_CHROME_H, 944, 520 - UIP_CHROME_H);          /* the area client surfaces may occupy: inside the content band, clear of the header and dock */
     shell_set_clients(&SH, ui_sys_state(), client_name);
     shell_set_pages(&SH, procsnap_take_kernel);
@@ -243,6 +249,7 @@ void shell_loop(struct input_state *in)
         }
         if (SH.activations != last_act) { last_act = SH.activations; console_puts("shell: activate "); console_dec(SH.last_activated); console_puts("\n"); }
         if (SH.dirty) present();
+        broker_drain(&SH);                                        /* execute the broker-approved requests of EL0 clients that are STILL the same live instance */
         reap();
 #if defined(AURORA_SHELL_CLIENTS) && (AURORA_SHELL_CLIENTS & 32)
         churn_step();
