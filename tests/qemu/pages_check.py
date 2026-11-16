@@ -73,6 +73,13 @@ def main():
     def stable():
         a1 = shot(); time.sleep(0.4); a2 = shot()
         return a2 if region(a1, 0, 70, 1024, 660) == region(a2, 0, 70, 1024, 660) else shot()
+    def complete(secs=20):
+        """a frame with the Pages card complete (>= 9 text bands) and identical to the next one: a screenshot can catch a half-drawn frame"""
+        end = time.time() + secs
+        while True:
+            a1 = shot(); time.sleep(0.4); a2 = shot()
+            if bands(a2, 56, 960, 100, 520) >= 9 and region(a1, 0, 70, 1024, 660) == region(a2, 0, 70, 1024, 660): return a2
+            if time.time() > end: return a2
     SID_PAGES_APP, SID_DOCK_BACK, SID_DOCK_HOME, SID_DOCK_INDEX, SID_PAGES_HOME = 13, 1, 2, 4, 230
 
     sc = a.scenario
@@ -121,7 +128,7 @@ def main():
         time.sleep(1)
         tap("ret")
         check("typing 'pages' in Index and pressing Enter opens Pages (the Index entry is available)", wait_screen("Pages"))
-        img3 = stable()
+        img3 = complete()
         check("SCREEN: Pages is drawn again after the Index route", bands(img3, 56, 960, 100, 520) >= 9)
         # ---- Pages Home control by keyboard ----
         check("Tab reaches the Pages Home control", tab_to(SID_PAGES_HOME))
