@@ -133,6 +133,7 @@ void shell_boot_draw(void)
     shell_init(&SH, s->width, s->height);
     ui_sys_init(40, 96 + UIP_CHROME_H, 944, 520 - UIP_CHROME_H);          /* the area client surfaces may occupy: inside the content band, clear of the header and dock */
     shell_set_clients(&SH, ui_sys_state(), client_name);
+    shell_set_pages(&SH, procsnap_take_kernel);
 #ifdef AURORA_SHELL_TEXT_PCT
     shell_set_text_scale(&SH, AURORA_SHELL_TEXT_PCT);          /* test builds only: the preference store is not wired to the shell yet */
 #endif
@@ -219,12 +220,18 @@ void shell_loop(struct input_state *in)
     uint32_t lsig = 0;
 #endif
     uint32_t sseq = SH.set_seq, cdig = 0;
+    uint64_t pg_q = 0, pg_digest = 0; int pg_logged = 0;
     for (;;) {
         vinput_poll(in);
         struct input_event e;
         while (input_pop(in, &e)) { if (!route_client(&e)) shell_handle(&SH, &e); }
         { uint32_t d = uip_digest(ui_sys_state()); if (d != cdig) { cdig = d; SH.dirty = 1; } }     /* a client committed, appeared, vanished or changed focus */
         shell_set_uptime(&SH, (uint32_t)((timer_count() - t0) / hz));
+        if (SH.screen != SCR_PAGES) pg_logged = 0;
+        if (SH.screen == SCR_PAGES) { uint64_t q = (timer_count() - t0) / (hz / 4 ? hz / 4 : 1); if (q != pg_q) { pg_q = q; shell_pages_refresh(&SH); if (!pg_logged || SH.ps_digest != pg_digest) { pg_logged = 1; pg_digest = SH.ps_digest;
+            console_puts("shell: pages n="); console_dec(SH.ps.n);
+            for (uint32_t i = 0; i < SH.ps.n; i++) { console_puts(" "); console_dec(SH.ps.e[i].pid); console_puts("/"); console_puts(SH.ps.e[i].name); console_puts("/"); console_puts(procsnap_state_name(SH.ps.e[i].state)); }
+            console_putc(10); } } }   /* Pages: re-read the table four times a second; it repaints only if something shown changed */
         log_state(&screen, &space, &focus, &modal, &opens, &qsig, &corner);
 #ifdef AURORA_SHELL_LAYOUT_LOG
         log_layout(&lsig);

@@ -178,6 +178,10 @@ jobs:
         run: |
           chmod +x tests/qemu/ui-client-tests.sh
           ./tests/qemu/ui-client-tests.sh
+      - name: Run native Pages tests (a live read-only view of the real process table; EL0 clients running; keyboard, pointer and Index navigation; empty state; real QMP input and screendump pixels)
+        run: |
+          chmod +x tests/qemu/pages-tests.sh
+          ./tests/qemu/pages-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

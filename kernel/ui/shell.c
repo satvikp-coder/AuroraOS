@@ -20,7 +20,7 @@ static const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, U
 static const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 2, 1, 6 };
 #define PAL(sh) ((sh)->contrast ? &PAL_HC : &PAL_STD)
 
-static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings" };
+static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages" };
 
 const char *shell_screen_name(uint32_t screen) { return screen < SCR_COUNT ? NAMES[screen] : "?"; }
 
@@ -43,7 +43,7 @@ static const struct idx_item ITEMS[] = {
 static const struct dest DEST[] = {
     { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
     { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
-    { D_ABOUT, 0 }, { D_UNAVAILABLE, 0 }, { D_UNAVAILABLE, 0 }, { D_SCREEN, SCR_SETTINGS },
+    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_UNAVAILABLE, 0 }, { D_SCREEN, SCR_SETTINGS },
 };
 #define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
 _Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");
@@ -135,10 +135,10 @@ static void build_home(struct shell *sh)
     label(sh, 544, 112, 400, 24, "Applications", 14, PAL(sh)->muted, 0);
     button(sh, 544, 148, 416, 56, "Spaces", SID_APP_SPACES, 1, UI_LAYER_CONTENT);
     button(sh, 544, 216, 416, 56, "Index", SID_APP_INDEX, 1, UI_LAYER_CONTENT);
-    button(sh, 544, 284, 416, 56, "Pages (not available yet)", SID_APP_PAGES, 0, UI_LAYER_CONTENT);
+    button(sh, 544, 284, 416, 56, "Pages", SID_APP_PAGES, 1, UI_LAYER_CONTENT);
     button(sh, 544, 352, 416, 56, "Aura (not available yet)", SID_APP_AURA, 0, UI_LAYER_CONTENT);
     button(sh, 544, 420, 416, 56, "Settings", SID_APP_SETTINGS, 1, UI_LAYER_CONTENT);
-    label(sh, 544, 496, 416, 24, "Pages and Aura are not available yet.", 14, PAL(sh)->muted, 0);
+    label(sh, 544, 496, 416, 24, "Aura is not available yet.", 14, PAL(sh)->muted, 0);
 }
 
 static void build_spaces(struct shell *sh)
@@ -392,10 +392,10 @@ static void home_scaled(struct shell *sh, const struct geo *g, int opt)
     struct ui_widget *cc = card_s(sh, rx, y, cw);
     y += 12;
     y += sl(sh, rx + 16, y, iw, "Applications", 14, P->muted, 0) + 6;
-    static const char *const AT[5] = { "Spaces", "Index", "Pages (not available yet)", "Aura (not available yet)", "Settings" };
+    static const char *const AT[5] = { "Spaces", "Index", "Pages", "Aura (not available yet)", "Settings" };
     static const uint32_t AI[5] = { SID_APP_SPACES, SID_APP_INDEX, SID_APP_PAGES, SID_APP_AURA, SID_APP_SETTINGS };
-    for (int i = 0; i < 5; i++) y += sb(sh, rx + 24, y, bw, 56, AT[i], AI[i], i < 2 || i == 4, UI_LAYER_CONTENT) + 8;
-    if (opt) y += sl(sh, rx + 16, y, iw, "Pages and Aura are not available yet.", 14, P->muted, 0);
+    for (int i = 0; i < 5; i++) y += sb(sh, rx + 24, y, bw, 56, AT[i], AI[i], i < 3 || i == 4, UI_LAYER_CONTENT) + 8;
+    if (opt) y += sl(sh, rx + 16, y, iw, "Aura is not available yet.", 14, P->muted, 0);
     card_end(sh, cc, y);
 }
 
@@ -695,6 +695,76 @@ static void settings_flow(struct shell *sh, const struct geo *g, int opt)
 }
 
 
+/* ---- Pages: a live, read-only view of the real process table (procsnap). Nothing is simulated; there is no Kill/Pause/Resume because no secure
+ * service for them exists. Text comes only from the snapshot (names are sanitised there). ---- */
+static void pcat(char *d, uint32_t cap, const char *t) { uint32_t n = 0; while (n + 1 < cap && d[n]) n++; for (uint32_t i = 0; n + 1 < cap && t[i]; i++) d[n++] = t[i]; d[n] = 0; }
+static void pnum(char *d, uint32_t cap, uint64_t v) { char t[24]; int k = 0; do { t[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 24); char o[25]; int m = 0; while (k) o[m++] = t[--k]; o[m] = 0; pcat(d, cap, o); }
+static void ppad(char *d, uint32_t cap, const char *t, uint32_t w) { uint32_t b = 0; while (d[b]) b++; pcat(d, cap, t); uint32_t n = 0; while (d[n]) n++; while (n - b < w && n + 1 < cap) { d[n++] = ' '; d[n] = 0; } }
+
+static void pages_texts(struct shell *sh)
+{
+    int compact = sh->text_pct > 125;
+    for (uint32_t i = 0; i < PROC_MAX; i++) sh->pg_txt[i][0] = 0;
+    sh->pg_head[0] = 0;
+    if (!compact && sh->ps.n) pcat(sh->pg_head, sizeof sh->pg_head, "pid name            state    ticks switches yields preempt pages");
+    for (uint32_t i = 0; i < sh->ps.n && i < PROC_MAX; i++) {
+        const struct procsnap_entry *e = &sh->ps.e[i];
+        char *d = sh->pg_txt[i]; const uint32_t cap = sizeof sh->pg_txt[i];
+        if (compact) {
+            pcat(d, cap, "p"); pnum(d, cap, e->pid); pcat(d, cap, " "); pcat(d, cap, e->name); pcat(d, cap, " "); pcat(d, cap, procsnap_state_name(e->state));
+            pcat(d, cap, " "); pnum(d, cap, e->ticks); pcat(d, cap, "t "); pnum(d, cap, e->pages); pcat(d, cap, "pg");
+        } else {
+            char t[24]; t[0] = 0; pnum(t, sizeof t, e->pid); ppad(d, cap, t, 4);
+            ppad(d, cap, e->name, 16); ppad(d, cap, procsnap_state_name(e->state), 9);
+            t[0] = 0; pnum(t, sizeof t, e->ticks); ppad(d, cap, t, 6);
+            t[0] = 0; pnum(t, sizeof t, e->switches); ppad(d, cap, t, 9);
+            t[0] = 0; pnum(t, sizeof t, e->yields); ppad(d, cap, t, 7);
+            t[0] = 0; pnum(t, sizeof t, e->preemptions); ppad(d, cap, t, 8);
+            pnum(d, cap, e->pages);
+            if (e->state == PSS_EXITED) { pcat(d, cap, "  exit "); pnum(d, cap, (uint64_t)(e->exit_code < 0 ? -(int64_t)e->exit_code : e->exit_code)); }
+        }
+    }
+    sh->pg_sum[0] = 0;
+    if (!sh->pages_src) pcat(sh->pg_sum, sizeof sh->pg_sum, "Process list unavailable.");
+    else if (!sh->ps.n) pcat(sh->pg_sum, sizeof sh->pg_sum, "No processes are running.");
+    else { pnum(sh->pg_sum, sizeof sh->pg_sum, sh->ps.n); pcat(sh->pg_sum, sizeof sh->pg_sum, sh->ps.n == 1 ? " process" : " processes"); }
+}
+
+static void pages_flow(struct shell *sh, const struct geo *g, int opt)
+{
+    const struct pal *P = PAL(sh);
+    pages_texts(sh);
+    int32_t y = g->top, w = g->W - 80, iw = w - 32;
+    struct ui_widget *c = card_s(sh, 40, y, w);
+    y += 12;
+    y += sl(sh, 56, y, iw, "Pages", 24, P->ink, 1) + 2;
+    if (opt) y += sl(sh, 56, y, iw, "Live processes. Read-only: nothing here can stop or change them.", 14, P->muted, 0) + 4;
+    if (sh->pg_head[0]) y += sl(sh, 56, y, iw, sh->pg_head, 14, P->muted, 0);
+    for (uint32_t i = 0; i < sh->ps.n && i < PROC_MAX; i++)
+        y += sl(sh, 56, y, iw, sh->pg_txt[i], 14, P->ink, sh->ps.e[i].state == PSS_FAULTED);
+    y += sl(sh, 56, y, iw, sh->pg_sum, 14, P->muted, 0) + 12;
+    y += sb(sh, 56, y, 200 < iw ? 200 : iw, 48, "Home", SID_PAGES_HOME, 1, UI_LAYER_CONTENT) + 8;
+    card_end(sh, c, y);
+}
+
+int shell_pages_refresh(struct shell *sh)
+{
+    struct procsnap t;
+    t.n = 0;
+    if (sh->pages_src) sh->pages_src(&t);
+    uint64_t d = procsnap_digest(&t);
+    if (sh->ps_valid && d == sh->ps_digest) return 0;
+    sh->ps = t; sh->ps_digest = d; sh->ps_valid = 1;
+    if (sh->screen == SCR_PAGES) { build(sh); sh->dirty = 1; }
+    return 1;
+}
+
+void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out))
+{
+    sh->pages_src = src; sh->ps_valid = 0;
+    shell_pages_refresh(sh);
+}
+
 static void build_clients(struct shell *sh);
 
 static void build_scaled(struct shell *sh)
@@ -708,6 +778,7 @@ static void build_scaled(struct shell *sh)
         if (sh->screen == SCR_HOME) home_scaled(sh, &g, opt);
         else if (sh->screen == SCR_SPACES) spaces_scaled(sh, &g, opt);
         else if (sh->screen == SCR_SETTINGS) settings_flow(sh, &g, opt);
+        else if (sh->screen == SCR_PAGES) pages_flow(sh, &g, opt);
         else index_scaled(sh, &g, opt);
         if (sh->lay_bottom <= g.bottom) break;
     }
@@ -776,6 +847,7 @@ static void build(struct shell *sh)
     if (sh->screen == SCR_HOME) build_home(sh);
     else if (sh->screen == SCR_SPACES) build_spaces(sh);
     else if (sh->screen == SCR_SETTINGS) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; settings_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; settings_flow(sh, &g, 0); } }
+    else if (sh->screen == SCR_PAGES) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; pages_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; pages_flow(sh, &g, 0); } }
     else build_index(sh);
     build_clients(sh);
     build_dock(sh);
@@ -853,6 +925,7 @@ int shell_go(struct shell *sh, uint32_t screen)
     sh->hist[sh->hist_n++] = sh->screen;
     sh->screen = (uint8_t)screen;
     if (screen == SCR_INDEX) { sh->qlen = 0; index_refresh(sh); }      /* a fresh search each time Index opens */
+    if (screen == SCR_PAGES) { sh->ps_valid = 0; shell_pages_refresh(sh); }   /* always show the table as it is now */
     build(sh); sh->dirty = 1;
     return 1;
 }
@@ -862,6 +935,7 @@ int shell_back(struct shell *sh)
     if (!sh->hist_n) return 0;
     sh->screen = sh->hist[--sh->hist_n];
     if (sh->screen == SCR_INDEX) { sh->qlen = 0; index_refresh(sh); }
+    if (sh->screen == SCR_PAGES) { sh->ps_valid = 0; shell_pages_refresh(sh); }
     build(sh);
     if (sh->fx.focus < 0) { int32_t hm = shell_find(sh, SID_DOCK_HOME); if (!(hm >= 0 && ui_focus_set(&sh->fx, hm))) ui_focus_next(&sh->fx, 1); }   /* the focused control may not exist here (e.g. Back after the last step) */
     sh->dirty = 1;
@@ -945,6 +1019,8 @@ static void activate(struct shell *sh, uint32_t id)
     case SID_DOCK_SPACES: case SID_CHANGE_SPACE: case SID_APP_SPACES: shell_go(sh, SCR_SPACES); break;
     case SID_DOCK_INDEX: case SID_APP_INDEX: shell_go(sh, SCR_INDEX); break;
     case SID_APP_SETTINGS: shell_go(sh, SCR_SETTINGS); break;
+    case SID_APP_PAGES: shell_go(sh, SCR_PAGES); break;
+    case SID_PAGES_HOME: shell_go(sh, SCR_HOME); break;
     case SID_SET_UP: if (sh->set_first) sh->set_first--; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_DOWN); if (k < 0) k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_SET_DOWN: if (sh->set_first + 1 < SHELL_SET_ROWS) sh->set_first++; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_ABOUT: set_about(sh, 1); break;
