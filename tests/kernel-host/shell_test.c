@@ -50,16 +50,16 @@ int main(void)
     CHECK("boots on Home, Space 0 (Study), no history, no focus, no modal", sh.screen == SCR_HOME && sh.space == 0 && sh.hist_n == 0 && sh.fx.focus == -1 && !sh.about_open);
     CHECK("the widget array is within its bound on every screen", sh.n > 10 && sh.n <= SHELL_MAX_WIDGETS);
     CHECK("Back is disabled with an empty history; the other dock items are enabled", !(sh.c[shell_find(&sh, SID_DOCK_BACK)].flags & UI_ENABLED) && (sh.c[shell_find(&sh, SID_DOCK_HOME)].flags & UI_ENABLED));
-    CHECK("Pages and Aura are visible but disabled and not focusable; Settings is a real, enabled destination", !(sh.c[shell_find(&sh, SID_APP_PAGES)].flags & (UI_ENABLED | UI_FOCUSABLE)) && (sh.c[shell_find(&sh, SID_APP_PAGES)].flags & UI_VISIBLE) && !(sh.c[shell_find(&sh, SID_APP_AURA)].flags & UI_ENABLED) && (sh.c[shell_find(&sh, SID_APP_SETTINGS)].flags & UI_ENABLED));
+    CHECK("Aura is visible but disabled and not focusable; Pages and Settings are real, enabled destinations", !(sh.c[shell_find(&sh, SID_APP_AURA)].flags & (UI_ENABLED | UI_FOCUSABLE)) && (sh.c[shell_find(&sh, SID_APP_AURA)].flags & UI_VISIBLE) && (sh.c[shell_find(&sh, SID_APP_PAGES)].flags & UI_ENABLED) && (sh.c[shell_find(&sh, SID_APP_SETTINGS)].flags & UI_ENABLED));
     int ids_ok = 1;
     for (uint32_t i = 0; i < sh.n; i++) for (uint32_t j = i + 1; j < sh.n; j++) if (sh.c[i].id == sh.c[j].id) ids_ok = 0;
     CHECK("control ids are unique on Home", ids_ok);
 
     /* --- Tab order --- */
-    static const uint32_t order[] = { SID_CHANGE_SPACE, SID_ABOUT, SID_APP_SPACES, SID_APP_INDEX, SID_APP_SETTINGS, SID_DOCK_HOME, SID_DOCK_SPACES, SID_DOCK_INDEX, SID_CORNER, SID_CHANGE_SPACE };
+    static const uint32_t order[] = { SID_CHANGE_SPACE, SID_ABOUT, SID_APP_SPACES, SID_APP_INDEX, SID_APP_PAGES, SID_APP_SETTINGS, SID_DOCK_HOME, SID_DOCK_SPACES, SID_DOCK_INDEX, SID_CORNER, SID_CHANGE_SPACE };
     int ord = 1;
     for (unsigned i = 0; i < sizeof order / sizeof order[0]; i++) { tab(); if (focus_id() != order[i]) { ord = 0; printf("    step %u: got %u want %u\n", i, focus_id(), order[i]); } }
-    CHECK("Tab visits content, the dock, then the Glass Corner handle; includes the Settings tile, skips the disabled Pages and Aura and disabled Back; wraps", ord);
+    CHECK("Tab visits content, the dock, then the Glass Corner handle; includes the Pages and Settings tiles, skips the disabled Aura and disabled Back; wraps", ord);
     stab();
     CHECK("Shift+Tab wraps backwards to the Glass Corner handle (the last stop)", focus_id() == SID_CORNER);
 
@@ -111,9 +111,9 @@ int main(void)
     /* --- disabled controls --- */
     fresh(); click(SID_DOCK_HOME);
     uint32_t act = sh.activations;
-    click(SID_APP_PAGES); click(SID_APP_AURA); click(SID_DOCK_BACK);
-    CHECK("clicking disabled controls (Pages, Aura, empty-history Back) activates nothing", sh.activations == act && sh.screen == SCR_HOME);
-    int landed = 0; for (int i = 0; i < 20; i++) { tab(); uint32_t f = focus_id(); if (f == SID_APP_PAGES || f == SID_APP_AURA || f == SID_DOCK_BACK) landed = 1; }
+    click(SID_APP_AURA); click(SID_DOCK_BACK);
+    CHECK("clicking disabled controls (Aura, empty-history Back) activates nothing", sh.activations == act && sh.screen == SCR_HOME);
+    int landed = 0; for (int i = 0; i < 20; i++) { tab(); uint32_t f = focus_id(); if (f == SID_APP_AURA || f == SID_DOCK_BACK) landed = 1; }
     CHECK("Tab never lands on a disabled control (20 presses)", !landed);
     fresh(); enter();
     CHECK("Enter with nothing focused activates nothing", sh.activations == 0);
@@ -184,7 +184,7 @@ int main(void)
     /* ================= Index (native search) ================= */
     to_index();
     CHECK("Index opens with an empty query, all registry items up to the row limit, and the first one selected", sh.screen == SCR_INDEX && sh.qlen == 0 && sh.nres == SHELL_RESULTS && sh.sel == 0 && result_is(0, "home"));
-    CHECK("the registry lists only real destinations and marks Pages and Aura unavailable and Settings available", !shell_index_available(8) && !shell_index_available(9) && shell_index_available(10) && shell_index_available(0) && shell_index_available(1) && shell_index_available(2) && shell_index_available(7));
+    CHECK("the registry lists only real destinations and marks Aura unavailable and Pages and Settings available", shell_index_available(8) && !shell_index_available(9) && shell_index_available(10) && shell_index_available(0) && shell_index_available(1) && shell_index_available(2) && shell_index_available(7));
     text("sp");
     CHECK("typing 'sp' narrows the results; Spaces ranks first (prefix) and is selected", sh.qlen == 2 && strcmp(sh.query, "sp") == 0 && result_is(0, "spaces") && sh.sel == 0);
     enter();
@@ -250,8 +250,8 @@ int main(void)
     CHECK("Down stops at the last result", sh.sel == (int)sh.nres - 1);
 
     /* unavailable destinations */
-    to_index(); text("pages");
-    CHECK("'pages' finds the Pages entry, labelled not available yet", sh.nres == 1 && result_is(0, "pages") && strstr(sh.res_txt[0], "(not available yet)") != 0);
+    to_index(); text("aura");
+    CHECK("'aura' finds the Aura entry, labelled not available yet", sh.nres == 1 && result_is(0, "aura") && strstr(sh.res_txt[0], "(not available yet)") != 0);
     CHECK("... it is disabled: not focusable and visibly muted", !(sh.c[shell_find(&sh, SID_RESULT_BASE)].flags & UI_ENABLED));
     CHECK("... and even when selected it is not drawn as an active (openable) row", sh.sel == 0 && sh.w[shell_find(&sh, SID_RESULT_BASE)].active == 0);
     enter(); click(SID_RESULT_BASE);

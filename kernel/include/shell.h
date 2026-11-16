@@ -19,8 +19,9 @@
 #include <index_model.h>
 #include <ui_scene.h>
 #include <ui_proto.h>
+#include <procsnap.h>
 
-enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_COUNT };
+enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_COUNT };
 
 /* Stable control identifiers (never reused for another meaning). */
 enum {
@@ -32,7 +33,8 @@ enum {
     SID_RESULT_BASE = 100,              /* SID_RESULT_BASE + k is the k-th Index result row (k < SHELL_RESULTS) */
     SID_SET_VALUE = 200,                /* SID_SET_VALUE + r changes the value of Settings row r (r < SHELL_SET_ROWS) */
     SID_SET_RESET = 210,                /* SID_SET_RESET + r restores its default */
-    SID_SET_UP = 220, SID_SET_DOWN      /* scroll the Settings list when it does not fit */
+    SID_SET_UP = 220, SID_SET_DOWN,     /* scroll the Settings list when it does not fit */
+    SID_PAGES_HOME = 230                /* Pages: return to Home */
 };
 
 #define SHELL_MAX_WIDGETS 160
@@ -90,6 +92,10 @@ struct shell {
      * sheets and modals; chrome text (the application name) comes from client_name, never from the client. */
     const struct uip_state *clients;
     const char *(*client_name)(uint8_t pid);
+    /* Pages screen: a read-only snapshot of the process table, refreshed by the run loop (shell_pages_refresh); NULL source = unavailable */
+    uint32_t (*pages_src)(struct procsnap *out);
+    struct procsnap ps; uint64_t ps_digest; uint8_t ps_valid;
+    char pg_txt[PROC_MAX][96]; char pg_head[80]; char pg_sum[40];
     /* Settings screen */
     const struct shell_store *store;    /* NULL = no usable store: changes last for this session only */
     uint32_t sess[SHELL_SET_ROWS];      /* session values (used when there is no store, and for high contrast always) */
@@ -109,6 +115,10 @@ struct shell {
  * wraps instead of being cut; at the largest scales secondary lines are omitted rather than clipped. Out-of-range values are refused. */
 int  shell_set_text_scale(struct shell *sh, uint32_t pct);
 int  shell_set_contrast(struct shell *sh, int on);
+/* Attach the process-snapshot source for the Pages screen and take a first snapshot. */
+void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out));
+/* Re-take the snapshot; returns 1 (and redraws when Pages is showing) only if something displayed changed. */
+int  shell_pages_refresh(struct shell *sh);
 void shell_set_clients(struct shell *sh, const struct uip_state *st, const char *(*name_of)(uint8_t pid));
 /* Attach (or detach, with NULL) the settings store; the stored text scale is applied at once. */
 void shell_set_store(struct shell *sh, const struct shell_store *store);
