@@ -15,7 +15,7 @@ static struct pend Q[BK_QUEUE];
 
 static int lookup(uint32_t pid, uint64_t *gen, uint32_t *principal, uint32_t *rights)
 {
-    if (pid == BP_SHELL_PID) { *gen = BP_SHELL_GEN; *principal = PRINCIPAL_SHELL; *rights = BP_RIGHT_NAVIGATE; return 1; }   /* the shell navigates; it holds no settings right here */
+    if (pid == BP_SHELL_PID) { *gen = BP_SHELL_GEN; *principal = PRINCIPAL_SHELL; *rights = BP_RIGHTS_ALL; return 1; }   /* the trusted shell (the user at the keyboard) may navigate and PROPOSE settings; a proposal still needs the trusted review, which does not exist yet */
     if (pid > PROC_MAX) return 0;
     const struct proc *p = proc_get((int)pid);
     if (!p || p->gen == 0) return 0;

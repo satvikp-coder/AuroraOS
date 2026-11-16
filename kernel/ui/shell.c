@@ -20,7 +20,7 @@ static const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, U
 static const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 2, 1, 6 };
 #define PAL(sh) ((sh)->contrast ? &PAL_HC : &PAL_STD)
 
-static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages" };
+static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Aura" };
 
 const char *shell_screen_name(uint32_t screen) { return screen < SCR_COUNT ? NAMES[screen] : "?"; }
 
@@ -39,11 +39,12 @@ static const struct idx_item ITEMS[] = {
     { "pages", "Pages", { "multitasking", "windows", 0 }, 1 },
     { "aura", "Aura", { "assistant", "ask", 0 }, 1 },
     { "settings", "Settings", { "preferences", "options", 0 }, 1 },
+    { "notes", "Notes", { "memo", "write", 0 }, 0 },           /* listed, honestly unavailable: no native Notes app exists */
 };
 static const struct dest DEST[] = {
     { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
     { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
-    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_UNAVAILABLE, 0 }, { D_SCREEN, SCR_SETTINGS },
+    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_UNAVAILABLE, 0 },
 };
 #define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
 _Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");
@@ -136,9 +137,9 @@ static void build_home(struct shell *sh)
     button(sh, 544, 148, 416, 56, "Spaces", SID_APP_SPACES, 1, UI_LAYER_CONTENT);
     button(sh, 544, 216, 416, 56, "Index", SID_APP_INDEX, 1, UI_LAYER_CONTENT);
     button(sh, 544, 284, 416, 56, "Pages", SID_APP_PAGES, 1, UI_LAYER_CONTENT);
-    button(sh, 544, 352, 416, 56, "Aura (not available yet)", SID_APP_AURA, 0, UI_LAYER_CONTENT);
+    button(sh, 544, 352, 416, 56, "Aura", SID_APP_AURA, 1, UI_LAYER_CONTENT);
     button(sh, 544, 420, 416, 56, "Settings", SID_APP_SETTINGS, 1, UI_LAYER_CONTENT);
-    label(sh, 544, 496, 416, 24, "Aura is not available yet.", 14, PAL(sh)->muted, 0);
+    label(sh, 544, 496, 416, 24, "Aura runs typed quick commands. No model.", 14, PAL(sh)->muted, 0);
 }
 
 static void build_spaces(struct shell *sh)
@@ -392,10 +393,10 @@ static void home_scaled(struct shell *sh, const struct geo *g, int opt)
     struct ui_widget *cc = card_s(sh, rx, y, cw);
     y += 12;
     y += sl(sh, rx + 16, y, iw, "Applications", 14, P->muted, 0) + 6;
-    static const char *const AT[5] = { "Spaces", "Index", "Pages", "Aura (not available yet)", "Settings" };
+    static const char *const AT[5] = { "Spaces", "Index", "Pages", "Aura", "Settings" };
     static const uint32_t AI[5] = { SID_APP_SPACES, SID_APP_INDEX, SID_APP_PAGES, SID_APP_AURA, SID_APP_SETTINGS };
-    for (int i = 0; i < 5; i++) y += sb(sh, rx + 24, y, bw, 56, AT[i], AI[i], i < 3 || i == 4, UI_LAYER_CONTENT) + 8;
-    if (opt) y += sl(sh, rx + 16, y, iw, "Aura is not available yet.", 14, P->muted, 0);
+    for (int i = 0; i < 5; i++) y += sb(sh, rx + 24, y, bw, 56, AT[i], AI[i], i < 5, UI_LAYER_CONTENT) + 8;
+    if (opt) y += sl(sh, rx + 16, y, iw, "Aura runs typed quick commands. No model.", 14, P->muted, 0);
     card_end(sh, cc, y);
 }
 
@@ -765,6 +766,108 @@ void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out))
     shell_pages_refresh(sh);
 }
 
+/* ---- Aura: type a quick command, see what it would do, run it through the Action Broker, read the real result. Deterministic; no language model. ---- */
+static const struct aura_caps AURA_PREVIEW_CAPS = { 1, 0, 0, 0, 0 };         /* only for the preview; the broker applies the platform's real capabilities */
+
+static void aura_refresh(struct shell *sh)
+{
+    sh->aura_in[sh->aura_len] = 0;
+    aura_parse(sh->aura_in, sh->aura_len, &AURA_PREVIEW_CAPS, &sh->aura_pv);
+}
+
+static void aura_submit(struct shell *sh)
+{
+    if (!sh->aura_len) return;
+    sh->aura_runs++;
+    uint8_t st = 0; char m[64]; m[0] = 0;
+    int ok = sh->aura_run ? sh->aura_run(sh, sh->aura_in, sh->aura_len, &st, m, sizeof m) : 0;
+    if (!ok) { scpy(sh->aura_msg, sizeof sh->aura_msg, "Aura is not connected. Nothing changed."); sh->aura_state = 6; }
+    else { scpy(sh->aura_msg, sizeof sh->aura_msg, m[0] ? m : "Nothing changed."); sh->aura_state = st ? st : 6; }
+    if (ok && st == 1) { sh->aura_len = 0; sh->aura_in[0] = 0; aura_refresh(sh); }      /* a command that was done is consumed; one that was refused stays so it can be corrected */
+    build(sh); sh->dirty = 1;
+}
+
+void shell_set_aura(struct shell *sh, int (*run)(struct shell *sh, const char *text, size_t len, uint8_t *state, char *msg, size_t cap))
+{
+    sh->aura_run = run;
+}
+
+static void aura_texts(struct shell *sh)
+{
+    uint32_t n = 0;
+    if (sh->aura_len) { for (uint32_t i = 0; i < sh->aura_len && n + 2 < sizeof sh->aura_field; i++) sh->aura_field[n++] = sh->aura_in[i]; sh->aura_field[n++] = '_'; }
+    else { const char *ph = "Type a command, e.g. open settings"; while (*ph && n + 1 < sizeof sh->aura_field) sh->aura_field[n++] = *ph++; }
+    sh->aura_field[n] = 0;
+    sh->aura_prev[0] = 0;
+    if (sh->aura_len) {
+        const char *how = "";
+        switch (sh->aura_pv.status) {
+        case AS_ACTIONABLE: how = " - runs when you press Enter"; break;
+        case AS_NEEDS_APPROVAL: how = " - needs approval, not available yet"; break;
+        case AS_UNSUPPORTED: how = " - not available"; break;
+        case AS_CLARIFY: how = " - unclear"; break;
+        default: how = " - will not run"; break;
+        }
+        pcat(sh->aura_prev, sizeof sh->aura_prev, "Preview: "); pcat(sh->aura_prev, sizeof sh->aura_prev, sh->aura_pv.preview[0] ? sh->aura_pv.preview : "not understood"); pcat(sh->aura_prev, sizeof sh->aura_prev, how);
+    } else pcat(sh->aura_prev, sizeof sh->aura_prev, "Preview: nothing typed yet");
+    sh->aura_res[0] = 0;
+    pcat(sh->aura_res, sizeof sh->aura_res, "Result: ");
+    pcat(sh->aura_res, sizeof sh->aura_res, sh->aura_state ? sh->aura_msg : "nothing run yet");
+}
+
+static void aura_flow(struct shell *sh, const struct geo *g, int opt)
+{
+    const struct pal *P = PAL(sh);
+    aura_texts(sh);
+    int32_t y = g->top, w = g->W - 80, iw = w - 32;
+    struct ui_widget *c = card_s(sh, 40, y, w);
+    y += 12;
+    y += sl(sh, 56, y, iw, "Aura", 24, P->ink, 1) + 2;
+    if (opt) y += sl(sh, 56, y, iw, "Quick commands. Nothing runs until you press Enter. No language model.", 14, P->muted, 0) + 4;
+    {
+        struct fnt f = pick_font(18, sh->text_pct);
+        int32_t fh = lh_of(f, 0) * lines_for(f, 0, sh->aura_field, iw - 24) + 16; if (fh < 48) fh = 48;
+        struct ui_widget *fl = add(sh, 56, y, iw, fh, 12, UI_LAYER_CONTENT, UI_LABEL, sh->aura_field, P->canvas, 0xF410u, UI_VISIBLE);
+        if (fl) { fl->border_w = 2; fl->border = P->focus; fl->font_size = f.size; fl->mag = f.mag; fl->ink = sh->aura_len ? P->ink : P->muted; }
+        track(sh, y + fh);
+        y += fh + 6;
+    }
+    y += sl(sh, 56, y, iw, sh->aura_prev, 14, P->muted, 0) + 4;
+    {
+        int32_t bw = iw / 2 - 4, h1 = sb(sh, 56, y, bw, 48, "Run", SID_AURA_RUN, sh->aura_len > 0, UI_LAYER_CONTENT);
+        int32_t h2 = sb(sh, 56 + bw + 8, y, bw, 48, "Clear", SID_AURA_CLEAR, sh->aura_len > 0 || sh->aura_state, UI_LAYER_CONTENT);
+        y += (h1 > h2 ? h1 : h2) + 8;
+    }
+    y += sl(sh, 56, y, iw, sh->aura_res, 16, P->ink, sh->aura_state != 0) + 4;
+    if (opt) y += sl(sh, 56, y, iw, "Try: open settings, open pages, switch to work space.", 14, P->muted, 0) + 4;
+    y += sb(sh, 56, y, 200 < iw ? 200 : iw, 48, "Home", SID_AURA_HOME, 1, UI_LAYER_CONTENT) + 8;
+    card_end(sh, c, y);
+}
+
+/* Typed text goes to the command field; Enter runs it unless a control has focus (then that control handles Enter); Escape clears a non-empty command. */
+static int aura_input(struct shell *sh, const struct input_event *e)
+{
+    if (sh->screen != SCR_AURA || sh->about_open || sh->corner_open) return 0;
+    if (e->kind == IN_TEXT) {
+        sh->fx.focus = -1;
+        if (e->ch >= 0x20 && e->ch <= 0x7e && sh->aura_len < AURA_CMD_MAX) { sh->aura_in[sh->aura_len++] = (char)e->ch; sh->aura_msg[0] = 0; sh->aura_state = 0; aura_refresh(sh); }
+        return 1;
+    }
+    if (e->kind != IN_KEY_DOWN) return 0;
+    switch (e->key) {
+    case KEY_BACKSPACE: sh->fx.focus = -1; if (sh->aura_len) { sh->aura_len--; sh->aura_msg[0] = 0; sh->aura_state = 0; aura_refresh(sh); } return 1;
+    case KEY_SPACE: return 1;
+    case KEY_ENTER:
+        if (sh->fx.focus >= 0) return 0;
+        if (!e->repeat) aura_submit(sh);
+        return 1;
+    case KEY_ESC:
+        if (sh->aura_len) { sh->aura_len = 0; sh->aura_msg[0] = 0; sh->aura_state = 0; aura_refresh(sh); return 1; }
+        return 0;
+    default: return 0;
+    }
+}
+
 static void build_clients(struct shell *sh);
 
 static void build_scaled(struct shell *sh)
@@ -779,6 +882,7 @@ static void build_scaled(struct shell *sh)
         else if (sh->screen == SCR_SPACES) spaces_scaled(sh, &g, opt);
         else if (sh->screen == SCR_SETTINGS) settings_flow(sh, &g, opt);
         else if (sh->screen == SCR_PAGES) pages_flow(sh, &g, opt);
+        else if (sh->screen == SCR_AURA) aura_flow(sh, &g, opt);
         else index_scaled(sh, &g, opt);
         if (sh->lay_bottom <= g.bottom) break;
     }
@@ -848,6 +952,7 @@ static void build(struct shell *sh)
     else if (sh->screen == SCR_SPACES) build_spaces(sh);
     else if (sh->screen == SCR_SETTINGS) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; settings_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; settings_flow(sh, &g, 0); } }
     else if (sh->screen == SCR_PAGES) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; pages_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; pages_flow(sh, &g, 0); } }
+    else if (sh->screen == SCR_AURA) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; aura_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; aura_flow(sh, &g, 0); } }
     else build_index(sh);
     build_clients(sh);
     build_dock(sh);
@@ -1020,6 +1125,10 @@ static void activate(struct shell *sh, uint32_t id)
     case SID_DOCK_INDEX: case SID_APP_INDEX: shell_go(sh, SCR_INDEX); break;
     case SID_APP_SETTINGS: shell_go(sh, SCR_SETTINGS); break;
     case SID_APP_PAGES: shell_go(sh, SCR_PAGES); break;
+    case SID_APP_AURA: shell_go(sh, SCR_AURA); break;
+    case SID_AURA_HOME: shell_go(sh, SCR_HOME); break;
+    case SID_AURA_RUN: aura_submit(sh); break;
+    case SID_AURA_CLEAR: sh->aura_len = 0; sh->aura_in[0] = 0; sh->aura_msg[0] = 0; sh->aura_state = 0; aura_refresh(sh); build(sh); break;
     case SID_PAGES_HOME: shell_go(sh, SCR_HOME); break;
     case SID_SET_UP: if (sh->set_first) sh->set_first--; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_DOWN); if (k < 0) k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_SET_DOWN: if (sh->set_first + 1 < SHELL_SET_ROWS) sh->set_first++; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
@@ -1066,7 +1175,7 @@ static int index_input(struct shell *sh, const struct input_event *e)
 int shell_handle(struct shell *sh, const struct input_event *e)
 {
     uint32_t r = SHELL_NONE;
-    if (index_input(sh, e)) { build(sh); sh->dirty = 1; return 1; }   /* rebuild: hit testing must see the layout the user sees */
+    if (index_input(sh, e) || aura_input(sh, e)) { build(sh); sh->dirty = 1; return 1; }   /* rebuild: hit testing must see the layout the user sees */
     switch (e->kind) {
     case IN_KEY_DOWN:
         r = ui_key(&sh->fx, e);

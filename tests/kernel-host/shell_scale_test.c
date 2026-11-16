@@ -285,7 +285,7 @@ int main(void)
         shell_set_contrast(&sh, 1);
         int32_t home = shell_find(&sh, SID_DOCK_HOME);
         CHECK("high contrast: the active dock item has a non-colour marker, a 2 px border and inverted colours", sh.w[home].active && sh.w[home].marker && sh.w[home].border_w >= 2 && sh.w[home].active_fill != sh.w[home].fill);
-        CHECK("high contrast: an enabled button has a 2 px border, a disabled one 1 px", sh.w[shell_find(&sh, SID_CHANGE_SPACE)].border_w == 2 && sh.w[shell_find(&sh, SID_APP_AURA)].border_w == 1);
+        CHECK("high contrast: an enabled button has a 2 px border, a disabled one 1 px", sh.w[shell_find(&sh, SID_CHANGE_SPACE)].border_w == 2 && sh.w[shell_find(&sh, SID_DOCK_BACK)].border_w == 1);
         CHECK("high contrast: surfaces are opaque white and the focus ring is a strong colour", sh.w[shell_find(&sh, 0xF300u)].fill == 0x00FFFFFFu && ratio(sh.w[shell_find(&sh, SID_CHANGE_SPACE)].ink, 0x00FFFFFFu) >= 15);
         key(KEY_TAB, 0);
         surf(); shell_draw(&sh, &S);
@@ -294,9 +294,9 @@ int main(void)
         CHECK("high contrast: a 3 px focus ring is drawn above the focused control in the strong colour", ring);
         CHECK("high contrast: the focus ring contrasts with the canvas by at least 7:1", ratio(0x000000E0u, 0x00FFFFFFu) >= 7.0);
         CHECK("high contrast: the canvas is drawn white", px(5, 700) == 0x00FFFFFFu);
-        int32_t pg = shell_find(&sh, SID_APP_AURA);
+        int32_t pg = shell_find(&sh, SID_DOCK_BACK);
         surf(); shell_draw(&sh, &S);
-        CHECK("high contrast: the disabled Aura row keeps a readable label colour (7:1) and a thinner border", ratio(sh.w[pg].disabled_ink, sh.w[pg].fill) >= 7.0 && sh.w[pg].border_w < sh.w[shell_find(&sh, SID_APP_SPACES)].border_w);
+        CHECK("high contrast: the disabled Back button keeps a readable label colour (7:1) and a thinner border", ratio(sh.w[pg].disabled_ink, sh.w[pg].fill) >= 7.0 && sh.w[pg].border_w < sh.w[shell_find(&sh, SID_APP_SPACES)].border_w);
         shell_set_contrast(&sh, 0);
         CHECK("switching high contrast off restores the standard palette", sh.w[shell_find(&sh, 0xF300u)].fill == UI_COL_SURFACE && sh.w[shell_find(&sh, SID_DOCK_HOME)].marker == 0);
     }
