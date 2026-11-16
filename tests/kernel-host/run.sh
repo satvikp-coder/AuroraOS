@@ -47,3 +47,4 @@ cc $CFLAGS -o "$OUT/index_model_test" "$ROOT/tests/kernel-host/index_model_test.
 "$OUT/broker_policy_test"
 "$OUT/aura_exec_test"
 "$OUT/index_model_test"
+python3 "$ROOT/tests/aura-eval/selftest.py"
