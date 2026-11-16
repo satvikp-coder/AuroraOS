@@ -22,6 +22,7 @@ cc $CFLAGS -o "$OUT/shell_scale_test" "$ROOT/tests/kernel-host/shell_scale_test.
 cc $CFLAGS -o "$OUT/shell_settings_test" "$ROOT/tests/kernel-host/shell_settings_test.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/ui_proto.c" "$ROOT/kernel/ui/index_model.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c"
 cc $CFLAGS -o "$OUT/ui_proto_test" "$ROOT/tests/kernel-host/ui_proto_test.c" "$ROOT/kernel/ui/ui_proto.c"
 cc $CFLAGS -o "$OUT/aura_cmd_test" "$ROOT/tests/kernel-host/aura_cmd_test.c" "$ROOT/kernel/ui/aura_cmd.c"
+cc $CFLAGS -o "$OUT/broker_policy_test" "$ROOT/tests/kernel-host/broker_policy_test.c" "$ROOT/kernel/ui/broker_policy.c" "$ROOT/kernel/ui/aura_cmd.c"
 cc $CFLAGS -o "$OUT/index_model_test" "$ROOT/tests/kernel-host/index_model_test.c" "$ROOT/kernel/ui/index_model.c"
 "$OUT/fdt_pmm_test"
 "$OUT/policy_test"
@@ -38,4 +39,5 @@ cc $CFLAGS -o "$OUT/index_model_test" "$ROOT/tests/kernel-host/index_model_test.
 "$OUT/shell_settings_test"
 "$OUT/ui_proto_test"
 "$OUT/aura_cmd_test"
+"$OUT/broker_policy_test"
 "$OUT/index_model_test"
