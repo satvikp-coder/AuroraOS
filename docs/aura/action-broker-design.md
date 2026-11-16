@@ -1,6 +1,6 @@
 # Native Action Broker: architecture (issue #10 and #11 dependency)
 
-Status: **design only. Nothing here is implemented.** It describes the smallest secure native service that can take the typed intents of `quick-commands.md` and turn them into effects, and it says plainly which parts cannot exist until native **Passport** and **Trail** (issue #11) do. Where a dependency is missing the answer is "unavailable", never a weaker improvised substitute. Written against `main` at `6c76294`. QEMU only; nothing here says anything about real hardware.
+Status: **the pure policy function (`kernel/ui/broker_policy.c`, `bp_decide`) is implemented and host-tested (Cycle 18); everything else here is still design.** The policy executes nothing; no executor, review screen, Passport or Trail exists. It describes the smallest secure native service that can take the typed intents of `quick-commands.md` and turn them into effects, and it says plainly which parts cannot exist until native **Passport** and **Trail** (issue #11) do. Where a dependency is missing the answer is "unavailable", never a weaker improvised substitute. Written against `main` at `6c76294`. QEMU only; nothing here says anything about real hardware.
 
 ## 1. Principles (these come from DESIGN.md and the existing code, not from this document)
 
