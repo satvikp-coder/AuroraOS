@@ -41,6 +41,8 @@ size_t trail_encode(const struct trail *t, uint8_t *buf, size_t cap)
     return o + 4;
 }
 
+uint64_t trail_head(const struct trail *t) { return t->n ? t->r[t->n - 1].chain : t->base_chain; }
+
 int trail_verify(const struct trail *t)
 {
     uint64_t prev = t->base_chain; uint32_t seq = 0;
@@ -84,7 +86,7 @@ int trail_decode(struct trail *t, const uint8_t *buf, size_t len)
     if (buf[0] != 'T' || buf[1] != 'R' || buf[2] != 'L' || buf[3] != '1') return TR_E_FORMAT;
     if (buf[4] != TR_VERSION) return TR_E_VERSION;
     uint32_t n = buf[5];
-    if (n > TR_MAX || buf[6] || buf[7]) return TR_E_FORMAT;
+    if (n > TR_MAX || buf[6] || buf[7] || r32(buf + 8) == 0) return TR_E_FORMAT;       /* next_seq is at least 1 */
     if (len != 24 + (size_t)n * TR_REC_BYTES + 4) return TR_E_FORMAT;     /* a torn or padded image is not guessed at */
     int whole = r32(buf + 24 + (size_t)n * TR_REC_BYTES) == fnv32(buf, 24 + (size_t)n * TR_REC_BYTES);
     struct trail_rec tmp[TR_MAX]; uint32_t good = 0;
@@ -95,6 +97,7 @@ int trail_decode(struct trail *t, const uint8_t *buf, size_t len)
         r.seq = r32(e); r.pid = r32(e + 4); r.principal = r32(e + 8); r.kind = e[12]; r.target = e[13]; r.risk = e[14]; r.decision = e[15]; r.reason = e[16]; r.state = e[17];
         r.arg = (int32_t)r32(e + 20); r.uptime_ms = r32(e + 24); r.chain = r64(e + 32);
         if (e[18] || e[19] || r32(e + 28) || !fields_ok(&r)) break;
+        if (r.seq == 0 || r.seq == 0xFFFFFFFFu) break;                         /* sequence 0 is never issued and 0xFFFFFFFF would wrap next_seq to 0 */
         if (i && r.seq != tmp[i - 1].seq + 1) break;
         if (r.chain != chain_of(prev, &r)) break;
         tmp[good++] = r; prev = r.chain;

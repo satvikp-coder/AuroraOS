@@ -87,6 +87,18 @@ int main(void)
       memcpy(c, img, n); c[0] = 'X'; CHECK("a wrong magic is refused", trail_decode(&Q, c, n) == TR_E_FORMAT);
       CHECK("NULL and tiny inputs are refused", trail_decode(&Q, 0, 0) == TR_E_FORMAT && trail_decode(&Q, img, 5) == TR_E_FORMAT); }
 
+    /* ---- sequence limits and the anchor head ---- */
+    reset(); { struct trail_rec b = mk(1, 1, 1); trail_append(&T, &STORE, &b); trail_append(&T, &STORE, &b);
+      CHECK("trail_head is the newest record's chain value, and base_chain when empty", trail_head(&T) == T.r[1].chain && ({ struct trail E; trail_init(&E); trail_head(&E) == 0; }));
+      uint8_t img[TR_IMAGE_MAX]; size_t n = trail_encode(&T, img, sizeof img); struct trail Q;
+      uint8_t c[TR_IMAGE_MAX]; memcpy(c, img, n); c[24 + 0] = 0; c[24 + 1] = 0; c[24 + 2] = 0; c[24 + 3] = 0;
+      CHECK("decode_rejects_seq_zero: a record with sequence 0 is damage (prefix empty, unhealthy)", trail_decode(&Q, c, n) != TR_OK && Q.n == 0 && !Q.healthy);
+      memcpy(c, img, n); c[24] = 0xFF; c[25] = 0xFF; c[26] = 0xFF; c[27] = 0xFF;
+      CHECK("decode_rejects_seq_max: sequence 0xFFFFFFFF (which would wrap next_seq to 0) is damage", trail_decode(&Q, c, n) != TR_OK && Q.healthy == 0);
+      memcpy(c, img, n); c[8] = c[9] = c[10] = c[11] = 0;
+      CHECK("a header next_seq of 0 is refused outright", trail_decode(&Q, c, n) == TR_E_FORMAT && Q.n == 0 && !Q.healthy);
+      T.next_seq = 0xFFFFFFFFu; { struct trail_rec x = mk(1, 1, 1); CHECK("append refuses to issue the last sequence number (no wrap)", trail_append(&T, &STORE, &x) == TR_E_ARG); } }
+
     /* ---- bounded ring: eviction keeps the retained records verifiable ---- */
     reset();
     for (int i = 0; i < TR_MAX + 20; i++) { struct trail_rec b = mk((uint32_t)(i % 8), (uint8_t)(i % 5), (uint8_t)(i % 7)); b.arg = i; if (trail_append(&T, &STORE, &b) != TR_OK) { CHECK("append within a long run", 0); break; } }

@@ -11,6 +11,11 @@
  * Fail-closed rule for callers: an action that must be recorded (S1 and above) must call trail_append() FIRST and may run only if it returns TR_OK. If the
  * store fails the record is NOT committed in memory either, so memory and disk never disagree about what happened.
  *
+ * The checksum and the chain use unkeyed FNV-1a: they detect accidental corruption and editing of a record in place, NOT a deliberate rewrite (anyone who can write
+ * the store can recompute every hash) or a rollback to an older complete image. The store must be kernel-owned, and a caller that needs rollback detection must keep
+ * trail_head() and next_seq in an anchor outside the image.
+ * Record kinds 12..14 are reserved for the ledger itself (grant, revoke, boot marker).
+ *
  * What it is not (yet): nothing writes to it, it is not wired to AuroraFS, and there is NO Undo: a receipt is evidence of what happened, not a way to
  * reverse it. Undo needs a real reversible operation plus the prior value, neither of which exists.
  */
@@ -49,6 +54,8 @@ struct tr_store { int (*write)(const uint8_t *buf, size_t len); int (*read)(uint
 void trail_init(struct trail *t);
 /* Validate the caller's fields, assign seq and chain, persist the WHOLE new image through the store, and only then commit in memory. */
 int  trail_append(struct trail *t, const struct tr_store *st, const struct trail_rec *in);
+/* The chain value of the newest record (base_chain when empty): store it OUTSIDE the image (an anchor) to detect a rollback or a rewrite. */
+uint64_t trail_head(const struct trail *t);
 int  trail_verify(const struct trail *t);                                  /* TR_OK, or TR_E_CHAIN / TR_E_FORMAT if any retained record does not verify */
 size_t trail_encode(const struct trail *t, uint8_t *buf, size_t cap);
 /* Decode an image. On damage the longest verified prefix is kept (recovered), the rest counted as lost, healthy = 0 and TR_E_CHAIN/TR_E_FORMAT is returned;

@@ -67,22 +67,43 @@ int main(void)
     /* ---- audit ring ---- */
     passport_init(&P);
     passport_grant(&P, &PROC, 0x1003, 0, PP_NAVIGATE); passport_grant(&P, &KERNEL, 0x1003, 0, PP_NAVIGATE); passport_check(&P, 0x9999, 0, PP_NAVIGATE); passport_revoke(&P, &KERNEL, 0x1003, PP_NAVIGATE);
-    { const struct pp_audit_rec *r0 = passport_audit_at(&P, 0), *r1 = passport_audit_at(&P, 1), *r2 = passport_audit_at(&P, 2), *r3 = passport_audit_at(&P, 3);
-      CHECK("every grant, refused grant, denied check and revoke is audited in order with sequence numbers", passport_audit_count(&P) == 4 && r0 && r1 && r2 && r3 && r0->seq == 0 && r3->seq == 3 && r0->op == PP_OP_GRANT && r0->result == PP_E_ACTOR && r0->actor_kind == PP_ACTOR_PROCESS && r0->actor_pid == 3 &&
-            r1->result == PP_OK && r2->op == PP_OP_CHECK_DENY && r3->op == PP_OP_REVOKE && r3->result == PP_OK);
-      CHECK("an out-of-range audit index returns NULL", passport_audit_at(&P, 4) == 0 && passport_audit_at(&P, 1000) == 0); }
-    for (int i = 0; i < 100; i++) passport_check(&P, 0x5000 + (uint32_t)i, 0, PP_NAVIGATE);
-    CHECK("the audit ring is bounded and keeps the newest PP_AUDIT records", passport_audit_count(&P) == PP_AUDIT && passport_audit_at(&P, PP_AUDIT - 1)->seq == P.seq - 1 && passport_audit_at(&P, 0)->seq == P.seq - PP_AUDIT);
-    { uint32_t before = P.seq; passport_check(&P, 0x1003, 0, PP_NAVIGATE); passport_init(&P); passport_grant(&P, &KERNEL, 0x1003, 0, PP_NAVIGATE); uint32_t s0 = P.seq; passport_check(&P, 0x1003, 0, PP_NAVIGATE); (void)before;
-      CHECK("an ALLOWED check does not flood the audit ring", P.seq == s0); }
+    { const struct pp_audit_rec *r0 = passport_audit_at(&P, 0), *r1 = passport_audit_at(&P, 1), *r2 = passport_audit_at(&P, 2), *d0 = passport_denial_at(&P, 0);
+      CHECK("every grant, refused grant and revoke is in the MUTATION ring in order with sequence numbers", passport_audit_count(&P) == 3 && r0 && r1 && r2 && r0->seq == 0 && r2->seq == 2 && r0->op == PP_OP_GRANT && r0->result == PP_E_ACTOR && r0->actor_kind == PP_ACTOR_PROCESS && r0->actor_pid == 3 &&
+            r1->result == PP_OK && r2->op == PP_OP_REVOKE && r2->result == PP_OK);
+      CHECK("the denied check is in the separate DENIAL ring", passport_denial_count(&P) == 1 && d0 && d0->op == PP_OP_CHECK_DENY && d0->principal == 0x9999);
+      CHECK("an out-of-range audit index returns NULL in both rings", passport_audit_at(&P, 3) == 0 && passport_audit_at(&P, 1000) == 0 && passport_denial_at(&P, 1) == 0); }
+    for (int i = 0; i < 10000; i++) passport_check(&P, 0x5000 + (uint32_t)i, 0, PP_NAVIGATE);
+    CHECK("the denial ring is bounded and keeps the newest PP_AUDIT records", passport_denial_count(&P) == PP_AUDIT && passport_denial_at(&P, PP_AUDIT - 1)->seq == P.dseq - 1 && passport_denial_at(&P, 0)->seq == P.dseq - PP_AUDIT);
+    CHECK("10,000 denials cannot evict a single grant or revoke record (the mutation ring is untouched)", passport_audit_count(&P) == 3 && passport_audit_at(&P, 0)->op == PP_OP_GRANT && passport_audit_at(&P, 0)->result == PP_E_ACTOR && passport_audit_at(&P, 2)->op == PP_OP_REVOKE);
+    { passport_init(&P); passport_grant(&P, &KERNEL, 0x1003, 0, PP_NAVIGATE); uint32_t s0 = P.seq, d0 = P.dseq; passport_check(&P, 0x1003, 0, PP_NAVIGATE); passport_peek(&P, 0x7777, 0, PP_NAVIGATE);
+      CHECK("an ALLOWED check does not flood either ring, and passport_peek never audits (even a denial)", P.seq == s0 && P.dseq == d0); }
+    for (uint32_t i = 0; i < PP_AUDIT + 5; i++) { struct passport Z; passport_init(&Z); for (uint32_t k = 0; k <= i; k++) passport_revoke(&Z, &KERNEL, 5, PP_NAVIGATE); CHECK("the mutation ring count is min(records, PP_AUDIT)", passport_audit_count(&Z) == (i + 1 < PP_AUDIT ? i + 1 : PP_AUDIT)); if (i > 3) break; }
+
+    /* ---- quota per principal, instance cleanup, the new permission ---- */
+    passport_init(&P);
+    { int q = 0; for (uint8_t perm = 1; perm < PP_COUNT; perm++) { int rc = passport_grant(&P, &KERNEL, 0x6001, 0, perm); if (rc == PP_OK) q++; }
+      for (uint64_t g = 1; g <= 10; g++) { int rc = passport_grant(&P, &KERNEL, 0x6001, g, PP_NAVIGATE); if (rc == PP_OK) q++; else if (rc != PP_E_QUOTA) q = -1000; }
+      CHECK("one principal can hold at most PP_PER_PRINCIPAL grants (the 9th is QUOTA, not FULL)", q == PP_PER_PRINCIPAL);
+      CHECK("another principal is unaffected by that quota", passport_grant(&P, &KERNEL, 0x6002, 0, PP_NAVIGATE) == PP_OK); }
+    passport_init(&P); passport_grant(&P, &KERNEL, 0x6003, 91, PP_NAVIGATE); passport_grant(&P, &KERNEL, 0x6004, 91, PP_TIMER); passport_grant(&P, &KERNEL, 0x6003, 92, PP_NAVIGATE); passport_grant(&P, &KERNEL, 0x6005, 0, PP_NAVIGATE);
+    CHECK("PP_TIMER is a valid permission", passport_peek(&P, 0x6004, 91, PP_TIMER));
+    CHECK("passport_drop_instance drops exactly that generation's grants (2), not others, not gen-free ones", passport_drop_instance(&P, 91) == 2 && !passport_peek(&P, 0x6003, 91, PP_NAVIGATE) && !passport_peek(&P, 0x6004, 91, PP_TIMER) && passport_peek(&P, 0x6003, 92, PP_NAVIGATE) && passport_peek(&P, 0x6005, 0, PP_NAVIGATE));
+    CHECK("drop_instance(0) and a NULL table do nothing", passport_drop_instance(&P, 0) == 0 && passport_drop_instance(0, 5) == 0);
 
     /* ---- the image: encode/decode, restart, corruption ---- */
-    passport_init(&P); passport_grant(&P, &KERNEL, 0x1001, 0, PP_NAVIGATE); passport_grant(&P, &KERNEL, 0x1002, 55, PP_SETTINGS_PROPOSE); passport_grant(&P, &KERNEL, 0x1002, 0xFFFFFFFFFFFFFFFFULL, PP_FILES_WRITE);
+    passport_init(&P); passport_grant(&P, &KERNEL, 0x1001, 0, PP_NAVIGATE); passport_grant(&P, &KERNEL, 0x1002, 0, PP_SETTINGS_PROPOSE); passport_grant(&P, &KERNEL, 0x1002, 0, PP_FILES_WRITE); passport_grant(&P, &KERNEL, 0x1003, 55, PP_NAVIGATE); passport_grant(&P, &KERNEL, 0x1003, 0xFFFFFFFFFFFFFFFFULL, PP_FILES_WRITE);
     uint8_t img[PP_IMAGE_MAX]; size_t n = passport_encode(&P, img, sizeof img);
-    CHECK("encode produces header + 3 records + checksum", n == 12 + 3 * 16 + 4);
+    CHECK("encode stores ONLY the 3 generation-free grants (header + 3 records + checksum); the 2 instance-bound grants are RAM-only", n == 12 + 3 * 16 + 4);
     CHECK("encode refuses a buffer that is too small", passport_encode(&P, img, n - 1) == 0 && passport_encode(&P, 0, 100) == 0);
-    { struct passport Q; CHECK("decode restores exactly the same permissions (restart)", passport_decode(&Q, img, n) == PP_OK && Q.loaded_ok && passport_check(&Q, 0x1001, 0, PP_NAVIGATE) && passport_check(&Q, 0x1002, 55, PP_SETTINGS_PROPOSE) && !passport_check(&Q, 0x1002, 56, PP_SETTINGS_PROPOSE) && passport_check(&Q, 0x1002, 0xFFFFFFFFFFFFFFFFULL, PP_FILES_WRITE) && !passport_check(&Q, 0x1001, 0, PP_FILES_DELETE));
+    { struct passport Q; CHECK("decode restores exactly the same permissions (restart)", passport_decode(&Q, img, n) == PP_OK && Q.loaded_ok && passport_check(&Q, 0x1001, 0, PP_NAVIGATE) && passport_check(&Q, 0x1002, 0, PP_SETTINGS_PROPOSE) && passport_check(&Q, 0x1002, 0, PP_FILES_WRITE) && !passport_check(&Q, 0x1001, 0, PP_FILES_DELETE) && !passport_check(&Q, 0x1003, 55, PP_NAVIGATE) && !passport_check(&Q, 0x1003, 0xFFFFFFFFFFFFFFFFULL, PP_FILES_WRITE));
       struct passport Q2; passport_decode(&Q2, img, n); uint8_t re[PP_IMAGE_MAX]; size_t m = passport_encode(&Q2, re, sizeof re); CHECK("encode(decode(x)) is byte-identical", m == n && memcmp(re, img, n) == 0); }
+    { /* a well-formed image with an instance-bound record and a valid checksum is refused: process generations restart at 1 every boot */
+      uint8_t c[PP_IMAGE_MAX]; memcpy(c, img, n); c[12 + 4] = 5;                       /* record 0: generation low byte = 5 */
+      uint32_t h = 2166136261u; for (size_t i = 0; i < n - 4; i++) { h ^= c[i]; h *= 16777619u; } c[n - 4] = (uint8_t)h; c[n - 3] = (uint8_t)(h >> 8); c[n - 2] = (uint8_t)(h >> 16); c[n - 1] = (uint8_t)(h >> 24);
+      struct passport Q; CHECK("an image containing a generation-bound grant (valid checksum) is rejected and fails closed", passport_decode(&Q, c, n) == PP_E_FORMAT && !Q.loaded_ok && !passport_peek(&Q, 0x1001, 0, PP_NAVIGATE)); }
+    { /* a boot-1 grant bound to generation 5 must not exist on boot 2, where an unrelated process may also be generation 5 */
+      struct passport A; passport_init(&A); passport_grant(&A, &KERNEL, 406, 5, PP_FILES_DELETE); uint8_t b2[PP_IMAGE_MAX]; size_t m2 = passport_encode(&A, b2, sizeof b2); struct passport B2; passport_decode(&B2, b2, m2);
+      CHECK("bound_grants_never_persist: after a restart no process (whatever its generation) inherits an instance grant", m2 == 16 && !passport_peek(&B2, 406, 5, PP_FILES_DELETE) && !passport_peek(&B2, 406, 0, PP_FILES_DELETE)); }
     { int bad = 0;
       for (size_t i = 0; i < n; i++) for (int bit = 0; bit < 8; bit++) { uint8_t c[PP_IMAGE_MAX]; memcpy(c, img, n); c[i] ^= (uint8_t)(1 << bit); struct passport Q; passport_init(&Q); passport_grant(&Q, &KERNEL, 1, 0, PP_NAVIGATE); int rc = passport_decode(&Q, c, n);
           int any = 0; for (int k = 0; k < PP_MAX_GRANTS; k++) if (Q.g[k].used) any = 1;
@@ -120,19 +141,20 @@ int main(void)
         passport_init(&P);
         struct { uint32_t pr; uint64_t gen; uint8_t perm; int on; } model[64]; int mn = 0; int bad = 0;
         for (int it = 0; it < 30000; it++) {
-            uint32_t pr = 0x4000 + (uint32_t)(rnd() % 6); uint8_t perm = (uint8_t)(1 + rnd() % (PP_COUNT - 1)); uint64_t gen = (rnd() % 3) ? 0 : 1 + rnd() % 3;
+            uint32_t pr = 0x4000 + (uint32_t)(rnd() % 6); uint8_t perm = (uint8_t)(1 + rnd() % (PP_COUNT - 1)); uint64_t gen = (rnd() % 3) ? 0 : 1 + rnd() % 3;   /* at most 6 principals x 7 perms x 4 gens */
             switch (rnd() % 4) {
             case 0: { int rc = passport_grant(&P, &KERNEL, pr, gen, perm);
                       int found = -1; for (int i = 0; i < mn; i++) if (model[i].on && model[i].pr == pr && model[i].perm == perm && model[i].gen == gen) found = i;
                       int live = 0; for (int i = 0; i < mn; i++) if (model[i].on) live++;
-                      if (found >= 0) { if (rc != PP_OK) bad++; } else if (live >= PP_MAX_GRANTS) { if (rc != PP_E_FULL) bad++; } else { if (rc != PP_OK) bad++; else { int s = -1; for (int i = 0; i < mn; i++) if (!model[i].on) { s = i; break; } if (s < 0) s = mn++; model[s].pr = pr; model[s].gen = gen; model[s].perm = perm; model[s].on = 1; } }
+                      int held = 0; for (int i = 0; i < mn; i++) if (model[i].on && model[i].pr == pr) held++;
+                      if (found >= 0) { if (rc != PP_OK) bad++; } else if (held >= PP_PER_PRINCIPAL) { if (rc != PP_E_QUOTA) bad++; } else if (live >= PP_MAX_GRANTS) { if (rc != PP_E_FULL) bad++; } else { if (rc != PP_OK) bad++; else { int s = -1; for (int i = 0; i < mn; i++) if (!model[i].on) { s = i; break; } if (s < 0) s = mn++; model[s].pr = pr; model[s].gen = gen; model[s].perm = perm; model[s].on = 1; } }
                       break; }
             case 1: { int rc = passport_revoke(&P, &KERNEL, pr, perm); int n2 = 0; for (int i = 0; i < mn; i++) if (model[i].on && model[i].pr == pr && model[i].perm == perm) { model[i].on = 0; n2++; } if ((rc == PP_OK) != (n2 > 0)) bad++; break; }
             case 2: { int rc = passport_grant(&P, &PROC, pr, gen, perm); if (rc != PP_E_ACTOR) bad++; break; }
             default: { uint64_t g = rnd() % 5; int want = 0; for (int i = 0; i < mn; i++) if (model[i].on && model[i].pr == pr && model[i].perm == perm && (model[i].gen == 0 || (g != 0 && model[i].gen == g))) want = 1;
                        { if (passport_check(&P, pr, g, perm) != want) bad++; } break; }
             }
-            if (it % 500 == 0) { uint8_t b[PP_IMAGE_MAX]; size_t m = passport_encode(&P, b, sizeof b); struct passport Q; if (!m || passport_decode(&Q, b, m) != PP_OK) bad++; else for (int k = 0; k < 8; k++) { uint32_t p2 = 0x4000 + (uint32_t)(rnd() % 6); uint8_t pm = (uint8_t)(1 + rnd() % (PP_COUNT - 1)); uint64_t g = rnd() % 4; if (passport_check(&Q, p2, g, pm) != passport_check(&P, p2, g, pm)) bad++; } }
+            if (it % 500 == 0) { uint8_t b[PP_IMAGE_MAX]; size_t m = passport_encode(&P, b, sizeof b); struct passport Q; if (!m || passport_decode(&Q, b, m) != PP_OK) bad++; else for (int k = 0; k < 8; k++) { uint32_t p2 = 0x4000 + (uint32_t)(rnd() % 6); uint8_t pm = (uint8_t)(1 + rnd() % (PP_COUNT - 1)); uint64_t g = 0; if (passport_check(&Q, p2, g, pm) != passport_check(&P, p2, g, pm)) bad++; } }
         }
         CHECK("30,000 random grant/revoke/refused-grant/check steps (with periodic save-restart) agree with an independent model", bad == 0);
     }
