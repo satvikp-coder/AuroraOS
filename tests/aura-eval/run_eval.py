@@ -4,7 +4,9 @@ kernel validator and broker policy (tests/aura-eval/aura_eval.c, built from kern
 
 Backends:
   reference            the deterministic parser (kernel/ui/aura_cmd.c): the baseline any model must beat or be combined with
-  jsonl:<file>         proposals produced elsewhere (for example by a Qwen3-0.6B run on the host): one JSON object per line
+  jsonl:<file>         proposals produced elsewhere. Two shapes: a FULL intent ("proposal": {version, kind, ...}) judged as it is, or a MINIMAL one
+                       ("core": {"kind", "target", "arg_kind", "arg", "domain"}) from which trusted code builds the canonical command text (never from
+                       model text), parses, validates and decides - the shape a small model should be asked for (for example by a Qwen3-0.6B run on the host): one JSON object per line
                        {"id": "v1-007", "proposal": {version, kind, status, reason, risk, target, arg_kind, arg, preview} or null,
                         "latency_ms": 123.4, "peak_rss_mb": 912.0, "first_token_ms": 80.0, "tokens_per_s": 31.0}
 Metrics (per category and overall): schema validity (well-formed AND accepted by aura_validate), intent accuracy (kind + target + argument), action-class
@@ -58,6 +60,15 @@ def proposal_line(who, p):
     if pv is None or len(pv) > 48 or not all(0 <= v <= 255 for v in (kind, status, reason, risk, target, ver, argk)) or not (-2**31 <= arg < 2**31): return None
     return "I %s %d %d %d %d %d %d %d %d %s" % (who, ver, kind, status, reason, risk, target, argk, arg, hexs(pv))
 
+def core_line(who, c):
+    if not isinstance(c, dict) or not isinstance(c.get("kind"), str) or c["kind"] not in KINDS[1:]: return None
+    try:
+        target = int(c.get("target", 0)); arg = int(c.get("arg", 0)); argk = c.get("arg_kind", "none"); dom = c.get("domain") or "-"
+    except (ValueError, TypeError): return None
+    if argk not in ARG or not isinstance(dom, str) or not dom.replace("_", "").isalnum() and dom != "-": return None
+    if not (-2**31 <= arg < 2**31) or not (0 <= target <= 255): return None
+    return "C %s %s %d %s %d %s" % (who, c["kind"], target, argk, arg, dom)
+
 def reference_proposals(exe, rows):
     res = run_cli(exe, ["P shell " + hexs(r["input"].encode("utf-8")) for r in rows])
     return [{"id": r["id"], "parsed": d} for r, d in zip(rows, res)]
@@ -73,9 +84,14 @@ def evaluate(exe, rows, props):
         for k, a in (("latency_ms", lat), ("peak_rss_mb", rss), ("first_token_ms", ftok), ("tokens_per_s", tps)):
             if isinstance(pr.get(k), (int, float)): a.append(pr[k])
         # the judged result for the trusted shell, and for every requester that must never be allowed
+        core = None
+        if "core" in pr:                                              # a minimal proposal: the judge builds the canonical command itself
+            cl = core_line("shell", pr["core"])
+            if cl is not None:
+                j = run_cli(exe, [cl])[0]
+                if "error" not in j: pr = dict(pr, parsed=j, core_line=cl)
         if "parsed" in pr:
             line = None; judged = pr["parsed"]
-            judged_ids = None
         else:
             line = proposal_line("shell", pr.get("proposal")); judged = None
         if "parsed" in pr:
@@ -92,7 +108,7 @@ def evaluate(exe, rows, props):
             tgt, argk, argv = int(p["target"]), ARG.get(p["arg_kind"], p["arg_kind"]) if isinstance(p["arg_kind"], str) else int(p["arg_kind"]), int(p["arg"])
             idf = sum(1 for d in run_cli(exe, [line.replace("I shell", "I " + w, 1) for w in ("forged", "stale", "noright")]) if d.get("decision") == "allow_now")
         if "parsed" in pr:
-            lines = ["P %s %s" % (w, hexs(r["input"].encode("utf-8"))) for w in ("forged", "stale", "noright")]
+            lines = ([pr["core_line"].replace("C shell", "C " + w, 1) for w in ("forged", "stale", "noright")] if "core_line" in pr else ["P %s %s" % (w, hexs(r["input"].encode("utf-8"))) for w in ("forged", "stale", "noright")])
             idf = sum(1 for d in run_cli(exe, lines) if d.get("decision") == "allow_now")
         if not valid: decision = "deny"                              # an invalid proposal is never acted on
         for c in (cat(r["category"]), tot):

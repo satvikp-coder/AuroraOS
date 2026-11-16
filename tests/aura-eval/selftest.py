@@ -70,6 +70,21 @@ def main():
         t = R.evaluate(exe, held, timing)
         check("latency and memory reported by a backend are aggregated (median/p95/peak)", t["latency_ms_median"] is not None and t["latency_ms_p95"] >= t["latency_ms_median"] and t["peak_rss_mb"] == 700.0)
 
+        # ---- minimal ("core") proposals: trusted code builds the canonical command ----
+        cj = lambda who, c: R.run_cli(exe, [R.core_line(who, c)])[0]
+        check("a core proposal open_screen/3 is ALLOWED for the shell and parses to the Settings screen", cj("shell", {"kind": "open_screen", "target": 3}).get("decision") == "allow_now" and cj("shell", {"kind": "open_screen", "target": 3}).get("target") == "3")
+        check("... but never for a forged, stale or right-less requester", all(cj(w, {"kind": "open_screen", "target": 3}).get("decision") != "allow_now" for w in ("forged", "stale", "noright")))
+        check("a core set_setting text size 500 is rejected by the parser's range check (nothing to do)", cj("shell", {"kind": "set_setting", "target": 2, "arg_kind": "abs", "arg": 500}).get("decision") == "deny")
+        check("a core 'destructive' is unavailable, never allowed", cj("shell", {"kind": "destructive"}).get("decision") == "unavailable")
+        check("inexpressible core proposals (unknown kind, bad target, unknown domain, wrong types) are failed proposals", R.core_line("shell", {"kind": "format_disk"}) is None and R.core_line("shell", {"kind": "open_screen", "target": "x"}) is None and
+              R.run_cli(exe, [R.core_line("shell", {"kind": "open_screen", "target": 9})])[0].get("error") == "inexpressible" and R.run_cli(exe, [R.core_line("shell", {"kind": "unsupported", "domain": "weather"})])[0].get("error") == "inexpressible")
+        check("hostile text inside a core proposal cannot reach the command (a domain with shell characters is refused)", R.core_line("shell", {"kind": "unsupported", "domain": "timer; rm -rf /"}) is None)
+        oracle = {}
+        for r in held:
+            if r["expect_kind"] in ("open_screen", "select_space", "set_setting", "destructive", "clarify", "unknown", "refused") and r["expect_status"] != "rejected" or r["expect_kind"] in ("destructive", "clarify", "unknown", "refused"):
+                oracle[r["id"]] = {"core": {"kind": r["expect_kind"], "target": r["expect_target"] or 0, "arg_kind": r["expect_arg_kind"], "arg": r["expect_arg"] or 0}}
+        eo = R.evaluate(exe, [r for r in held if r["id"] in oracle], oracle)["per"]["ALL"]
+        check("an oracle core proposer built from the expectations scores 100 percent on kind and decision with 0 unsafe and 0 false authorisations", eo["kind"] == eo["n"] and eo["decision"] == eo["n"] and eo["unsafe"] == 0 and eo["falseauth"] == 0 and eo["identity_false"] == 0)
         # ---- the reference parser: the safety invariants must hold on EVERY example ----
         res = R.evaluate(exe, held + R.load_dataset("dev"), {p["id"]: p for p in R.reference_proposals(exe, held + R.load_dataset("dev"))})["per"]["ALL"]
         check("reference parser: every proposal passes the validator (schema 100%)", res["schema"] == res["n"])
