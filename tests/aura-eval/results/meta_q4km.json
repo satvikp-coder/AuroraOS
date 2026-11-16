@@ -1,0 +1,16 @@
+{
+ "model_file": "Qwen3-0.6B-Q4_K_M.gguf",
+ "model_bytes": 396704416,
+ "model_sha256": "15e434d8ddf0af38fe3f7003af6ce6eac4edada6df34324aa45979f9cc79f02e",
+ "threads": 4,
+ "ctx": 2048,
+ "split": "heldout",
+ "examples": 115,
+ "fewshot_examples": 11,
+ "system_prompt_sha256": "3264fc6359098ca5f04653c1fa5e15b79d03a3bc4391c9c25c82871a4d3cc41d",
+ "server_load_s": 20.334943771362305,
+ "rss_after_load_mb": 870.6953125,
+ "peak_rss_mb": 923.6953125,
+ "decoding": "greedy (temperature 0, seed 1), JSON-schema constrained, thinking disabled, max_tokens 80",
+ "note": "HOST-ONLY measurement; says nothing about AuroraOS"
+}
