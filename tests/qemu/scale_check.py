@@ -128,7 +128,7 @@ def main():
 
     # ---------------- Home ----------------
     L = layout()
-    h0 = shot("home")
+    h0 = shot_until("home", lambda i: any(px(i, x, y) == rgb(T["aura"]) for x in (300, 500, 700) for y in range(60, 100)))      # wait for a COMPLETE frame (a screenshot can catch a half-drawn one)
     check("Home: every pixel is in the palette of this mode (stray: %s)" % stray(h0), palette_ok(h0))
     check("Home: the status rail is drawn (aura in standard, ink in high contrast)", any(px(h0, x, y) == rgb(T["aura"]) for x in (300, 500, 700) for y in range(60, 100)))
     check("Home: the dock Home item, Spaces, Index and Back are all controls (ids 2, 3, 4 enabled)", all(i in L for i in (2, 3, 4, 10, 16, 11, 12, 40)))
