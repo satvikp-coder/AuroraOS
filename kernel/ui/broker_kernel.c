@@ -10,6 +10,9 @@ static uint32_t grant_rights[PROC_MAX + 1];
 
 struct pend { uint8_t used; uint32_t pid; uint64_t gen; struct aura_intent in; };
 static struct pend Q[BK_QUEUE];
+static uint64_t last_exec_tick[PROC_MAX + 1], last_exec_gen[PROC_MAX + 1];      /* per requester instance: when its last request was executed */
+#define BK_MIN_GAP_TICKS 100                                                  /* scheduler ticks (1 ms each while EL0 runs): at most about 10 executions per second per requester */
+_Static_assert(BP_REPLAY_SLOTS >= PROC_MAX + 1, "the replay table needs a slot for every process plus the shell");
 
 #define PRINCIPAL_SHELL 0x7F000003u
 
@@ -33,6 +36,7 @@ void broker_init(void)
     bp_replay_init(&RP);
     for (int i = 0; i <= PROC_MAX; i++) { grant_gen[i] = 0; grant_rights[i] = 0; }
     for (int i = 0; i < BK_QUEUE; i++) Q[i].used = 0;
+    for (int i = 0; i <= PROC_MAX; i++) { last_exec_tick[i] = 0; last_exec_gen[i] = 0; }
 }
 
 const struct bp_env *broker_env(void) { return &ENV; }
@@ -52,6 +56,11 @@ int64_t broker_syscall_aura(struct proc *p, uint64_t text_uva, uint64_t len, uin
     if (len > AURA_CMD_MAX) return AE_E2BIG;
     char buf[AURA_CMD_MAX];
     if (len) { int rc = copy_from_user(buf, text_uva, (size_t)len); if (rc != AE_OK) return rc; }
+    /* One outstanding request per requester instance, and no request at all while the queue is full. This is checked BEFORE the policy runs: the policy consumes
+     * the nonce, so a request that cannot be queued must not burn it (otherwise one client could make another's natural retry fail as a replay). */
+    { int free_slot = 0;
+      for (int i = 0; i < BK_QUEUE; i++) { if (!Q[i].used) free_slot = 1; else if (Q[i].pid == (uint32_t)p->pid && Q[i].gen == p->gen) return AE_EAGAIN; }
+      if (!free_slot) return AE_EAGAIN; }
     struct bp_request rq; uint8_t *z = (uint8_t *)&rq; for (size_t i = 0; i < sizeof rq; i++) z[i] = 0;
     rq.pid = (uint32_t)p->pid; rq.gen = p->gen; rq.nonce = nonce;          /* identity from the kernel's process table, never from the caller's words */
     aura_parse(buf, (size_t)len, &CAPS, &rq.intent);
@@ -72,7 +81,9 @@ int broker_drain(struct shell *sh)
     int n = 0;
     for (int i = 0; i < BK_QUEUE; i++) {
         if (!Q[i].used) continue;
+        if (Q[i].pid <= PROC_MAX && last_exec_gen[Q[i].pid] == Q[i].gen && last_exec_tick[Q[i].pid] && sched_ticks() < last_exec_tick[Q[i].pid] + BK_MIN_GAP_TICKS) continue;   /* too soon: it stays pending (and blocks that requester's next request) */
         struct pend r = Q[i]; Q[i].used = 0; n++;
+        if (r.pid <= PROC_MAX) { last_exec_gen[r.pid] = r.gen; last_exec_tick[r.pid] = sched_ticks() ? sched_ticks() : 1; }
         struct aura_outcome o; aura_run_queued(sh, &ENV, r.pid, r.gen, &r.in, &o);
         console_puts("aura: executed pid="); console_dec((uint64_t)r.pid); console_puts(" state="); console_dec(o.state);
         console_puts(" ["); console_puts(o.msg); console_puts("] screen="); console_puts(shell_screen_name(sh->screen)); console_puts("\n");
