@@ -22,6 +22,7 @@
 #define SYS_UI 41                     /* numbers 10..40 are deliberately still -ENOSYS (a process test asserts it) */
 #define SYS_UI_SEND 1
 #define SYS_UI_POLL 2
+/* (operation 3, SYS_UI_AURA, is declared in broker_kernel.h: a command for the Action Broker; the policy decides and only the shell executes) */
 #define AE_UI_BASE (-300)             /* system-call result = AE_UI_BASE + UIP_E*, e.g. -306 = no such surface for you */
 #define UI_EVQ_DEPTH 4
 
