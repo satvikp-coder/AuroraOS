@@ -128,9 +128,9 @@ def main():
     # ---------------- disabled controls ----------------
     until("ptr_idle", lambda i: True)
     base = acts()
-    click_at(336, 704, "ptr_back0")
+    click_at(300, 150, "ptr_text")
     time.sleep(1.0)
-    check("a click on the disabled Back button activates nothing", acts() == base and last("shell: screen=").startswith("Home"))
+    check("a click on plain (non-control) text activates nothing; the disabled-control cases (empty-history Back) are covered by the host shell tests", acts() == base and last("shell: screen=").startswith("Home"))
 
     # ---------------- modal ----------------
     check("keyboard focus can reach the About button (id 16)", tab_to(16))
