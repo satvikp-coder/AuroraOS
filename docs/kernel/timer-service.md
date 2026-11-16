@@ -5,6 +5,7 @@ Status: **a pure, host-tested core. It is not wired to a system call, an EL0 app
 `kernel/ui/timersvc.c` is a bounded (4 timers) table of countdowns against a caller-supplied **monotonic millisecond counter**:
 * **Absolute deadlines.** A timer stores `deadline = start + duration` (saturating). It is complete when the counter has reached the deadline, however late the caller polls; nothing accumulates ticks or deltas, and nothing depends on frame counts. A reader starved for an hour still sees DONE with 0 remaining; irregular polling cannot drift the remaining time (tested).
 * **Backwards counter.** A smaller reading than the last one is treated as "no time passed" and counted (`backwards`), never as a negative duration or an early completion.
+* **Per-owner quota.** One owner instance holds at most `TS_PER_OWNER` (2) timers (until released or the owner exits); a greedy owner gets `TS_E_QUOTA` (checked before FULL), so it cannot take every slot from other owners.
 * **Limits refused, not clamped.** 1 second to 24 hours; generation 0 refused; the table is bounded (FULL).
 * **Ownership.** Bound to the kernel-attested (pid, generation); a different process or a later instance of the same pid sees exactly "no such timer". Only the owner can cancel, query or release; a completed timer cannot be cancelled; `tsvc_owner_gone` drops an exiting instance's timers.
 * **No notification, sound or persistence.** "Done" is a state the owner reads.

@@ -18,11 +18,12 @@
 #include <stdint.h>
 
 #define TS_MAX 4
+#define TS_PER_OWNER 2                  /* timers one owner instance may hold (running, done or cancelled but not yet released): one owner cannot take every slot */
 #define TS_MIN_MS 1000ULL
 #define TS_MAX_MS (24ULL * 60 * 60 * 1000)
 
 enum { TS_FREE = 0, TS_RUNNING, TS_DONE, TS_CANCELLED };
-enum { TS_OK = 0, TS_E_ARG = -1, TS_E_FULL = -2, TS_E_NOENT = -3, TS_E_OWNER = -4, TS_E_STATE = -5 };
+enum { TS_OK = 0, TS_E_ARG = -1, TS_E_FULL = -2, TS_E_NOENT = -3, TS_E_OWNER = -4, TS_E_STATE = -5, TS_E_QUOTA = -6 };
 
 struct tsvc_timer { uint8_t state; uint32_t pid; uint64_t gen, start_ms, duration_ms, deadline_ms; };
 struct tsvc { struct tsvc_timer t[TS_MAX]; uint64_t last_now; uint32_t backwards; uint8_t seen; };

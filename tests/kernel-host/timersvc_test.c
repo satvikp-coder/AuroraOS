@@ -58,9 +58,14 @@ int main(void)
     CHECK("1 second and 24 hours are accepted", tsvc_start(&S, 0, 1000, A) >= 0 && tsvc_start(&S, 0, TS_MAX_MS, A) >= 0);
     CHECK("generation 0 (no instance) is refused", tsvc_start(&S, 0, 5000, 3, 0) == TS_E_ARG);
     CHECK("NULL table is refused without a crash", tsvc_start(0, 0, 5000, A) == TS_E_ARG && tsvc_poll(0, 5) == 0);
-    tsvc_init(&S); for (int i = 0; i < TS_MAX; i++) tsvc_start(&S, 0, 5000, A);
-    CHECK("the table is bounded: the 5th timer is refused (FULL)", tsvc_start(&S, 0, 5000, A) == TS_E_FULL);
-    CHECK("cancelling frees nothing by itself, releasing does", tsvc_cancel(&S, 1, A) == TS_OK && tsvc_start(&S, 0, 5000, A) == TS_E_FULL && tsvc_release(&S, 1, A) == TS_OK && tsvc_start(&S, 0, 5000, A) == 1);
+    tsvc_init(&S); tsvc_start(&S, 0, 5000, A); tsvc_start(&S, 0, 5000, A); tsvc_start(&S, 0, 5000, B); tsvc_start(&S, 0, 5000, B);
+    CHECK("quota_per_owner: a third timer for an owner holding TS_PER_OWNER is refused with QUOTA (not FULL)", tsvc_start(&S, 0, 5000, A) == TS_E_QUOTA && tsvc_start(&S, 0, 5000, B) == TS_E_QUOTA);
+    CHECK("other_owner_unaffected / the table is bounded: a third owner finds the table FULL", tsvc_start(&S, 0, 5000, 9u, 90ULL) == TS_E_FULL);
+    CHECK("cancelling frees nothing by itself, releasing does (quota_freed_by_release)", tsvc_cancel(&S, 1, A) == TS_OK && tsvc_start(&S, 0, 5000, A) == TS_E_QUOTA && tsvc_release(&S, 1, A) == TS_OK && tsvc_start(&S, 0, 5000, A) == 1);
+    tsvc_init(&S); tsvc_start(&S, 0, 5000, A); tsvc_start(&S, 0, 5000, A);
+    CHECK("quota_freed_by_owner_gone: when the owner exits its quota is free again for the next instance of the same pid", tsvc_start(&S, 0, 5000, A) == TS_E_QUOTA && (tsvc_owner_gone(&S, A), 1) && tsvc_start(&S, 0, 5000, 3u, 31ULL) >= 0 && tsvc_start(&S, 0, 5000, 3u, 31ULL) >= 0 && tsvc_start(&S, 0, 5000, 3u, 31ULL) == TS_E_QUOTA);
+    tsvc_init(&S); tsvc_start(&S, 0, 5000, A); tsvc_start(&S, 0, 5000, A);
+    CHECK("a quota refusal changes nothing else (the counter and both timers are intact)", tsvc_start(&S, 0, 5000, A) == TS_E_QUOTA && S.t[0].state == TS_RUNNING && S.t[1].state == TS_RUNNING && S.t[2].state == TS_FREE);
 
     /* ---- ownership ---- */
     tsvc_init(&S); tsvc_start(&S, 0, 60000, A);
@@ -85,7 +90,8 @@ int main(void)
             uint32_t pid = 3 + (uint32_t)(r % 3); uint64_t gen = 30 + (r % 3) * 10 + (pid == 3 ? 0 : 0);
             switch ((r >> 8) % 6) {
             case 0: { uint64_t d = TS_MIN_MS + (r >> 20) % (3600ULL * 1000); int id2 = tsvc_start(&S, now, d, pid, gen); int free_ = -1; for (int i = 0; i < TS_MAX; i++) if (!m[i].used) { free_ = i; break; }
-                      if (free_ < 0) { if (id2 != TS_E_FULL) bad++; } else { if (id2 != free_) bad++; else { m[free_].used = 1; m[free_].state = TS_RUNNING; m[free_].pid = pid; m[free_].gen = gen; m[free_].deadline = now + d; } } break; }
+                      int held = 0; for (int i = 0; i < TS_MAX; i++) if (m[i].used && m[i].pid == pid && m[i].gen == gen) held++;
+                      if (held >= TS_PER_OWNER) { if (id2 != TS_E_QUOTA) bad++; } else if (free_ < 0) { if (id2 != TS_E_FULL) bad++; } else { if (id2 != free_) bad++; else { m[free_].used = 1; m[free_].state = TS_RUNNING; m[free_].pid = pid; m[free_].gen = gen; m[free_].deadline = now + d; } } break; }
             case 1: break;                                                       /* (idle step) */
             case 2: tsvc_poll(&S, now); for (int i = 0; i < TS_MAX; i++) if (m[i].used && m[i].state == TS_RUNNING && now >= m[i].deadline) m[i].state = TS_DONE; break;
             case 3: { uint32_t id2 = (uint32_t)((r >> 24) % TS_MAX); tsvc_poll(&S, now); for (int i = 0; i < TS_MAX; i++) if (m[i].used && m[i].state == TS_RUNNING && now >= m[i].deadline) m[i].state = TS_DONE;

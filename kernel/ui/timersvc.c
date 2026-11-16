@@ -21,6 +21,9 @@ int tsvc_start(struct tsvc *s, uint64_t now_ms, uint64_t duration_ms, uint32_t p
 {
     if (!s || gen == 0 || duration_ms < TS_MIN_MS || duration_ms > TS_MAX_MS) return TS_E_ARG;
     now_ms = clamp_now(s, now_ms);
+    int held = 0;
+    for (int i = 0; i < TS_MAX; i++) if (s->t[i].state != TS_FREE && s->t[i].pid == pid && s->t[i].gen == gen) held++;
+    if (held >= TS_PER_OWNER) return TS_E_QUOTA;                           /* checked before FULL: a greedy owner is told it is over ITS quota */
     for (int i = 0; i < TS_MAX; i++) {
         if (s->t[i].state != TS_FREE) continue;
         s->t[i].state = TS_RUNNING; s->t[i].pid = pid; s->t[i].gen = gen;
