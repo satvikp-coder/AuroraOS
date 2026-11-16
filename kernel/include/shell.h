@@ -20,8 +20,9 @@
 #include <ui_scene.h>
 #include <ui_proto.h>
 #include <procsnap.h>
+#include <aura_cmd.h>
 
-enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_COUNT };
+enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_COUNT };
 
 /* Stable control identifiers (never reused for another meaning). */
 enum {
@@ -34,7 +35,8 @@ enum {
     SID_SET_VALUE = 200,                /* SID_SET_VALUE + r changes the value of Settings row r (r < SHELL_SET_ROWS) */
     SID_SET_RESET = 210,                /* SID_SET_RESET + r restores its default */
     SID_SET_UP = 220, SID_SET_DOWN,     /* scroll the Settings list when it does not fit */
-    SID_PAGES_HOME = 230                /* Pages: return to Home */
+    SID_PAGES_HOME = 230,               /* Pages: return to Home */
+    SID_AURA_RUN = 240, SID_AURA_CLEAR, SID_AURA_HOME   /* Aura: run the typed command, clear it, return to Home */
 };
 
 #define SHELL_MAX_WIDGETS 160
@@ -96,6 +98,13 @@ struct shell {
     uint32_t (*pages_src)(struct procsnap *out);
     struct procsnap ps; uint64_t ps_digest; uint8_t ps_valid;
     char pg_txt[PROC_MAX][96]; char pg_head[80]; char pg_sum[40];
+    /* Aura screen: a deterministic quick-command assistant (no language model). Typed text is bounded; the live preview comes from aura_parse (constants only);
+     * running is delegated to aura_run, which the kernel wires to the Action Broker as the shell itself. NULL = not connected: nothing can run. */
+    int (*aura_run)(struct shell *sh, const char *text, size_t len, uint8_t *state, char *msg, size_t cap);
+    char aura_in[AURA_CMD_MAX + 1]; uint8_t aura_len;
+    struct aura_intent aura_pv;
+    char aura_msg[64]; uint8_t aura_state; uint32_t aura_runs;       /* aura_state: the AX_* outcome of the last run (0 = none yet) */
+    char aura_field[AURA_CMD_MAX + 40], aura_prev[96], aura_res[96];
     /* Settings screen */
     const struct shell_store *store;    /* NULL = no usable store: changes last for this session only */
     uint32_t sess[SHELL_SET_ROWS];      /* session values (used when there is no store, and for high contrast always) */
@@ -119,6 +128,8 @@ int  shell_set_contrast(struct shell *sh, int on);
 void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out));
 /* Re-take the snapshot; returns 1 (and redraws when Pages is showing) only if something displayed changed. */
 int  shell_pages_refresh(struct shell *sh);
+/* Attach the Aura runner. It must return 1 and fill state/msg when it ran the pipeline, 0 if it could not. */
+void shell_set_aura(struct shell *sh, int (*run)(struct shell *sh, const char *text, size_t len, uint8_t *state, char *msg, size_t cap));
 void shell_set_clients(struct shell *sh, const struct uip_state *st, const char *(*name_of)(uint8_t pid));
 /* Attach (or detach, with NULL) the settings store; the stored text scale is applied at once. */
 void shell_set_store(struct shell *sh, const struct shell_store *store);

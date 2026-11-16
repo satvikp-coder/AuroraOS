@@ -96,6 +96,20 @@ static void reap(void)
 
 static struct shell SH;
 
+/* The native Aura screen runs its command as the trusted shell itself (requester pid 0): parse, validate, policy, narrow S0 executor, verified result. */
+static int aura_glue(struct shell *s, const char *text, size_t len, uint8_t *state, char *msg, size_t cap)
+{
+    static uint64_t nonce;
+    struct aura_outcome o;
+    aura_run_text(s, broker_env(), broker_replay(), BP_SHELL_PID, BP_SHELL_GEN, ++nonce, text, len, &o);
+    *state = o.state;
+    size_t i = 0; for (; o.msg[i] && i + 1 < cap; i++) msg[i] = o.msg[i]; msg[i] = 0;
+    console_puts("aura: shell ran kind="); console_puts(aura_kind_name(o.intent.kind)); console_puts(" decision="); console_puts(bp_decision_name(o.decision));
+    console_puts(" reason="); console_puts(bp_reason_name(o.reason)); console_puts(" state="); console_dec(o.state);
+    console_puts(" ["); console_puts(o.msg); console_puts("] screen="); console_puts(shell_screen_name(s->screen)); console_puts(" space="); console_puts(SHELL_SPACE_NAMES[s->space]); console_puts("\n");
+    return 1;
+}
+
 static const char *client_name(uint8_t pid) { struct proc *p = proc_get(pid); return p && p->name[0] ? p->name : 0; }   /* the kernel's name for the process, never the client's */
 
 /* Input first goes to the compositor logic here: a modal or sheet withholds everything from clients; Tab and Escape always belong to the shell
@@ -140,6 +154,7 @@ void shell_boot_draw(void)
     ui_sys_init(40, 96 + UIP_CHROME_H, 944, 520 - UIP_CHROME_H);          /* the area client surfaces may occupy: inside the content band, clear of the header and dock */
     shell_set_clients(&SH, ui_sys_state(), client_name);
     shell_set_pages(&SH, procsnap_take_kernel);
+    shell_set_aura(&SH, aura_glue);
 #ifdef AURORA_SHELL_TEXT_PCT
     shell_set_text_scale(&SH, AURORA_SHELL_TEXT_PCT);          /* test builds only: the preference store is not wired to the shell yet */
 #endif
