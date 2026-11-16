@@ -26,6 +26,7 @@ cc $CFLAGS -o "$OUT/ui_proto_test" "$ROOT/tests/kernel-host/ui_proto_test.c" "$R
 cc $CFLAGS -o "$OUT/aura_cmd_test" "$ROOT/tests/kernel-host/aura_cmd_test.c" "$ROOT/kernel/ui/aura_cmd.c"
 cc $CFLAGS -o "$OUT/broker_policy_test" "$ROOT/tests/kernel-host/broker_policy_test.c" "$ROOT/kernel/ui/broker_policy.c" "$ROOT/kernel/ui/aura_cmd.c"
 cc $CFLAGS -o "$OUT/index_model_test" "$ROOT/tests/kernel-host/index_model_test.c" "$ROOT/kernel/ui/index_model.c"
+cc $CFLAGS -o "$OUT/timersvc_test" "$ROOT/tests/kernel-host/timersvc_test.c" "$ROOT/kernel/ui/timersvc.c"
 "$OUT/fdt_pmm_test"
 "$OUT/policy_test"
 "$OUT/elf_test"
@@ -45,3 +46,4 @@ cc $CFLAGS -o "$OUT/index_model_test" "$ROOT/tests/kernel-host/index_model_test.
 "$OUT/aura_cmd_test"
 "$OUT/broker_policy_test"
 "$OUT/index_model_test"
+"$OUT/timersvc_test"
