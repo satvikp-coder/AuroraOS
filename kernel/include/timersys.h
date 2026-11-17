@@ -35,4 +35,13 @@ int  timersys_grant(uint32_t principal);                 /* kernel code only: 0,
 int64_t timersys_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2);
 void timersys_tick(void);                                 /* poll the counter; deliver completions */
 void timersys_owner_gone(int pid, uint64_t gen);          /* the instance exited or faulted: its timers go */
+/* The trusted shell's own entries (kernel code, NOT system calls). The shell is the owner (pid 0, generation 1): it is not a process, no process can be it,
+ * and it holds the same quota (2) as any owner. Completion is read by polling (shell_tick), so no event is posted for it. */
+#define TIMER_SHELL_PID 0u
+#define TIMER_SHELL_GEN 1u
+int      timersys_shell_start(uint64_t duration_ms);                       /* id >= 0, or AE_TM_BASE + TS_E* */
+int      timersys_shell_query(int id, uint8_t *state, uint64_t *remaining_ms);   /* 0, or AE_TM_BASE + TS_E* */
+int      timersys_shell_cancel(int id);
+int      timersys_shell_release(int id);
+uint64_t timersys_now_ms(void);                                            /* monotonic milliseconds (0 if the counter is unusable) */
 #endif

@@ -20,7 +20,7 @@ static const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, U
 static const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 2, 1, 6 };
 #define PAL(sh) ((sh)->contrast ? &PAL_HC : &PAL_STD)
 
-static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Aura" };
+static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Aura", "Clock" };
 
 const char *shell_screen_name(uint32_t screen) { return screen < SCR_COUNT ? NAMES[screen] : "?"; }
 
@@ -39,12 +39,13 @@ static const struct idx_item ITEMS[] = {
     { "pages", "Pages", { "multitasking", "windows", 0 }, 1 },
     { "aura", "Aura", { "assistant", "ask", 0 }, 1 },
     { "settings", "Settings", { "preferences", "options", 0 }, 1 },
-    { "notes", "Notes", { "memo", "write", 0 }, 0 },           /* listed, honestly unavailable: no native Notes app exists */
+    { "notes", "Notes", { "memo", "write", 0 }, 0 },
+    { "clock", "Clock", { "timer", "countdown", "uptime" }, 1 },           /* listed, honestly unavailable: no native Notes app exists */
 };
 static const struct dest DEST[] = {
     { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
     { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
-    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_UNAVAILABLE, 0 },
+    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_UNAVAILABLE, 0 }, { D_SCREEN, SCR_CLOCK },
 };
 #define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
 _Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");
@@ -868,6 +869,148 @@ static int aura_input(struct shell *sh, const struct input_event *e)
     }
 }
 
+/* ---- Clock / Timer: a real countdown on the timer service. Everything shown is measured: uptime and the remaining time come from the monotonic counter. ---- */
+static const uint32_t CLK_PRESET_S[3] = { 60, 300, 1500 };
+static const char *const CLK_PRESET_NAME[3] = { "1 min", "5 min", "25 min" };
+
+static void put_ms(char *d, uint32_t cap, uint32_t s)             /* m:ss (minutes may exceed 59) */
+{
+    char t[16]; uint32_t n = 0, m = s / 60; char dig[8]; int k = 0;
+    do { dig[k++] = (char)('0' + m % 10); m /= 10; } while (m && k < 8);
+    while (k) t[n++] = dig[--k];
+    t[n++] = ':'; t[n++] = (char)('0' + (s % 60) / 10); t[n++] = (char)('0' + s % 10); t[n] = 0;
+    scpy(d, cap, t);
+}
+static void put_hms(char *d, uint32_t cap, uint32_t s)            /* "Up h:mm:ss" */
+{
+    char t[24]; uint32_t n = 0, h = s / 3600, m = (s / 60) % 60; char dig[8]; int k = 0;
+    t[n++] = 'U'; t[n++] = 'p'; t[n++] = ' ';
+    do { dig[k++] = (char)('0' + h % 10); h /= 10; } while (h && k < 8);
+    while (k) t[n++] = dig[--k];
+    t[n++] = ':'; t[n++] = (char)('0' + m / 10); t[n++] = (char)('0' + m % 10); t[n++] = ':'; t[n++] = (char)('0' + (s % 60) / 10); t[n++] = (char)('0' + s % 10); t[n] = 0;
+    scpy(d, cap, t);
+}
+static uint8_t clk_eff(const struct shell *sh) { return sh->timers ? sh->clk_state : CK_UNAVAILABLE; }
+static void clk_update_live(struct shell *sh)
+{
+    char t[64]; const char *src = "";
+    switch (clk_eff(sh)) {
+    case CK_UNAVAILABLE: src = "Timer service unavailable. Nothing can be started."; break;
+    case CK_RUNNING: src = "Running. Cancel stops it."; break;
+    case CK_DONE: src = "Finished. Choose a time to run another."; break;
+    case CK_CANCELLED: src = "Cancelled. Nothing is running."; break;
+    case CK_ERROR: src = sh->clk_err == 1 ? "Could not start: too many timers." : sh->clk_err == 3 ? "The timer was lost. Nothing is running." : "Could not start: the service refused."; break;
+    default: scpy(t, sizeof t, "Ready. "); { uint32_t n = 0; while (t[n]) n++; scpy(t + n, (uint32_t)sizeof t - n, CLK_PRESET_NAME[sh->clk_preset % 3]); } { uint32_t n = 0; while (t[n]) n++; scpy(t + n, (uint32_t)sizeof t - n, " selected. Press Start."); } src = t; break;
+    }
+    uint32_t i = 0; while (src[i] && src[i] == sh->clk_live[i]) i++;
+    if (src[i] || sh->clk_live[i]) { scpy(sh->clk_live, sizeof sh->clk_live, src); sh->clk_seq++; }
+    uint8_t e = clk_eff(sh);
+    put_ms(sh->clk_val, sizeof sh->clk_val, e == CK_RUNNING ? sh->clk_rem_s : e == CK_DONE ? 0 : CLK_PRESET_S[sh->clk_preset % 3]);
+    put_hms(sh->clk_up, sizeof sh->clk_up, sh->uptime_s);
+}
+
+static void clock_flow(struct shell *sh, const struct geo *g, int opt)
+{
+    const struct pal *P = PAL(sh);
+    clk_update_live(sh);
+    uint8_t e = clk_eff(sh);
+    int can_start = (e == CK_READY || e == CK_DONE || e == CK_CANCELLED || e == CK_ERROR), can_cancel = (e == CK_RUNNING);
+    int32_t y = g->top, w = g->W - 80, iw = w - 32;
+    struct ui_widget *c = card_s(sh, 40, y, w);
+    y += 12;
+    y += sl(sh, 56, y, iw, "Clock", 24, P->ink, 1) + 2;
+    if (opt) y += sl(sh, 56, y, iw, "Time since boot. No wall clock exists.", 14, P->muted, 0) + 4;
+    y += sl(sh, 56, y, iw, sh->clk_up, 18, P->ink, 1) + 4;
+    if (opt) y += sl(sh, 56, y, iw, "Timer", 14, P->muted, 0) + 2;
+    y += sl(sh, 56, y, iw, sh->clk_val, 24, P->ink, 1) + 2;
+    y += sl(sh, 56, y, iw, sh->clk_live, 16, P->ink, 0) + 8;
+    int32_t gap = 8, bw = (iw - 2 * gap) / 3, rowh = 0;
+    for (int k = 0; k < 3; k++) {
+        int32_t h = sb(sh, 56 + k * (bw + gap), y, bw, 48, CLK_PRESET_NAME[k], SID_CLOCK_P1 + (uint32_t)k, can_start, UI_LAYER_CONTENT);
+        if (sh->n && k == sh->clk_preset && sh->w[sh->n - 1].c.id == SID_CLOCK_P1 + (uint32_t)k) sh->w[sh->n - 1].active = 1;   /* the selected length: accent fill and, in high contrast, a marker */
+        if (h > rowh) rowh = h;
+    }
+    y += rowh + 8;
+    int32_t bw2 = (iw - gap) / 2, h1 = sb(sh, 56, y, bw2, 48, "Start", SID_CLOCK_START, can_start, UI_LAYER_CONTENT);
+    int32_t h2 = sb(sh, 56 + bw2 + gap, y, bw2, 48, "Cancel", SID_CLOCK_CANCEL, can_cancel, UI_LAYER_CONTENT);
+    y += (h1 > h2 ? h1 : h2) + 8;
+    if (opt) y += sl(sh, 56, y, iw, "Stops if AuroraOS restarts. No sound.", 14, P->muted, 0) + 4;
+    y += sb(sh, 56, y, 200 < iw ? 200 : iw, 48, "Home", SID_CLOCK_HOME, 1, UI_LAYER_CONTENT) + 8;
+    card_end(sh, c, y);
+}
+
+void shell_set_timers(struct shell *sh, const struct shell_timers *timers)
+{
+    sh->timers = timers; sh->clk_state = CK_READY; sh->clk_id = -1; sh->clk_rem_s = 0;
+    clk_update_live(sh);
+    if (sh->screen == SCR_CLOCK) { build(sh); sh->dirty = 1; }
+}
+
+static void clk_start(struct shell *sh, uint32_t preset)
+{
+    if (clk_eff(sh) == CK_RUNNING || !sh->timers) return;
+    sh->clk_preset = (uint8_t)(preset % 3);
+    int id = sh->timers->start((uint64_t)CLK_PRESET_S[sh->clk_preset] * 1000u);
+    if (id < 0) { sh->clk_state = CK_ERROR; sh->clk_err = (id == -406) ? 1 : 2; sh->clk_id = -1; }
+    else { sh->clk_state = CK_RUNNING; sh->clk_id = id; sh->clk_rem_s = CLK_PRESET_S[sh->clk_preset]; sh->clk_err = 0; }
+    clk_update_live(sh);
+}
+
+static void clk_cancel(struct shell *sh)
+{
+    if (clk_eff(sh) != CK_RUNNING) return;
+    int rc = sh->timers->cancel(sh->clk_id);
+    if (rc == 0) { (void)sh->timers->release(sh->clk_id); sh->clk_state = CK_CANCELLED; sh->clk_id = -1; sh->clk_rem_s = 0; }
+    else { sh->clk_state = CK_ERROR; sh->clk_err = 3; sh->clk_id = -1; }                  /* it finished first, or the service lost it: say what is true */
+    clk_update_live(sh);
+}
+
+/* The completion toast: a compositor-owned notice in the header (the Horizon status slot). It never takes focus and cannot be clicked; it is drawn on the
+ * topmost layer but only inside the header, so it cannot cover the dock, the content, a sheet or a dialog. */
+static void toast_add(struct shell *sh)
+{
+    if (!sh->toast_on) return;
+    struct geo g = make_geo(sh);
+    struct fnt tf = pick_font(24, sh->text_pct), bf = pick_font(16, sh->text_pct), hf = pick_font(14, sh->text_pct);
+    int32_t row1 = lh_of(tf, 1) + 16; if (row1 < 64) row1 = 64;
+    if (row1 < g.btn_h + 16) row1 = g.btn_h + 16;
+    int32_t title_w = 8 * adv_of(tf, 1) + 16, hb = 4 * adv_of(bf, 0) + 32; if (hb < 96) hb = 96;
+    int32_t up_w = 9 * adv_of(hf, 0) + 16, up_x = g.W - 16 - hb - 12 - up_w;
+    int32_t w = 14 * adv_of(bf, 1) + 32, h = lh_of(bf, 1) + 24; if (h < 48) h = 48;
+    int32_t x = 24 + title_w + 16, y = (row1 - h) / 2;
+    if (x + w > up_x - 8) x = up_x - 8 - w;
+    if (x < 8) x = 8;
+    if (y < 0) y = 0;
+    struct ui_widget *p = add(sh, x, y, w, h, 12, UI_LAYER_TOAST, UI_PANEL, 0, PAL(sh)->ink, 0xF600u, SOLID);
+    if (p) { p->border_w = 2; p->border = PAL(sh)->surface; }
+    struct ui_widget *t = add(sh, x + 2, y + (h - lh_of(bf, 1)) / 2, w - 4, lh_of(bf, 1), 0, UI_LAYER_TOAST, UI_LABEL, "Timer finished", PAL(sh)->ink, 0xF601u, SOLID);
+    if (t) { t->font_size = bf.size; t->mag = bf.mag; t->bold = 1; t->ink = PAL(sh)->surface; }
+}
+
+int shell_tick(struct shell *sh, uint64_t now_ms)
+{
+    int changed = 0;
+    sh->now_ms = now_ms;
+    if (sh->toast_on && now_ms >= sh->toast_until_ms) { sh->toast_on = 0; changed = 1; }
+    if (sh->timers && sh->clk_state == CK_RUNNING) {
+        uint8_t st = 0; uint64_t rem = 0;
+        int rc = sh->timers->query(sh->clk_id, &st, &rem);
+        if (rc != 0 || st == 3) { sh->clk_state = CK_ERROR; sh->clk_err = 3; sh->clk_id = -1; sh->clk_rem_s = 0; changed = 1; }
+        else if (st == 2) {
+            (void)sh->timers->release(sh->clk_id);
+            sh->clk_state = CK_DONE; sh->clk_id = -1; sh->clk_rem_s = 0;
+            sh->toast_on = 1; sh->toast_until_ms = now_ms + SHELL_TOAST_MS;
+            changed = 1;
+        } else {
+            uint64_t s = (rem + 999u) / 1000u; if (s > 86400u) s = 86400u;
+            if ((uint32_t)s != sh->clk_rem_s) { sh->clk_rem_s = (uint32_t)s; if (sh->screen == SCR_CLOCK) changed = 1; }
+        }
+        if (changed) clk_update_live(sh);
+    }
+    if (changed) { build(sh); sh->dirty = 1; }
+    return changed;
+}
+
 static void build_clients(struct shell *sh);
 
 static void build_scaled(struct shell *sh)
@@ -883,6 +1026,7 @@ static void build_scaled(struct shell *sh)
         else if (sh->screen == SCR_SETTINGS) settings_flow(sh, &g, opt);
         else if (sh->screen == SCR_PAGES) pages_flow(sh, &g, opt);
         else if (sh->screen == SCR_AURA) aura_flow(sh, &g, opt);
+        else if (sh->screen == SCR_CLOCK) clock_flow(sh, &g, opt);
         else index_scaled(sh, &g, opt);
         if (sh->lay_bottom <= g.bottom) break;
     }
@@ -953,12 +1097,14 @@ static void build(struct shell *sh)
     else if (sh->screen == SCR_SETTINGS) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; settings_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; settings_flow(sh, &g, 0); } }
     else if (sh->screen == SCR_PAGES) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; pages_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; pages_flow(sh, &g, 0); } }
     else if (sh->screen == SCR_AURA) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; aura_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; aura_flow(sh, &g, 0); } }
+    else if (sh->screen == SCR_CLOCK) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; clock_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; clock_flow(sh, &g, 0); } }
     else build_index(sh);
     build_clients(sh);
     build_dock(sh);
     if (sh->about_open) build_about(sh);
     build_corner(sh);
     }
+    toast_add(sh);
     for (uint32_t i = 0; i < sh->n; i++) sh->c[i] = sh->w[i].c;
     sh->fx.c = sh->c; sh->fx.n = sh->n;
     sh->fx.focus = -1;
@@ -1130,6 +1276,12 @@ static void activate(struct shell *sh, uint32_t id)
     case SID_AURA_RUN: aura_submit(sh); break;
     case SID_AURA_CLEAR: sh->aura_len = 0; sh->aura_in[0] = 0; sh->aura_msg[0] = 0; sh->aura_state = 0; aura_refresh(sh); build(sh); break;
     case SID_PAGES_HOME: shell_go(sh, SCR_HOME); break;
+    case SID_CLOCK_P1: case SID_CLOCK_P5: case SID_CLOCK_P25:
+        if (clk_eff(sh) != CK_RUNNING) { sh->clk_preset = (uint8_t)(id - SID_CLOCK_P1); if (sh->clk_state != CK_READY && sh->timers) sh->clk_state = CK_READY; clk_update_live(sh); build(sh); }
+        break;
+    case SID_CLOCK_START: clk_start(sh, sh->clk_preset); build(sh); { int32_t k = shell_find(sh, clk_eff(sh) == CK_RUNNING ? SID_CLOCK_CANCEL : SID_CLOCK_START); if (k >= 0) ui_focus_set(&sh->fx, k); } break;   /* Start moves focus to Cancel */
+    case SID_CLOCK_CANCEL: clk_cancel(sh); build(sh); { int32_t k = shell_find(sh, SID_CLOCK_START); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
+    case SID_CLOCK_HOME: shell_go(sh, SCR_HOME); break;
     case SID_SET_UP: if (sh->set_first) sh->set_first--; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_DOWN); if (k < 0) k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_SET_DOWN: if (sh->set_first + 1 < SHELL_SET_ROWS) sh->set_first++; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_ABOUT: set_about(sh, 1); break;
