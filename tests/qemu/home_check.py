@@ -75,7 +75,9 @@ def main():
         return last("shell: focus=") == str(fid)
 
     # ---------------- Home ----------------
-    h0 = until("home0", lambda i: px(i, 500, 65) == AURA)
+    # Wait for the COMPLETE first frame, not just its first pixel: the rail is drawn early, the dock and the pointer cursor last. A screendump taken between
+    # them showed a half-drawn frame and failed four unrelated assertions on a slow runner (a test race, not a product defect). Bounded by until().
+    h0 = until("home0", lambda i: px(i, 500, 65) == AURA and px(i, 410, 704) == ACCENT and (cursor_at(512, 384)(i) or px(i, 506, 384) == INK))
     check("Home: white header, aura-coloured Horizon rail, canvas background", px(h0, 500, 30) == SURFACE and px(h0, 500, 65) == AURA and px(h0, 500, 640) == CANVAS)
     check("Home: Current Space, System and Applications cards are white", px(h0, 300, 150) == SURFACE and px(h0, 300, 600) == SURFACE and px(h0, 700, 560) == SURFACE)
     check("Home: header title 'AuroraOS' and the Study label are drawn (ink pixels)", n_color(h0, 24, 14, 200, 50, INK) > 50 and n_color(h0, 64, 142, 300, 182, INK) > 50)
