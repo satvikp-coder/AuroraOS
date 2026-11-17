@@ -109,6 +109,22 @@ int main(void)
         CHECK("40,000 random starts/cancels/polls/queries/exits (with stale counter readings) agree with a deadline-only model", bad == 0);
     }
 
+    { /* tick -> millisecond conversion: checked arithmetic */
+        uint64_t ms = 99;
+        CHECK("62.5 MHz: 62,500,000 ticks = 1000 ms", tsvc_ticks_to_ms(62500000ULL, 62500000ULL, &ms) == TS_OK && ms == 1000);
+        CHECK("62.5 MHz: 0 ticks = 0 ms", tsvc_ticks_to_ms(0, 62500000ULL, &ms) == TS_OK && ms == 0);
+        CHECK("sub-second remainder is exact: 31,250,000 ticks = 500 ms", tsvc_ticks_to_ms(31250000ULL, 62500000ULL, &ms) == TS_OK && ms == 500);
+        CHECK("one tick below a millisecond rounds down", tsvc_ticks_to_ms(62499ULL, 62500000ULL, &ms) == TS_OK && ms == 0);
+        CHECK("zero frequency is refused (no division)", tsvc_ticks_to_ms(5, 0, &ms) == TS_E_ARG);
+        CHECK("NULL output is refused", tsvc_ticks_to_ms(5, 1000, 0) == TS_E_ARG);
+        CHECK("an absurd frequency is refused (rem*1000 would overflow)", tsvc_ticks_to_ms(5, 0xFFFFFFFFFFFFFFFFULL, &ms) == TS_E_ARG);
+        CHECK("a count whose milliseconds exceed 64 bits is refused, not wrapped", tsvc_ticks_to_ms(0xFFFFFFFFFFFFFFFFULL, 1, &ms) == TS_E_ARG);
+        CHECK("the largest representable count at 1 kHz converts exactly", tsvc_ticks_to_ms(0xFFFFFFFFFFFFFFFFULL, 1000, &ms) == TS_OK && ms == 0xFFFFFFFFFFFFFFFFULL);
+        uint64_t prev = 0; int mono = 1;                                     /* monotonic in the count */
+        for (uint64_t c = 0; c < 200000000ULL; c += 7777777ULL) { tsvc_ticks_to_ms(c, 62500000ULL, &ms); if (ms < prev) mono = 0; prev = ms; }
+        CHECK("the conversion is monotonic in the counter", mono);
+    }
+
     printf("timer service: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;
 }

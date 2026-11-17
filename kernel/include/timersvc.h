@@ -29,6 +29,8 @@ struct tsvc_timer { uint8_t state; uint32_t pid; uint64_t gen, start_ms, duratio
 struct tsvc { struct tsvc_timer t[TS_MAX]; uint64_t last_now; uint32_t backwards; uint8_t seen; };
 
 void tsvc_init(struct tsvc *s);
+/* Counter ticks -> milliseconds with checked arithmetic: TS_OK, or TS_E_ARG for a zero/absurd frequency or a result that does not fit in 64 bits. Pure. */
+int  tsvc_ticks_to_ms(uint64_t count, uint64_t freq_hz, uint64_t *ms);
 /* Start a countdown of duration_ms for the requester. Returns the timer id (0..TS_MAX-1) or a TS_E_* error. */
 int  tsvc_start(struct tsvc *s, uint64_t now_ms, uint64_t duration_ms, uint32_t pid, uint64_t gen);
 int  tsvc_cancel(struct tsvc *s, uint32_t id, uint32_t pid, uint64_t gen);                      /* only the owner instance, only while RUNNING */

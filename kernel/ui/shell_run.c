@@ -16,6 +16,7 @@
 #include <timer.h>
 #include <ui_sys.h>
 #include <broker_kernel.h>
+#include <timersys.h>
 
 /* The shell's own identity for the settings registry. Kernel code (this file, at boot) grants it appearance and attention rights, and NOT the
  * system right: the registry, not the UI, decides, so the Aura-mode setting stays refused. No process can ever hold this principal. */
@@ -40,6 +41,11 @@ static const struct { const char *app; const char *file; uint32_t principal; uin
     /* 2048: a client that HOLDS the navigate right (granted here, by kernel code) and asks the broker to navigate; 4096: one that holds nothing;
      * 8192: one that asks and then faults at once (its request must not outlive it). */
     { "c_nav", "uiclient.elf", 406, 6, 2048, 0 }, { "c_navbad", "uiclient.elf", 407, 7, 4096, 0 }, { "c_navcrash", "uiclient.elf", 408, 8, 8192, 0 }, { "c_navflood", "uiclient.elf", 409, 9, 16384, 0 },
+    /* SYS_TIMER clients (ui field 2 = the timer capability; 1 = the UI capability) (timerclient.elf): 32768 basic, 65536 hostile, 131072 without the capability, 262144 a holder of a 3 s timer, 524288 a spy on foreign ids,
+     * 1048576 starts two timers and exits, 2097152 starts two and faults, 4194304 a late client that must get its full quota. The capability is granted here, by kernel code. */
+    { "c_tmbasic", "timerclient.elf", 501, 1, 32768, 2 }, { "c_tmhostile", "timerclient.elf", 502, 2, 65536, 2 }, { "c_tmnocap", "timerclient.elf", 503, 3, 131072, 0 },
+    { "c_tmholder", "timerclient.elf", 504, 4, 262144, 2 }, { "c_tmspy", "timerclient.elf", 505, 5, 524288, 2 }, { "c_tmexit", "timerclient.elf", 506, 6, 1048576, 2 },
+    { "c_tmfault", "timerclient.elf", 507, 7, 2097152, 2 }, { "c_tmlate", "timerclient.elf", 508, 8, 4194304, 2 },
     { "c_ui1", "uiclient.elf", 401, 1, 64, 1 }, { "c_ui2", "uiclient.elf", 402, 2, 128, 1 }, { "c_uibad", "uiclient.elf", 403, 3, 256, 1 },
     { "c_uifault", "uiclient.elf", 404, 4, 512, 1 }, { "c_uinocap", "uiclient.elf", 405, 5, 1024, 0 },
 };
@@ -49,7 +55,8 @@ static void launch_clients(void)
     for (unsigned i = 0; i < sizeof CLIENTS / sizeof CLIENTS[0]; i++) {
         if (!(AURORA_SHELL_CLIENTS & CLIENTS[i].bit)) continue;
         int pid = 0, detail = 0;
-        if (CLIENTS[i].ui && ui_sys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: ui_sys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
+        if ((CLIENTS[i].ui & 1) && ui_sys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: ui_sys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
+        if ((CLIENTS[i].ui & 2) && timersys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: timersys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
         int r = launch_register(CLIENTS[i].app, CLIENTS[i].file, CLIENTS[i].principal, CLIENTS[i].mode);
         if (r == LAUNCH_OK) r = launch_app(CLIENTS[i].app, &pid, &detail);
         if (r == LAUNCH_OK && (CLIENTS[i].bit == 2048 || CLIENTS[i].bit == 8192 || CLIENTS[i].bit == 16384)) { int g = broker_grant_navigate(pid); console_puts("shell: navigate right granted to "); console_puts(CLIENTS[i].app); console_puts(g == 0 ? "\n" : " FAILED\n"); }
@@ -90,6 +97,7 @@ static void reap(void)
         console_puts(p->state == PROC_FAULTED ? " faulted\n" : " exited code=");
         if (p->state == PROC_TERMINATED) { console_dec((uint64_t)(uint32_t)p->exit_code); console_puts("\n"); }
         ui_sys_client_gone(pid, p->gen);                         /* its surfaces and queued events go with it */
+        timersys_owner_gone(pid, p->gen);                        /* and its timers */
         proc_destroy(pid);
     }
 }
@@ -151,6 +159,7 @@ void shell_boot_draw(void)
     if (!s) return;
     shell_init(&SH, s->width, s->height);
     broker_init();
+    timersys_init();
     ui_sys_init(40, 96 + UIP_CHROME_H, 944, 520 - UIP_CHROME_H);          /* the area client surfaces may occupy: inside the content band, clear of the header and dock */
     shell_set_clients(&SH, ui_sys_state(), client_name);
     shell_set_pages(&SH, procsnap_take_kernel);
@@ -269,6 +278,7 @@ void shell_loop(struct input_state *in)
         if (SH.activations != last_act) { last_act = SH.activations; console_puts("shell: activate "); console_dec(SH.last_activated); console_puts("\n"); }
         if (SH.dirty) present();
         reap();
+        timersys_tick();                                         /* completion depends only on the monotonic counter, never on the visible screen */
 #if defined(AURORA_SHELL_CLIENTS) && (AURORA_SHELL_CLIENTS & 32)
         churn_step();
 #endif

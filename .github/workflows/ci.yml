@@ -190,6 +190,10 @@ jobs:
         run: |
           chmod +x tests/qemu/aura-ui-tests.sh
           ./tests/qemu/aura-ui-tests.sh
+      - name: Run native timer service tests (SYS_TIMER 42 against the real shell with EL0 clients; never-early monotonic completion, completion events, per-owner quota, hostile arguments and pointers, foreign ids, 20,000-call flood, owner exit and fault, late client, CPU-starved completion; real QMP input proves the shell stays interactive)
+        run: |
+          chmod +x tests/qemu/timer-tests.sh
+          ./tests/qemu/timer-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

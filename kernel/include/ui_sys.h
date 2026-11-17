@@ -29,6 +29,7 @@
 void ui_sys_init(int16_t region_x, int16_t region_y, int16_t region_w, int16_t region_h);     /* the area client surfaces may occupy (kernel code, at boot) */
 int  ui_sys_grant(uint32_t principal);        /* kernel code only: 0, or -1 for the kernel, none, the installer, the settings owner, or a full table */
 int64_t ui_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4);
+int  ui_sys_post(int pid, uint64_t gen, const uint8_t *ev, uint32_t n);   /* kernel code: queue a service event (<= 16 bytes) for that instance ONLY if there is room: 1 queued, 0 refused (queue full, bad pid, gen not live). Never drops another event. */
 void ui_sys_client_gone(int pid, uint64_t gen);                  /* the process instance exited or faulted: its surfaces and queued events go */
 const struct uip_state *ui_sys_state(void);                      /* read-only view for the compositor's drawing */
 
