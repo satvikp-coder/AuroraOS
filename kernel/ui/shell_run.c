@@ -17,6 +17,7 @@
 #include <ui_sys.h>
 #include <broker_kernel.h>
 #include <timersys.h>
+#include <ledger.h>
 
 /* The shell's own identity for the settings registry. Kernel code (this file, at boot) grants it appearance and attention rights, and NOT the
  * system right: the registry, not the UI, decides, so the Aura-mode setting stays refused. No process can ever hold this principal. */
@@ -234,6 +235,7 @@ void shell_loop(struct input_state *in)
         console_puts(g == SETTINGS_OK ? " (appearance+attention, no system)\n" : " FAILED\n");
         if (g == SETTINGS_OK) shell_set_store(&SH, &STORE);
     } else console_puts("shell: settings store=none (changes last for this session only)\n");
+    ledger_boot();                                               /* the durable Passport: loaded and verified (or an honest reason why not) */
     console_puts("shell: appearance text="); console_dec(SH.text_pct); console_puts(" contrast="); console_dec(SH.contrast); console_puts("\n");
     present();
     console_puts("shell: ready keyboards="); console_dec((uint64_t)vi->keyboards);
