@@ -202,6 +202,10 @@ jobs:
         run: |
           chmod +x tests/qemu/aura-timer-tests.sh
           ./tests/qemu/aura-timer-tests.sh
+      - name: Run durable Passport ledger tests (the real kernel and a real AuroraFS disk; grants and revocations survive a guest restart, instance-bound grants do not, damaged / newer / rolled-back ledgers deny everything and stay byte-for-byte untouched, read-only and missing disks disable protected actions, table limits)
+        run: |
+          chmod +x tests/qemu/ledger-tests.sh
+          ./tests/qemu/ledger-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:
