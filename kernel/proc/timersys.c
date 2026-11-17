@@ -18,7 +18,7 @@ void timersys_init(void)
 
 int timersys_grant(uint32_t principal)
 {
-    if (principal == 0 || principal == PRINCIPAL_NONE || (principal & 0xFF000000u) == 0x7F000000u) return -1;   /* kernel, none and every reserved service identity */
+    if (!principal_assignable(principal)) return -1;                                 /* kernel, none and every reserved service identity */
     for (int i = 0; i < MAX_GRANTS; i++) if (grants[i] == principal) return 0;
     for (int i = 0; i < MAX_GRANTS; i++) if (!grants[i]) { grants[i] = principal; return 0; }
     return -1;

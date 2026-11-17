@@ -20,7 +20,6 @@
 
 /* The shell's own identity for the settings registry. Kernel code (this file, at boot) grants it appearance and attention rights, and NOT the
  * system right: the registry, not the UI, decides, so the Aura-mode setting stays refused. No process can ever hold this principal. */
-#define PRINCIPAL_SHELL 0x7F000003u
 static int store_get(uint32_t id, uint32_t *v) { return settings_get(PRINCIPAL_SHELL, id, v); }
 static int store_set(uint32_t id, uint32_t v) { return settings_set(PRINCIPAL_SHELL, id, v); }
 static int store_reset(uint32_t id) { return settings_reset(PRINCIPAL_SHELL, id); }

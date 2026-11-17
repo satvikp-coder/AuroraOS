@@ -15,6 +15,8 @@
 #include <launch.h>
 #include <mm.h>
 #include <proc.h>
+#include <timersys.h>
+#include <ui_sys.h>
 
 static int nfail;
 #ifdef AURORA_LOAD_TEST
@@ -93,8 +95,14 @@ static void part1(void)
         if (pid > 0) proc_destroy(pid);
         check("loader: destroying it returns every page", free_pages() == pages0 && live_procs() == 0);
     }
-    check("loader: identity 0 and PRINCIPAL_NONE are refused before anything is allocated",
-          ({ size_t l = base_image(); int a = try_load(l, 0, &eerr), b = try_load(l, PRINCIPAL_NONE, &eerr); a == PROC_ELOAD_ARG && b == PROC_ELOAD_ARG && free_pages() == pages0 && live_procs() == 0; }));
+    check("loader: identity 0, PRINCIPAL_NONE and every reserved service identity (installer, Passport, Trail, 0x7F000000) are refused before anything is allocated",
+          ({ size_t l = base_image(); int a = try_load(l, 0, &eerr), b = try_load(l, PRINCIPAL_NONE, &eerr), c = try_load(l, PRINCIPAL_PASSPORT, &eerr), d = try_load(l, PRINCIPAL_TRAIL, &eerr), e = try_load(l, PRINCIPAL_INSTALLER, &eerr), f = try_load(l, 0x7F000000u, &eerr); a == PROC_ELOAD_ARG && b == PROC_ELOAD_ARG && c == PROC_ELOAD_ARG && d == PROC_ELOAD_ARG && e == PROC_ELOAD_ARG && f == PROC_ELOAD_ARG && free_pages() == pages0 && live_procs() == 0; }));
+
+    check("reserved identities can reach no process: the launch registry, the UI capability and the timer capability all refuse every one of them (and 0 / none)",
+          ({ static const uint32_t R[] = { 0u, PRINCIPAL_NONE, PRINCIPAL_INSTALLER, 0x7F000002u, PRINCIPAL_SHELL, PRINCIPAL_PASSPORT, PRINCIPAL_TRAIL, 0x7F000000u, 0x7F0000FFu, 0x7FFFFFFFu };
+             int ok = 1; for (unsigned i = 0; i < sizeof R / sizeof R[0]; i++)
+                 ok &= launch_register("rsv", "rsv.elf", R[i], 0) == LAUNCH_EREG && ui_sys_grant(R[i]) == -1 && timersys_grant(R[i]) == -1;
+             ok; }));
 
     /* ---- defects: each one refused through the real loader path, and nothing leaks ---- */
     {

@@ -77,7 +77,7 @@ void fsproc_run(void)
 
     check("identity: a new process has NO file identity; the kernel principal 0 and PRINCIPAL_NONE can never be assigned to a process",
           ({ int pid = proc_create(72, 0, "id"); struct proc *p = proc_get(pid); int r = p->principal == PRINCIPAL_NONE && proc_set_principal(pid, 0) < 0 &&
-             proc_set_principal(pid, PRINCIPAL_NONE) < 0 && proc_set_principal(99, 5) < 0 && proc_set_principal(pid, APP_A) == 0 && p->principal == APP_A; proc_destroy(pid); r; }));
+             proc_set_principal(pid, PRINCIPAL_NONE) < 0 && proc_set_principal(pid, PRINCIPAL_PASSPORT) < 0 && proc_set_principal(pid, PRINCIPAL_TRAIL) < 0 && proc_set_principal(pid, 0x7F000001u) < 0 && proc_set_principal(pid, PRINCIPAL_SHELL) < 0 && proc_set_principal(pid, 0x7FFFFFFFu) < 0 && proc_set_principal(pid, 0x7F000000u) < 0 && p->principal == PRINCIPAL_NONE && proc_set_principal(99, 5) < 0 && proc_set_principal(pid, APP_A) == 0 && p->principal == APP_A; proc_destroy(pid); r; }));
 
     if (first) {
         struct proc *a = run_as(70, 0, APP_A, 0, "A");

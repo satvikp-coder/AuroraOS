@@ -26,7 +26,7 @@ int launch_register(const char *app, const char *file, uint32_t principal, uint6
     for (int i = 0; i < n; i++) { char c = app[i]; if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return LAUNCH_EREG; }
     if (fs_validate_name(file) != FS_OK) return LAUNCH_EREG;
     /* The identity must be a real application identity: not the kernel, not "none", not the installer (that would let a program write executables). */
-    if (principal == 0 || principal == PRINCIPAL_NONE || principal == PRINCIPAL_INSTALLER) return LAUNCH_EREG;
+    if (!principal_assignable(principal)) return LAUNCH_EREG;                   /* not the kernel, not "none", and no reserved service identity (installer, settings, shell, Passport, Trail, ...) */
     int slot = -1;
     for (int i = 0; i < LAUNCH_MAX_APPS; i++) {
         if (!apps[i].used) { if (slot < 0) slot = i; continue; }

@@ -14,8 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_FULL=23         # 8 in-RAM loader checks + 15 end-to-end checks
-EXPECTED_NODISK=8
+EXPECTED_FULL=24         # 8 in-RAM loader checks + 15 end-to-end checks
+EXPECTED_NODISK=9
 EXPECTED_PROC_TESTS=79
 
 OUT="$ROOT/build/loader-tests"

@@ -128,6 +128,7 @@ void sched_trace_reset(void);
 #define AE_EPERM  (-7)   /* sender not authorised for that destination */
 
 /* ---- file system call (kernel/proc/fssys.c) ---- */
+#include <principal.h>
 #define PRINCIPAL_NONE 0xFFFFFFFFu   /* no filesystem identity: every file operation is refused */
 #define AE_FS_BASE (-100)            /* filesystem errors are returned as AE_FS_BASE + FS_E* (e.g. -107 = permission denied) */
 enum { FSOP_CREATE = 1, FSOP_LOOKUP, FSOP_READ, FSOP_WRITE, FSOP_STAT, FSOP_LIST, FSOP_DELETE, FSOP_SET_PERM };
