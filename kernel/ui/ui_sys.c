@@ -48,6 +48,18 @@ static void q_push(uint8_t pid, uint64_t gen, const uint8_t *ev, uint32_t n)
     q->len[slot] = (uint8_t)n; q->count++;
 }
 
+int ui_sys_post(int pid, uint64_t gen, const uint8_t *ev, uint32_t n)
+{
+    if (pid < 1 || pid > UIP_MAX_CLIENTS || gen == 0 || !ev || n == 0 || n > 16) return 0;
+    struct proc *p = proc_get(pid);
+    if (!p || p->gen != gen || (p->state == PROC_UNUSED || p->state == PROC_TERMINATED || p->state == PROC_FAULTED)) return 0;   /* never queue for an instance that is gone */
+    struct evq *q = &Q[pid];
+    if (q->gen != gen) q_reset(q, gen);
+    if (q->count == UI_EVQ_DEPTH) return 0;                              /* a service event never evicts another event */
+    q_push((uint8_t)pid, gen, ev, n);
+    return 1;
+}
+
 void ui_sys_client_gone(int pid, uint64_t gen)
 {
     if (pid < 1 || pid > UIP_MAX_CLIENTS) return;

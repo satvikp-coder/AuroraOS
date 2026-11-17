@@ -15,6 +15,17 @@ static uint64_t clamp_now(struct tsvc *s, uint64_t now)
     return now;
 }
 
+int tsvc_ticks_to_ms(uint64_t count, uint64_t freq_hz, uint64_t *ms)
+{
+    if (!ms || freq_hz == 0 || freq_hz > 0xFFFFFFFFFFFFFFFFULL / 1000) return TS_E_ARG;     /* rem * 1000 below must not overflow */
+    uint64_t whole = count / freq_hz, rem = count % freq_hz;
+    if (whole > 0xFFFFFFFFFFFFFFFFULL / 1000) return TS_E_ARG;                                /* whole seconds * 1000 must fit */
+    uint64_t base = whole * 1000, frac = rem * 1000 / freq_hz;                                /* frac < 1000 */
+    if (base > 0xFFFFFFFFFFFFFFFFULL - frac) return TS_E_ARG;
+    *ms = base + frac;
+    return TS_OK;
+}
+
 static uint64_t sat_add(uint64_t a, uint64_t b) { return a > 0xFFFFFFFFFFFFFFFFULL - b ? 0xFFFFFFFFFFFFFFFFULL : a + b; }
 
 int tsvc_start(struct tsvc *s, uint64_t now_ms, uint64_t duration_ms, uint32_t pid, uint64_t gen)
