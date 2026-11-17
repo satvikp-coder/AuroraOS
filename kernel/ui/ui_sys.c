@@ -23,7 +23,7 @@ const struct uip_state *ui_sys_state(void) { return &G; }
 
 int ui_sys_grant(uint32_t principal)
 {
-    if (principal == 0 || principal == PRINCIPAL_NONE || principal == PRINCIPAL_INSTALLER || principal == 0x7F000002u /* settings owner */ || principal == 0x7F000003u /* the shell */) return -1;
+    if (!principal_assignable(principal)) return -1;                       /* the kernel, none and every reserved service identity (installer, settings, shell, Passport, Trail) */
     for (int i = 0; i < MAX_GRANTS; i++) if (grants[i] == principal) return 0;
     for (int i = 0; i < MAX_GRANTS; i++) if (!grants[i]) { grants[i] = principal; return 0; }
     return -1;

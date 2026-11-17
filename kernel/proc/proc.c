@@ -90,7 +90,7 @@ static uint8_t load_page[PAGE_SIZE];
 int proc_create_elf(const uint8_t *file, size_t len, const char *name, uint32_t principal, uint64_t arg, int *elf_err)
 {
     if (elf_err) *elf_err = 0;
-    if (principal == 0 || principal == PRINCIPAL_NONE) return PROC_ELOAD_ARG;
+    if (!principal_assignable(principal)) return PROC_ELOAD_ARG;                  /* not the kernel, not "none", and never a reserved service identity */
     struct elf_image img;
     int ve = elf_validate(file, len, &img);
     if (ve) { if (elf_err) *elf_err = ve; return PROC_ELOAD_INVALID; }
@@ -206,7 +206,7 @@ int copy_to_user(uint64_t uva, const void *src, size_t n)
 int proc_set_principal(int pid, uint32_t principal)
 {
     struct proc *p = proc_get(pid);
-    if (!p || principal == 0 || principal == PRINCIPAL_NONE) return -1;
+    if (!p || !principal_assignable(principal)) return -1;                       /* not the kernel, not "none", and never a reserved service identity */
     p->principal = principal;
     return 0;
 }

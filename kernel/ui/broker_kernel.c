@@ -14,7 +14,6 @@ static uint64_t last_exec_tick[PROC_MAX + 1], last_exec_gen[PROC_MAX + 1];      
 #define BK_MIN_GAP_TICKS 100                                                  /* scheduler ticks (1 ms each while EL0 runs): at most about 10 executions per second per requester */
 _Static_assert(BP_REPLAY_SLOTS >= PROC_MAX + 1, "the replay table needs a slot for every process plus the shell");
 
-#define PRINCIPAL_SHELL 0x7F000003u
 
 static int lookup(uint32_t pid, uint64_t *gen, uint32_t *principal, uint32_t *rights)
 {

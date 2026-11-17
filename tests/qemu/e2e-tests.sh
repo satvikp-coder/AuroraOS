@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_LOAD=23
+EXPECTED_LOAD=24
 EXPECTED_SET=18
 EXPECTED_PROC_TESTS=79
 

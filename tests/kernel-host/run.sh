@@ -33,6 +33,7 @@ cc $CFLAGS -o "$OUT/passport_test" "$ROOT/tests/kernel-host/passport_test.c" "$R
 cc $CFLAGS -o "$OUT/trail_test" "$ROOT/tests/kernel-host/trail_test.c" "$ROOT/kernel/ui/trail.c"
 cc $CFLAGS -o "$OUT/index_model_test" "$ROOT/tests/kernel-host/index_model_test.c" "$ROOT/kernel/ui/index_model.c"
 cc $CFLAGS -o "$OUT/timersvc_test" "$ROOT/tests/kernel-host/timersvc_test.c" "$ROOT/kernel/ui/timersvc.c"
+cc $CFLAGS -o "$OUT/principal_test" "$ROOT/tests/kernel-host/principal_test.c"
 "$OUT/fdt_pmm_test"
 "$OUT/policy_test"
 "$OUT/elf_test"
@@ -60,3 +61,4 @@ cc $CFLAGS -o "$OUT/timersvc_test" "$ROOT/tests/kernel-host/timersvc_test.c" "$R
 "$OUT/index_model_test"
 python3 "$ROOT/tests/aura-eval/selftest.py"
 "$OUT/timersvc_test"
+"$OUT/principal_test"
