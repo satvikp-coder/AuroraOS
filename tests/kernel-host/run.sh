@@ -28,6 +28,7 @@ cc $CFLAGS -o "$OUT/ui_proto_test" "$ROOT/tests/kernel-host/ui_proto_test.c" "$R
 cc $CFLAGS -o "$OUT/aura_cmd_test" "$ROOT/tests/kernel-host/aura_cmd_test.c" "$ROOT/kernel/ui/aura_cmd.c"
 cc $CFLAGS -o "$OUT/broker_policy_test" "$ROOT/tests/kernel-host/broker_policy_test.c" "$ROOT/kernel/ui/broker_policy.c" "$ROOT/kernel/ui/aura_cmd.c"
 cc $CFLAGS -o "$OUT/aura_exec_test" "$ROOT/tests/kernel-host/aura_exec_test.c" "$ROOT/kernel/ui/aura_exec.c" "$ROOT/kernel/ui/broker_policy.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/ui_proto.c" "$ROOT/kernel/proc/procsnap.c" "$ROOT/kernel/ui/index_model.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c" -lm
+cc $CFLAGS -o "$OUT/aura_timer_test" "$ROOT/tests/kernel-host/aura_timer_test.c" "$ROOT/kernel/ui/aura_exec.c" "$ROOT/kernel/ui/broker_policy.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/ui_proto.c" "$ROOT/kernel/proc/procsnap.c" "$ROOT/kernel/ui/index_model.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c" -lm
 cc $CFLAGS -o "$OUT/passport_test" "$ROOT/tests/kernel-host/passport_test.c" "$ROOT/kernel/ui/passport.c"
 cc $CFLAGS -o "$OUT/trail_test" "$ROOT/tests/kernel-host/trail_test.c" "$ROOT/kernel/ui/trail.c"
 cc $CFLAGS -o "$OUT/index_model_test" "$ROOT/tests/kernel-host/index_model_test.c" "$ROOT/kernel/ui/index_model.c"
@@ -53,6 +54,7 @@ cc $CFLAGS -o "$OUT/timersvc_test" "$ROOT/tests/kernel-host/timersvc_test.c" "$R
 "$OUT/aura_cmd_test"
 "$OUT/broker_policy_test"
 "$OUT/aura_exec_test"
+"$OUT/aura_timer_test"
 "$OUT/passport_test"
 "$OUT/trail_test"
 "$OUT/index_model_test"

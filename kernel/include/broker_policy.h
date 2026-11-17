@@ -34,13 +34,15 @@ enum bp_reason {
     BPR_NO_NAVIGATION,       /* the shell navigation service is not available */
     BPR_NO_REVIEW,           /* no trusted review path with a non-spoofable input path exists */
     BPR_NO_PASSPORT, BPR_NO_TRAIL, BPR_NO_HOLD,
+    BPR_NO_TIMER,            /* the timer service is not available */
     BPR_COUNT
 };
 
 /* Rights a requester can hold (granted by kernel code only; an EL0 client holds none by default). */
 #define BP_RIGHT_NAVIGATE 0x1u     /* may cause S0 navigation in the shell */
 #define BP_RIGHT_SETTINGS 0x2u     /* may propose an S1 settings change (still needs trusted review) */
-#define BP_RIGHTS_ALL (BP_RIGHT_NAVIGATE | BP_RIGHT_SETTINGS)
+#define BP_RIGHT_TIMER 0x4u        /* may start or cancel the SHELL's timer: today only the trusted shell holds it (a client has no timer of its own through this path) */
+#define BP_RIGHTS_ALL (BP_RIGHT_NAVIGATE | BP_RIGHT_SETTINGS | BP_RIGHT_TIMER)
 
 #define BP_SHELL_PID 0u            /* the trusted shell itself is requester pid 0, generation 1 (it is not a process) */
 #define BP_SHELL_GEN 1u
@@ -53,6 +55,7 @@ struct bp_env {
     bp_lookup_fn lookup;        /* NULL: no requester can be verified, everything is denied */
     uint8_t nav_service;        /* the shell navigation executor exists */
     uint8_t review_path;        /* a compositor-drawn review with a non-spoofable approval path exists */
+    uint8_t timer_service;      /* the shell's timer service (the Clock) is attached */
     uint8_t passport, trail, hold_input;   /* the native Passport, the Trail and tactile hold-to-confirm: all absent today */
 };
 

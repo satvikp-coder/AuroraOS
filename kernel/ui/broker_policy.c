@@ -10,6 +10,7 @@ uint8_t bp_risk_of_kind(uint8_t kind)
 {
     switch (kind) {
     case AK_OPEN_SCREEN: case AK_SELECT_SPACE: return 0;
+    case AK_TIMER: return 0;
     case AK_SET_SETTING: return 1;
     case AK_DESTRUCTIVE: return 3;
     default: return 255;
@@ -65,6 +66,11 @@ void bp_decide(const struct bp_env *env, struct bp_replay *replay, const struct 
     switch (req->intent.status) {
     case AS_ACTIONABLE:
         if (risk != 0) { res(out, BP_DENY, BPR_BAD_INTENT, risk, principal); return; }          /* only S0 navigation can be actionable */
+        if (kind == AK_TIMER) {                                                                 /* the timer belongs to the trusted shell: a client would act on the shell's timer (a confused deputy) */
+            if (req->pid != BP_SHELL_PID || !(rights & BP_RIGHT_TIMER)) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
+            if (!env->timer_service) { res(out, BP_UNAVAILABLE, BPR_NO_TIMER, risk, principal); return; }
+            res(out, BP_ALLOW_NOW, BPR_NONE, risk, principal); return;
+        }
         if (!(rights & BP_RIGHT_NAVIGATE)) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
         if (!env->nav_service) { res(out, BP_UNAVAILABLE, BPR_NO_NAVIGATION, risk, principal); return; }
         res(out, BP_ALLOW_NOW, BPR_NONE, risk, principal); return;
@@ -97,6 +103,6 @@ const char *bp_decision_name(uint8_t d)
 const char *bp_reason_name(uint8_t r)
 {
     static const char *const N[BPR_COUNT] = { "none", "bad_intent", "bad_requester", "stale_requester", "replay", "table_full", "no_right", "not_actionable",
-                                              "unsupported", "no_navigation", "no_review", "no_passport", "no_trail", "no_hold" };
+                                              "unsupported", "no_navigation", "no_review", "no_passport", "no_trail", "no_hold", "no_timer" };
     return r < BPR_COUNT ? N[r] : "?";
 }
