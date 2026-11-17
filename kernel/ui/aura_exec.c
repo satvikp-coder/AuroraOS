@@ -33,6 +33,7 @@ static void put(char *d, uint32_t cap, const char *a, const char *b)
 
 void aura_outcome_from(struct aura_outcome *o, const struct bp_result *d, int executed)
 {
+    if (!o || !d) return;                                                                       /* public helper: never dereference a NULL argument */
     const char *pre = o->intent.preview;
     o->decision = d->decision; o->reason = d->reason; o->executed = 0;
     switch (d->decision) {
@@ -62,8 +63,9 @@ void aura_run_text(struct shell *sh, const struct bp_env *env, struct bp_replay 
                    const char *text, size_t len, struct aura_outcome *out)
 {
     struct bp_request rq; struct bp_result d;
+    if (!out) return;                                                                           /* validate the output pointer BEFORE writing through it */
     uint8_t *z = (uint8_t *)out; for (size_t i = 0; i < sizeof *out; i++) z[i] = 0;
-    if (!sh || !env || !env->caps || !out) return;
+    if (!sh || !env || !env->caps) return;
     aura_parse(text, len, env->caps, &out->intent);
     z = (uint8_t *)&rq; for (size_t i = 0; i < sizeof rq; i++) z[i] = 0;
     rq.pid = pid; rq.gen = gen; rq.nonce = nonce; rq.intent = out->intent;
@@ -75,8 +77,9 @@ void aura_run_text(struct shell *sh, const struct bp_env *env, struct bp_replay 
 
 void aura_run_queued(struct shell *sh, const struct bp_env *env, uint32_t pid, uint64_t gen, const struct aura_intent *in, struct aura_outcome *out)
 {
+    if (!out) return;                                                                           /* validate the output pointer BEFORE writing through it */
     uint8_t *z = (uint8_t *)out; for (size_t i = 0; i < sizeof *out; i++) z[i] = 0;
-    if (!sh || !env || !env->caps || !env->lookup || !in || !out) return;
+    if (!sh || !env || !env->caps || !env->lookup || !in) return;
     out->intent = *in;
     struct bp_result d; d.decision = BP_DENY; d.reason = BPR_BAD_REQUESTER; d.risk = 0; d.principal = 0;
     uint64_t g = 0; uint32_t pr = 0, rt = 0;

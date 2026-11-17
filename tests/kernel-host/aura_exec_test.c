@@ -147,6 +147,16 @@ int main(void)
       aura_parse("open home", 9, &CAPS, &in); in.target = 9; CHECK("... an out-of-range screen", aura_execute_s0(&sh, &in, &CAPS) == 0);
       aura_parse("switch to work space", 20, &CAPS, &in); in.target = 4; CHECK("... an out-of-range Space", aura_execute_s0(&sh, &in, &CAPS) == 0);
       CHECK("... NULL arguments", aura_execute_s0(0, &in, &CAPS) == 0 && aura_execute_s0(&sh, 0, &CAPS) == 0 && aura_execute_s0(&sh, &in, 0) == 0); }
+    { /* NULL output pointers must be rejected before any write (regression: the output was cleared before the NULL check) */
+      uint64_t before = shell_digest(); struct aura_intent in; aura_parse("open pages", 10, &CAPS, &in);
+      aura_run_text(&sh, &ENV, &RP, 0, T[0].gen, ++nonce, "open pages", 10, 0);
+      aura_run_queued(&sh, &ENV, 0, T[0].gen, &in, 0);
+      CHECK("NULL output: run_text and run_queued return without dereferencing it, and nothing executed", shell_digest() == before);
+      struct aura_outcome o; memset(&o, 0xA5, sizeof o);
+      aura_run_text(0, &ENV, &RP, 0, T[0].gen, ++nonce, "open pages", 10, &o);
+      CHECK("NULL shell: the output is still cleared (fail closed), nothing executed", o.executed == 0 && o.state != AX_DONE);
+      memset(&o, 0xA5, sizeof o); aura_run_queued(&sh, &ENV, 0, T[0].gen, 0, &o);
+      CHECK("NULL queued intent: output cleared, nothing executed", o.executed == 0 && shell_digest() == before); }
 
     /* ---- randomised: text of every kind, many requesters; the executor only ever lands on a screen the user could have opened ---- */
     {
