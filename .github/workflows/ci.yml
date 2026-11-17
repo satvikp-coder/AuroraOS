@@ -198,6 +198,10 @@ jobs:
         run: |
           chmod +x tests/qemu/clock-tests.sh
           ./tests/qemu/clock-tests.sh
+      - name: Run Aura timer command tests (the real shell, broker and SYS_TIMER service; start/cancel/refuse by typed commands, no guessed units, out-of-range and unauthorised requests, a real 1 minute timer finishing off-screen with the toast)
+        run: |
+          chmod +x tests/qemu/aura-timer-tests.sh
+          ./tests/qemu/aura-timer-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

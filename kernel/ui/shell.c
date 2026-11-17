@@ -773,7 +773,8 @@ static const struct aura_caps AURA_PREVIEW_CAPS = { 1, 0, 0, 0, 0 };         /* 
 static void aura_refresh(struct shell *sh)
 {
     sh->aura_in[sh->aura_len] = 0;
-    aura_parse(sh->aura_in, sh->aura_len, &AURA_PREVIEW_CAPS, &sh->aura_pv);
+    struct aura_caps pc = AURA_PREVIEW_CAPS; pc.timer = sh->timers != 0;          /* the preview offers timer commands only when the Clock has a service */
+    aura_parse(sh->aura_in, sh->aura_len, &pc, &sh->aura_pv);
 }
 
 static void aura_submit(struct shell *sh)
@@ -952,8 +953,24 @@ static void clk_start(struct shell *sh, uint32_t preset)
     sh->clk_preset = (uint8_t)(preset % 3);
     int id = sh->timers->start((uint64_t)CLK_PRESET_S[sh->clk_preset] * 1000u);
     if (id < 0) { sh->clk_state = CK_ERROR; sh->clk_err = (id == -406) ? 1 : 2; sh->clk_id = -1; }
-    else { sh->clk_state = CK_RUNNING; sh->clk_id = id; sh->clk_rem_s = CLK_PRESET_S[sh->clk_preset]; sh->clk_err = 0; }
+    else { sh->clk_state = CK_RUNNING; sh->clk_id = id; sh->clk_rem_s = sh->clk_dur_s = CLK_PRESET_S[sh->clk_preset]; sh->clk_err = 0; }
     clk_update_live(sh);
+}
+
+int shell_clock_start(struct shell *sh, uint32_t seconds)
+{
+    if (!sh->timers || seconds < 1 || seconds > 86400u || clk_eff(sh) == CK_RUNNING) return 0;
+    int id = sh->timers->start((uint64_t)seconds * 1000u);
+    if (id < 0) { sh->clk_state = CK_ERROR; sh->clk_err = (id == -406) ? 1 : 2; sh->clk_id = -1; clk_update_live(sh); build(sh); sh->dirty = 1; return 0; }
+    uint8_t st = 0; uint64_t rem = 0;
+    if (sh->timers->query(id, &st, &rem) != 0 || st != 1 || rem > (uint64_t)seconds * 1000u) {       /* the service does not hold what we asked for: undo and say so */
+        (void)sh->timers->cancel(id); (void)sh->timers->release(id);
+        sh->clk_state = CK_ERROR; sh->clk_err = 2; sh->clk_id = -1; clk_update_live(sh); build(sh); sh->dirty = 1;
+        return 0;
+    }
+    sh->clk_state = CK_RUNNING; sh->clk_id = id; sh->clk_rem_s = sh->clk_dur_s = seconds; sh->clk_err = 0;
+    clk_update_live(sh); build(sh); sh->dirty = 1;
+    return 1;
 }
 
 static void clk_cancel(struct shell *sh)
@@ -963,6 +980,14 @@ static void clk_cancel(struct shell *sh)
     if (rc == 0) { (void)sh->timers->release(sh->clk_id); sh->clk_state = CK_CANCELLED; sh->clk_id = -1; sh->clk_rem_s = 0; }
     else { sh->clk_state = CK_ERROR; sh->clk_err = 3; sh->clk_id = -1; }                  /* it finished first, or the service lost it: say what is true */
     clk_update_live(sh);
+}
+
+int shell_clock_cancel(struct shell *sh)
+{
+    if (clk_eff(sh) != CK_RUNNING) return 0;
+    clk_cancel(sh);
+    build(sh); sh->dirty = 1;
+    return sh->clk_state == CK_CANCELLED;
 }
 
 /* The completion toast: a compositor-owned notice in the header (the Horizon status slot). It never takes focus and cannot be clicked; it is drawn on the

@@ -121,7 +121,7 @@ struct shell {
     /* Clock screen and the completion toast. Time comes ONLY from the monotonic counter via shell_tick; the shell never invents a date. */
     const struct shell_timers *timers;  /* NULL = unavailable */
     uint8_t clk_state, clk_preset, clk_err;   /* CK_*, 0..2 (1, 5, 25 min), error kind (1 limit, 2 refused, 3 lost) */
-    int32_t clk_id; uint32_t clk_rem_s; uint32_t clk_seq;   /* the service's timer id, whole seconds left (rounded up), count of spoken-line changes */
+    int32_t clk_id; uint32_t clk_rem_s, clk_dur_s; uint32_t clk_seq;   /* the service's timer id, whole seconds left (rounded up), count of spoken-line changes */
     uint64_t now_ms, toast_until_ms; uint8_t toast_on;
     char clk_live[64], clk_val[12], clk_up[16];
     /* Settings screen */
@@ -151,6 +151,11 @@ int  shell_pages_refresh(struct shell *sh);
 void shell_set_aura(struct shell *sh, int (*run)(struct shell *sh, const char *text, size_t len, uint8_t *state, char *msg, size_t cap));
 /* Attach (or detach, with NULL) the timer service for the Clock screen. */
 void shell_set_timers(struct shell *sh, const struct shell_timers *timers);
+/* Aura's timer effects (called by the S0 executor after the broker allowed them). Each returns 1 ONLY if the real timer service now shows what was asked:
+ * start reads the timer back from the service (running, no more than the requested time left); cancel needs a running timer and the service's confirmation.
+ * A timer that is already running is never replaced. Nothing is claimed otherwise. */
+int  shell_clock_start(struct shell *sh, uint32_t seconds);
+int  shell_clock_cancel(struct shell *sh);
 /* Advance the shell's view of the monotonic clock (milliseconds since boot). Polls a running timer, completes it (once), expires the toast. Independent of
  * the visible screen. Returns 1 if anything visible changed. */
 int  shell_tick(struct shell *sh, uint64_t now_ms);

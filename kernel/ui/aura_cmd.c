@@ -100,7 +100,7 @@ static const char *const TRAIL[] = { "please", "now", "thanks", "thank you", 0 }
 static const char *const OPEN_VERBS[] = { "open", "go to", "goto", "show me", "show", "launch", "take me to", "switch to", "navigate to", "view", 0 };
 static const char *const SET_VERBS[] = { "set", "change", "switch", "make", "turn", "use", "select", "adjust", 0 };
 
-static const char *const SCREEN_NAME[ASC_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages" };
+static const char *const SCREEN_NAME[ASC_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Clock" };
 static const char *const SPACE_NAME[4] = { "Study", "Work", "Projects", "Personal" };
 static const char *const THEME_NAME[3] = { "Auto", "Light", "Dark" };
 
@@ -111,6 +111,7 @@ static int screen_of(const char *w)
     if (eq(w, "index") || eq(w, "search") || eq(w, "launcher")) return ASC_INDEX;
     if (eq(w, "settings") || eq(w, "preferences") || eq(w, "options")) return ASC_SETTINGS;
     if (eq(w, "pages") || eq(w, "processes")) return ASC_PAGES;
+    if (eq(w, "clock")) return ASC_CLOCK;
     return -1;
 }
 static int space_of(const char *w)
@@ -123,7 +124,7 @@ static int space_of(const char *w)
 }
 static int is_prefix_of_known(const char *w)               /* a non-empty prefix of a known target name, but not a name itself */
 {
-    static const char *const K[] = { "home", "spaces", "index", "search", "settings", "preferences", "pages", "processes", "study", "work", "projects", "personal", "launcher", "options", 0 };
+    static const char *const K[] = { "home", "spaces", "index", "search", "settings", "preferences", "pages", "processes", "study", "work", "projects", "personal", "launcher", "options", "clock", 0 };
     int n = slen(w);
     if (n == 0) return 0;
     for (int k = 0; K[k]; k++) {
@@ -157,6 +158,76 @@ static int open_screen(const struct toks *tk, int lo, int hi, const struct aura_
     char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Open "; for (; pre[i]; i++) b[i] = pre[i]; for (int k = 0; SCREEN_NAME[sc][k]; k++) b[i++] = SCREEN_NAME[sc][k]; b[i] = 0;
     if (sc == ASC_PAGES && !caps->pages) { fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_PAGES, 0, 0, AA_NONE, 0, "Unsupported: Pages is not available yet"); return 1; }
     fin(o, AK_OPEN_SCREEN, AS_ACTIONABLE, AR_NONE, 0, sc, AA_NONE, 0, b);
+    return 1;
+}
+
+static int number(const char *w, int *out);
+/* ---- timer commands (only when the platform has a timer service). The unit is mandatory; the duration is validated, never clamped. ---- */
+static int unit_secs(const char *w)
+{
+    if (eq(w, "second") || eq(w, "seconds") || eq(w, "sec") || eq(w, "secs")) return 1;
+    if (eq(w, "minute") || eq(w, "minutes") || eq(w, "min") || eq(w, "mins")) return 60;
+    if (eq(w, "hour") || eq(w, "hours") || eq(w, "hr") || eq(w, "hrs")) return 3600;
+    return 0;
+}
+static void timer_preview(char *b, int cap, int seconds)
+{
+    if (seconds % 3600 == 0) put_num(b, cap, "Start ", seconds / 3600, " hr timer");
+    else if (seconds % 60 == 0) put_num(b, cap, "Start ", seconds / 60, " min timer");
+    else put_num(b, cap, "Start ", seconds, " sec timer");
+}
+static int timer_cmd(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    if (!caps->timer || !has(tk, lo, hi, "timer")) return 0;
+    int p = lo;
+    static const char *const CANCEL_V[] = { "cancel", "stop", "end", "abort", 0 };
+    static const char *const START_V[] = { "start", "set", "begin", "run", "create", "make", 0 };
+    int n = first_of(tk, p, hi, CANCEL_V);
+    if (n) {
+        p += n;
+        if (p < hi && (eq(tk->t[p], "my") || eq(tk->t[p], "the") || eq(tk->t[p], "this") || eq(tk->t[p], "current"))) p++;
+        if (p < hi && eq(tk->t[p], "timer")) p++; else return 0;
+        if (p != hi) return 0;
+        fin(o, AK_TIMER, AS_ACTIONABLE, AR_NONE, 0, ATM_CANCEL, AA_NONE, 0, "Cancel the timer");
+        return 1;
+    }
+    n = first_of(tk, p, hi, OPEN_VERBS);
+    if (n) {                                                          /* "show timer", "open my timer": the Clock screen */
+        p += n;
+        if (p < hi && (eq(tk->t[p], "my") || eq(tk->t[p], "the"))) p++;
+        if (p < hi && eq(tk->t[p], "timer")) p++; else return 0;
+        if (p != hi) return 0;
+        fin(o, AK_OPEN_SCREEN, AS_ACTIONABLE, AR_NONE, 0, ASC_CLOCK, AA_NONE, 0, "Open Clock");
+        return 1;
+    }
+    p += first_of(tk, p, hi, START_V);
+    if (p < hi && (eq(tk->t[p], "a") || eq(tk->t[p], "an") || eq(tk->t[p], "the") || eq(tk->t[p], "my"))) p++;
+    int v = 0, r = 0, mult = 0;
+    if (p < hi && eq(tk->t[p], "timer")) {                            /* "timer for 25 minutes", "set a timer to 5 minutes", "timer 25 minutes" */
+        p++;
+        if (p < hi && (eq(tk->t[p], "for") || eq(tk->t[p], "to"))) p++;
+        if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "How long? Say minutes or seconds."); return 1; }
+        r = number(tk->t[p], &v);
+        if (r == 0) return 0;
+        p++;
+        if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "How long? Say minutes or seconds."); return 1; }
+        mult = unit_secs(tk->t[p]); if (!mult) return 0;
+        p++;
+        if (p != hi) return 0;
+    } else {                                                          /* "a 5 minute timer" */
+        if (p >= hi) return 0;
+        r = number(tk->t[p], &v);
+        if (r == 0) return 0;
+        p++;
+        if (p >= hi) return 0;
+        mult = unit_secs(tk->t[p]); if (!mult) return 0;
+        p++;
+        if (p < hi && eq(tk->t[p], "timer")) p++; else return 0;
+        if (p != hi) return 0;
+    }
+    if (r < 0 || v < 1 || (long)v * mult > ATM_MAX_S) { fin(o, AK_TIMER, AS_REJECTED, AR_RANGE, 0, ATM_START, AA_NONE, 0, "Timer must be 1 second to 24 hours"); return 1; }
+    char b[AURA_PREVIEW_MAX]; timer_preview(b, sizeof b, v * mult);
+    fin(o, AK_TIMER, AS_ACTIONABLE, AR_NONE, 0, ATM_START, AA_ABS, v * mult, b);
     return 1;
 }
 
@@ -304,12 +375,13 @@ int aura_parse(const char *text, size_t len, const struct aura_caps *caps_in, st
     if (has_any(&tk, lo, hi, DESTRUCTIVE)) return fin(o, AK_DESTRUCTIVE, AS_REJECTED, AR_NEEDS_BROKER, 3, 0, AA_NONE, 0, "Not done: needs broker and trusted approval");
     strip(&tk, &lo, &hi);
     if (has_any(&tk, lo, hi, CONJ)) return fin(o, AK_CLARIFY, AS_CLARIFY, AR_MULTIPLE, 0, 0, AA_NONE, 0, "One command at a time");
+    if (timer_cmd(&tk, lo, hi, caps, o)) return o->status;
     if (open_screen(&tk, lo, hi, caps, o)) return o->status;
     if (select_space(&tk, lo, hi, o)) return o->status;
     if (theme(&tk, lo, hi, o)) return o->status;
     if (text_size(&tk, lo, hi, o)) return o->status;
     if (has_any(&tk, lo, hi, MESSAGING)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_MESSAGING, 3, 0, AA_NONE, 0, "Unsupported: no messaging service");
-    if (has_any(&tk, lo, hi, TIMERS)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_TIMER, 0, 0, AA_NONE, 0, "Unsupported: no timer service");
+    if (!caps->timer && has_any(&tk, lo, hi, TIMERS)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_TIMER, 0, 0, AA_NONE, 0, "Unsupported: no timer service");
     if (has_any(&tk, lo, hi, HARDWARE)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_HARDWARE, 1, 0, AA_NONE, 0, "Unsupported: no driver for that");
     if (has_any(&tk, lo, hi, NOTES)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_NOTES, 0, 0, AA_NONE, 0, "Unsupported: no Notes app");
     return fin(o, AK_UNKNOWN, AS_REJECTED, AR_NOT_UNDERSTOOD, 0, 0, AA_NONE, 0, "Not a command I know");
@@ -329,8 +401,8 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     char want[AURA_PREVIEW_MAX];
     switch (x->kind) {
     case AK_OPEN_SCREEN: {
-        static const char *const N[] = { "Open Home", "Open Spaces", "Open Index", "Open Settings", "Open Pages" };
-        if (x->target >= 5 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
+        static const char *const N[] = { "Open Home", "Open Spaces", "Open Index", "Open Settings", "Open Pages", "Open Clock" };
+        if (x->target >= 6 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
         if (x->target == 4 && !caps->pages) return 0;                       /* opening Pages without a Pages screen is never valid */
         return x->status == AS_ACTIONABLE && x->reason == AR_NONE && x->risk == 0 && str_eq_n(x->preview, N[x->target]);
     }
@@ -353,10 +425,21 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
             return str_eq_n(x->preview, want);
         }
         return 0;
+    case AK_TIMER:
+        if (!caps->timer || x->risk != 0) return 0;                          /* without a timer service no timer intent is valid */
+        if (x->status == AS_REJECTED) return x->reason == AR_RANGE && x->target == ATM_START && x->arg_kind == AA_NONE && x->arg == 0 && str_eq_n(x->preview, "Timer must be 1 second to 24 hours");
+        if (x->status != AS_ACTIONABLE || x->reason != AR_NONE) return 0;
+        if (x->target == ATM_START) {
+            if (x->arg_kind != AA_ABS || x->arg < ATM_MIN_S || x->arg > ATM_MAX_S) return 0;
+            timer_preview(want, sizeof want, x->arg);
+            return str_eq_n(x->preview, want);
+        }
+        if (x->target == ATM_CANCEL) return x->arg_kind == AA_NONE && x->arg == 0 && str_eq_n(x->preview, "Cancel the timer");
+        return 0;
     case AK_UNSUPPORTED: {
         if (x->status != AS_UNSUPPORTED || x->target != 0 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
         switch (x->reason) {
-        case AR_NO_TIMER: return x->risk == 0 && str_eq_n(x->preview, "Unsupported: no timer service");
+        case AR_NO_TIMER: return !caps->timer && x->risk == 0 && str_eq_n(x->preview, "Unsupported: no timer service");
         case AR_NO_HARDWARE: return x->risk == 1 && str_eq_n(x->preview, "Unsupported: no driver for that");
         case AR_NO_NOTES: return x->risk == 0 && str_eq_n(x->preview, "Unsupported: no Notes app");
         case AR_NO_MESSAGING: return x->risk == 3 && str_eq_n(x->preview, "Unsupported: no messaging service");
@@ -372,7 +455,7 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
         case AR_EMPTY: return str_eq_n(x->preview, "Say or type a command");
         case AR_MULTIPLE: return str_eq_n(x->preview, "One command at a time");
         case AR_AMBIGUOUS: return str_eq_n(x->preview, "Which one do you mean?");
-        case AR_MISSING_ARG: return str_eq_n(x->preview, "Open what?") || str_eq_n(x->preview, "That command needs a value");
+        case AR_MISSING_ARG: return str_eq_n(x->preview, "Open what?") || str_eq_n(x->preview, "That command needs a value") || (caps->timer && str_eq_n(x->preview, "How long? Say minutes or seconds."));
         default: return 0;
         }
     case AK_UNKNOWN:
@@ -385,7 +468,7 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     }
 }
 
-static const char *const KN[AK_COUNT] = { "none", "open_screen", "select_space", "set_setting", "unsupported", "destructive", "clarify", "unknown", "refused" };
+static const char *const KN[AK_COUNT] = { "none", "open_screen", "select_space", "set_setting", "unsupported", "destructive", "clarify", "unknown", "refused", "timer" };
 static const char *const SN[AS_COUNT] = { "actionable", "needs_approval", "unsupported", "clarify", "rejected" };
 static const char *const RN[AR_COUNT] = { "none", "empty", "too_long", "bad_encoding", "injection", "multiple", "ambiguous", "missing_arg", "range", "not_understood", "no_timer", "no_hardware", "no_notes", "no_messaging", "no_pages", "needs_broker" };
 const char *aura_kind_name(uint8_t k) { return k < AK_COUNT ? KN[k] : "?"; }

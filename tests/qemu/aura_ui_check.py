@@ -138,7 +138,7 @@ def main():
     # ---- scenario 4: start a timer ----
     tap("esc"); time.sleep(0.4)
     typ("start a timer"); tap("ret")
-    check("'start a timer': unavailable, 'no timer service'", wait_ran(4) and ran()[3][0] == "unsupported" and "no timer service" in ran()[3][4] and ran()[3][5] == "Aura")
+    check("'start a timer' (no duration): a clarification asking how long; nothing starts and Aura stays open", wait_ran(4) and ran()[3][0] == "clarify" and "How long" in ran()[3][4] and ran()[3][5] == "Aura")
 
     # ---- pointer: the Run button (100 percent layout) ----
     if not big:

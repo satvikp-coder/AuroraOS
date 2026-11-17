@@ -4,7 +4,7 @@
 
 static struct bp_env ENV;
 static struct bp_replay RP;
-static const struct aura_caps CAPS = { 1, 0, 0, 0, 0 };          /* Pages exists now; no timer, Notes, messaging or hardware services */
+static const struct aura_caps CAPS = { 1, 1, 0, 0, 0 };          /* Pages and the shell's timer exist; no Notes, messaging or hardware services */
 static uint64_t grant_gen[PROC_MAX + 1];                           /* the generation each pid's navigate right was granted to (0 = none) */
 static uint32_t grant_rights[PROC_MAX + 1];
 
@@ -31,6 +31,7 @@ static int lookup(uint32_t pid, uint64_t *gen, uint32_t *principal, uint32_t *ri
 void broker_init(void)
 {
     ENV.caps = &CAPS; ENV.lookup = lookup;
+    ENV.timer_service = 1;                                            /* the Clock's timer service is attached by the shell */
     ENV.nav_service = 1;                                              /* the shell's navigation executor exists */
     ENV.review_path = 0; ENV.passport = 0; ENV.trail = 0; ENV.hold_input = 0;   /* none of these exist yet: S1 and above stay unavailable */
     bp_replay_init(&RP);

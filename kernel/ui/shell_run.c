@@ -253,7 +253,7 @@ void shell_loop(struct input_state *in)
 #ifdef AURORA_SHELL_LAYOUT_LOG
     uint32_t lsig = 0;
 #endif
-    uint32_t sseq = SH.set_seq, cdig = 0, clk_seq_logged = SH.clk_seq, toast_logged = 0;
+    uint32_t sseq = SH.set_seq, cdig = 0, clk_seq_logged = SH.clk_seq, toast_logged = 0, clk_state_logged = SH.clk_state;
     uint64_t pg_q = 0, pg_digest = 0; int pg_logged = 0;
     for (;;) {
         /* Execute broker-approved requests of EL0 clients that are STILL the same live instance BEFORE reading input, and show the result at once: the user's
@@ -267,6 +267,7 @@ void shell_loop(struct input_state *in)
         shell_set_uptime(&SH, (uint32_t)((timer_count() - t0) / hz));
         shell_tick(&SH, timersys_now_ms());                      /* timers and the toast follow the monotonic counter, whatever screen is showing */
         if (SH.toast_on != toast_logged) { toast_logged = SH.toast_on; console_puts(toast_logged ? "shell: toast on\n" : "shell: toast off\n"); }
+        if (SH.clk_state != clk_state_logged) { clk_state_logged = SH.clk_state; if (clk_state_logged == CK_RUNNING) { console_puts("shell: clock running secs="); console_dec(SH.clk_dur_s); console_puts("\n"); } else if (clk_state_logged == CK_DONE) console_puts("shell: clock finished\n"); else if (clk_state_logged == CK_CANCELLED) console_puts("shell: clock cancelled\n"); }
         if (SH.clk_seq != clk_seq_logged) { clk_seq_logged = SH.clk_seq; console_puts("shell: say "); console_puts(SH.clk_live); console_puts("\n"); }
         if (SH.screen != SCR_PAGES) pg_logged = 0;
         if (SH.screen == SCR_PAGES) { uint64_t q = (timer_count() - t0) / (hz / 4 ? hz / 4 : 1); if (q != pg_q) { pg_q = q; shell_pages_refresh(&SH); if (!pg_logged || SH.ps_digest != pg_digest) { pg_logged = 1; pg_digest = SH.ps_digest;
