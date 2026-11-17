@@ -29,6 +29,8 @@ static int has_cap(uint32_t principal)
     return 0;
 }
 
+static uint64_t now_ms(void);
+uint64_t timersys_now_ms(void) { return now_ms(); }
 static uint64_t now_ms(void)
 {
     uint64_t ms = 0;
@@ -80,9 +82,36 @@ void timersys_tick(void)
     for (int i = 0; i < TS_MAX; i++) {
         if (S.t[i].state != TS_DONE) { posted[i] = 0; continue; }
         if (posted[i]) continue;
+        if (S.t[i].pid == TIMER_SHELL_PID) { posted[i] = 1; continue; }              /* the shell polls its own timer: there is no queue to post to */
         uint8_t ev[12] = { 1, UIP_EVENT_TIMER, 0, 0, 0, 0, 0, 0, (uint8_t)i, TS_DONE, 0, 0 };
         if (ui_sys_post((int)S.t[i].pid, S.t[i].gen, ev, sizeof ev)) posted[i] = 1;   /* a full queue: not delivered, retried next tick */
     }
+}
+
+int timersys_shell_start(uint64_t duration_ms)
+{
+    int rc = tsvc_start(&S, now_ms(), duration_ms, TIMER_SHELL_PID, TIMER_SHELL_GEN);
+    if (rc >= 0) { posted[rc] = 0; return rc; }
+    return AE_TM_BASE + rc;
+}
+int timersys_shell_query(int id, uint8_t *state, uint64_t *remaining_ms)
+{
+    if (id < 0) return AE_TM_BASE + TS_E_NOENT;
+    int rc = tsvc_query(&S, now_ms(), (uint32_t)id, TIMER_SHELL_PID, TIMER_SHELL_GEN, state, remaining_ms);
+    return rc == TS_OK ? 0 : AE_TM_BASE + rc;
+}
+int timersys_shell_cancel(int id)
+{
+    if (id < 0) return AE_TM_BASE + TS_E_NOENT;
+    int rc = tsvc_cancel(&S, (uint32_t)id, TIMER_SHELL_PID, TIMER_SHELL_GEN);
+    return rc == TS_OK ? 0 : AE_TM_BASE + rc;
+}
+int timersys_shell_release(int id)
+{
+    if (id < 0 || id >= TS_MAX) return AE_TM_BASE + TS_E_NOENT;
+    int rc = tsvc_release(&S, (uint32_t)id, TIMER_SHELL_PID, TIMER_SHELL_GEN);
+    if (rc == TS_OK) posted[id] = 0;
+    return rc == TS_OK ? 0 : AE_TM_BASE + rc;
 }
 
 void timersys_owner_gone(int pid, uint64_t gen)

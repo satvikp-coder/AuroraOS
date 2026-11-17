@@ -22,7 +22,7 @@
 #include <procsnap.h>
 #include <aura_cmd.h>
 
-enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_COUNT };
+enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_CLOCK, SCR_COUNT };
 
 /* Stable control identifiers (never reused for another meaning). */
 enum {
@@ -36,7 +36,8 @@ enum {
     SID_SET_RESET = 210,                /* SID_SET_RESET + r restores its default */
     SID_SET_UP = 220, SID_SET_DOWN,     /* scroll the Settings list when it does not fit */
     SID_PAGES_HOME = 230,               /* Pages: return to Home */
-    SID_AURA_RUN = 240, SID_AURA_CLEAR, SID_AURA_HOME   /* Aura: run the typed command, clear it, return to Home */
+    SID_AURA_RUN = 240, SID_AURA_CLEAR, SID_AURA_HOME,  /* Aura: run the typed command, clear it, return to Home */
+    SID_CLOCK_P1 = 250, SID_CLOCK_P5, SID_CLOCK_P25, SID_CLOCK_START, SID_CLOCK_CANCEL, SID_CLOCK_HOME   /* Clock: presets 1/5/25 min, Start, Cancel, Home */
 };
 
 #define SHELL_MAX_WIDGETS 160
@@ -45,6 +46,18 @@ enum {
 #define SHELL_RESULTS 8
 #define SHELL_RECENT 8
 #define SHELL_SET_ROWS 7                /* the six registry settings plus the session-only high-contrast switch */
+
+/* The timer service the Clock screen drives (the kernel wires it to timersys as the shell's OWN owner identity). NULL = no service: the Clock says so and
+ * starts nothing. Every call returns the service's result: start returns an id >= 0 or a negative error; query returns 0 and fills state (1 running,
+ * 2 done, 3 cancelled) and the remaining milliseconds; cancel and release return 0 or a negative error. */
+struct shell_timers {
+    int (*start)(uint64_t duration_ms);
+    int (*query)(int id, uint8_t *state, uint64_t *remaining_ms);
+    int (*cancel)(int id);
+    int (*release)(int id);
+};
+enum { CK_READY = 0, CK_RUNNING, CK_DONE, CK_CANCELLED, CK_UNAVAILABLE, CK_ERROR };
+#define SHELL_TOAST_MS 4000u
 
 struct shell_caps { uint8_t keyboard, pointer; };      /* what input hardware the kernel actually found */
 
@@ -105,6 +118,12 @@ struct shell {
     struct aura_intent aura_pv;
     char aura_msg[64]; uint8_t aura_state; uint32_t aura_runs;       /* aura_state: the AX_* outcome of the last run (0 = none yet) */
     char aura_field[AURA_CMD_MAX + 40], aura_prev[96], aura_res[96];
+    /* Clock screen and the completion toast. Time comes ONLY from the monotonic counter via shell_tick; the shell never invents a date. */
+    const struct shell_timers *timers;  /* NULL = unavailable */
+    uint8_t clk_state, clk_preset, clk_err;   /* CK_*, 0..2 (1, 5, 25 min), error kind (1 limit, 2 refused, 3 lost) */
+    int32_t clk_id; uint32_t clk_rem_s; uint32_t clk_seq;   /* the service's timer id, whole seconds left (rounded up), count of spoken-line changes */
+    uint64_t now_ms, toast_until_ms; uint8_t toast_on;
+    char clk_live[64], clk_val[12], clk_up[16];
     /* Settings screen */
     const struct shell_store *store;    /* NULL = no usable store: changes last for this session only */
     uint32_t sess[SHELL_SET_ROWS];      /* session values (used when there is no store, and for high contrast always) */
@@ -130,6 +149,11 @@ void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out));
 int  shell_pages_refresh(struct shell *sh);
 /* Attach the Aura runner. It must return 1 and fill state/msg when it ran the pipeline, 0 if it could not. */
 void shell_set_aura(struct shell *sh, int (*run)(struct shell *sh, const char *text, size_t len, uint8_t *state, char *msg, size_t cap));
+/* Attach (or detach, with NULL) the timer service for the Clock screen. */
+void shell_set_timers(struct shell *sh, const struct shell_timers *timers);
+/* Advance the shell's view of the monotonic clock (milliseconds since boot). Polls a running timer, completes it (once), expires the toast. Independent of
+ * the visible screen. Returns 1 if anything visible changed. */
+int  shell_tick(struct shell *sh, uint64_t now_ms);
 void shell_set_clients(struct shell *sh, const struct uip_state *st, const char *(*name_of)(uint8_t pid));
 /* Attach (or detach, with NULL) the settings store; the stored text scale is applied at once. */
 void shell_set_store(struct shell *sh, const struct shell_store *store);

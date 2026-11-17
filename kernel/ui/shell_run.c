@@ -104,6 +104,9 @@ static void reap(void)
 
 static struct shell SH;
 
+/* The Clock screen drives the timer service as the trusted shell itself (owner pid 0): its own quota, no way to touch another owner's timers. */
+static const struct shell_timers SHELL_TIMERS = { timersys_shell_start, timersys_shell_query, timersys_shell_cancel, timersys_shell_release };
+
 /* The native Aura screen runs its command as the trusted shell itself (requester pid 0): parse, validate, policy, narrow S0 executor, verified result. */
 static int aura_glue(struct shell *s, const char *text, size_t len, uint8_t *state, char *msg, size_t cap)
 {
@@ -164,6 +167,7 @@ void shell_boot_draw(void)
     shell_set_clients(&SH, ui_sys_state(), client_name);
     shell_set_pages(&SH, procsnap_take_kernel);
     shell_set_aura(&SH, aura_glue);
+    shell_set_timers(&SH, &SHELL_TIMERS);
 #ifdef AURORA_SHELL_TEXT_PCT
     shell_set_text_scale(&SH, AURORA_SHELL_TEXT_PCT);          /* test builds only: the preference store is not wired to the shell yet */
 #endif
@@ -249,7 +253,7 @@ void shell_loop(struct input_state *in)
 #ifdef AURORA_SHELL_LAYOUT_LOG
     uint32_t lsig = 0;
 #endif
-    uint32_t sseq = SH.set_seq, cdig = 0;
+    uint32_t sseq = SH.set_seq, cdig = 0, clk_seq_logged = SH.clk_seq, toast_logged = 0;
     uint64_t pg_q = 0, pg_digest = 0; int pg_logged = 0;
     for (;;) {
         /* Execute broker-approved requests of EL0 clients that are STILL the same live instance BEFORE reading input, and show the result at once: the user's
@@ -261,6 +265,9 @@ void shell_loop(struct input_state *in)
         while (input_pop(in, &e)) { if (!route_client(&e)) shell_handle(&SH, &e); }
         { uint32_t d = uip_digest(ui_sys_state()); if (d != cdig) { cdig = d; SH.dirty = 1; } }     /* a client committed, appeared, vanished or changed focus */
         shell_set_uptime(&SH, (uint32_t)((timer_count() - t0) / hz));
+        shell_tick(&SH, timersys_now_ms());                      /* timers and the toast follow the monotonic counter, whatever screen is showing */
+        if (SH.toast_on != toast_logged) { toast_logged = SH.toast_on; console_puts(toast_logged ? "shell: toast on\n" : "shell: toast off\n"); }
+        if (SH.clk_seq != clk_seq_logged) { clk_seq_logged = SH.clk_seq; console_puts("shell: say "); console_puts(SH.clk_live); console_puts("\n"); }
         if (SH.screen != SCR_PAGES) pg_logged = 0;
         if (SH.screen == SCR_PAGES) { uint64_t q = (timer_count() - t0) / (hz / 4 ? hz / 4 : 1); if (q != pg_q) { pg_q = q; shell_pages_refresh(&SH); if (!pg_logged || SH.ps_digest != pg_digest) { pg_logged = 1; pg_digest = SH.ps_digest;
             console_puts("shell: pages n="); console_dec(SH.ps.n);

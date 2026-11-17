@@ -194,6 +194,10 @@ jobs:
         run: |
           chmod +x tests/qemu/timer-tests.sh
           ./tests/qemu/timer-tests.sh
+      - name: Run native Clock screen tests (the real shell on the real SYS_TIMER service; Index to Clock, presets, Start, live countdown, Cancel, a real 1 minute timer finishing off-screen, the completion toast; real QMP keyboard and pointer events and screendump pixels)
+        run: |
+          chmod +x tests/qemu/clock-tests.sh
+          ./tests/qemu/clock-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:
