@@ -1,4 +1,4 @@
-# Durable Passport ledger (Cycle 20, milestone B)
+# Durable Passport and Trail ledgers (Cycle 20, milestones B and C)
 
 Source: `kernel/include/ledger.h` (protocol and crash analysis), `kernel/ui/ledger_store.c` (pure, host tested), `kernel/ui/ledger_kernel.c` (AuroraFS binding).
 
@@ -11,4 +11,13 @@ Source: `kernel/include/ledger.h` (protocol and crash analysis), `kernel/ui/ledg
 
 **Limits (stated plainly):** FNV and CRC-32 detect accidents, not a deliberate rewrite. The anchor is on the same writable disk, so an attacker who can write the disk can replace both files with an older consistent pair undetected (QEMU virt has no hardware counter or secure storage). What is detected: one file restored, deleted, truncated, damaged or edited, and every crash window above.
 
-**Not in this change:** the broker does not consult the ledger yet (milestone D), Trail is not persisted (milestone C; the anchor's Trail fields are reserved zero).
+## Trail (`trail.v1`, owner `PRINCIPAL_TRAIL` 0x7F000005, 2000 bytes)
+* Same protocol as the Passport: build the next chain in memory, write the whole fixed-size file, read it back, write the anchor (which now also vouches for **the number of records ever appended** and **the chain head**), read the anchor back, and only then replace the live chain. OK means the record is on the disk. The ring keeps the newest 48 records; evicted records are counted and their chain value stays the base, so what remains verifies.
+* Records carry the kernel-attested requester, canonical action, decision, reason, actual outcome and a **monotonic uptime in ms** (never a wall-clock time). Kinds 12/13/14 are the ledger's own (grant, revoke, boot); a boot marker (kind 14) is appended at every boot. Auditing every Passport grant/revoke and every broker decision is wired in milestone D.
+* At load, per file: count == anchor and head == anchor head -> healthy; exactly one record ahead and the anchor's head equals the chain minus its newest record -> a crash between the file and the anchor: verified and repaired; no anchor is accepted only for a first record. Anything else (behind, two or more ahead, same count but a different head, file deleted while the anchor vouches for records) is `rollback-detected`. A damaged chain keeps its verified prefix for display but is never extended.
+* **Evidence hold:** if EITHER ledger is corrupt, newer-version or rolled back, the other becomes `held`: its verified data stays readable (Passport grants are still honoured for the paths that need no recording), but NO write of any kind happens, so the disk stays byte-for-byte as found. A damaged anchor makes both ledgers corrupt.
+* `ledger_ok()` (both ledgers OK) is what an action that needs Passport AND Trail checks. Instance-bound grants and the S0 paths are unaffected.
+
+**Failure recovery states for an append** (proved by cutting the power before and after every write, and FS_EUNCERTAIN at every write): *definitely not committed* (died before the Trail file was written); *committed, caller not told* (died between the Trail file and the anchor: the next boot repairs it); *committed* (anchor written). An append whose outcome is unknown returns `LG_E_UNKNOWN`, freezes the Trail for the rest of the boot and the next boot decides. The Trail never claims a record that is not on the disk.
+
+**Not in this change:** the broker does not consult the ledger yet and does not write audit records (milestone D); the native Trail screen is milestone E.
