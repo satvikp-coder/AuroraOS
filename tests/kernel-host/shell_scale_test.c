@@ -197,8 +197,8 @@ int main(void)
                 }
         CHECK("no clipped text, overflow, overlap, small target or stray draw in any scale/contrast/state combination", total_bad == 0);
         printf("  (%d layouts audited; worst text contrast: standard %.2f:1, high contrast %.2f:1)\n", combos, worst_std, worst_hc);
-        /* known design finding: white on the Clear accent blue (0x3478F6) is 4.07:1, below the 4.5:1 normal-text level; high contrast exists for that */
-        CHECK("standard palette text is at least 4:1 everywhere (the active accent is 4.07:1)", worst_std >= 4.0 && worst_std < 4.5);
+        /* the Clear accent is now 0x2A68E8: white on it is 4.95:1 (it was 0x3478F6 at 4.07:1, below the 4.5:1 normal-text level) */
+        CHECK("standard palette text is at least 4.5:1 everywhere (WCAG AA for normal text), measured over every scale/state layout", worst_std >= 4.5);
         CHECK("high contrast text is at least 7:1 everywhere", worst_hc >= 7.0);
     }
 

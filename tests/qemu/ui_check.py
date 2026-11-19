@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gfx_check import Qmp, read_ppm, wait_serial
 
 def rgb(v): return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
-CANVAS, SURFACE, INK, ACCENT, FOCUS, SCRIM = map(rgb, (0xEEF3F8, 0xFFFFFF, 0x142136, 0x3478F6, 0x175CD3, 0x525A66))
+CANVAS, SURFACE, INK, ACCENT, FOCUS, SCRIM = map(rgb, (0xEEF3F8, 0xFFFFFF, 0x142136, 0x2A68E8, 0x175CD3, 0x525A66))
 AXMAX = 32767
 def raw_for(px, extent): return math.ceil(px * AXMAX / (extent - 1))
 

@@ -140,7 +140,7 @@ int main(void)
     CHECK("clicks on controls covered by the modal do nothing (no click-through)", sh.activations == act && sh.screen == SCR_HOME && sh.about_open);
     draw();
     CHECK("SCREEN: the scrim covers the content and the dock; the dialog is white", px(600, 400) == 0x00525A66u || px(100, 700) == 0x00525A66u);
-    CHECK("SCREEN: the dock is hidden behind the scrim", px(300, 704) != 0x003478F6u && px(300, 740) == 0x00525A66u);
+    CHECK("SCREEN: the dock is hidden behind the scrim", px(300, 704) != 0x002A68E8u && px(300, 740) == 0x00525A66u);
     CHECK("SCREEN: the focus ring is on Close", px(512, 401) == 0x00175CD3u || px(512, 402) == 0x00175CD3u || px(512, 400) == 0x00175CD3u);
     key(KEY_ESC, 0, 0);
     CHECK("Escape closes the modal; focus returns to About (the opener)", !sh.about_open && focus_id() == SID_ABOUT && sh.screen == SCR_HOME);
@@ -161,9 +161,9 @@ int main(void)
     /* --- rendering --- */
     fresh(); draw();
     CHECK("SCREEN: canvas, white header, aura-coloured Horizon rail", px(500, 90) == 0x00EEF3F8u || px(20, 700) == 0x00EEF3F8u);
-    CHECK("SCREEN: header is white and the Horizon rail is the aura colour", px(500, 10) == 0x00FFFFFFu && px(500, 65) == 0x0000AEB8u);
-    CHECK("SCREEN: the Home dock item is active (accent fill)", px(410, 704) == 0x003478F6u);
-    CHECK("SCREEN: Back is drawn muted (disabled), not accent", px(290, 704) != 0x003478F6u);
+    CHECK("SCREEN: header is white and the Horizon rail is the aura colour", px(500, 10) == 0x00FFFFFFu && px(500, 65) == 0x0000838Cu);
+    CHECK("SCREEN: the Home dock item is active (accent fill)", px(410, 704) == 0x002A68E8u);
+    CHECK("SCREEN: Back is drawn muted (disabled), not accent", px(290, 704) != 0x002A68E8u);
     int32_t ci = shell_find(&sh, SID_CHANGE_SPACE);
     CHECK("SCREEN: the Change Space button has the normal fill with no hover when the pointer is elsewhere", px(sh.c[ci].x + 6, sh.c[ci].y + 24) == 0x00EEF3F8u);
     shell_set_pointer(&sh, cx(SID_CHANGE_SPACE), cy(SID_CHANGE_SPACE)); draw();
@@ -280,7 +280,7 @@ int main(void)
 
     /* rendering */
     to_index(); text("sp"); surf(); shell_draw(&sh, &S);
-    CHECK("SCREEN: the selected result row is accent-filled", px(100, 264) == 0x003478F6u);
+    CHECK("SCREEN: the selected result row is accent-filled", px(100, 264) == 0x002A68E8u);
     { uint32_t ink = 0; for (int y = 152; y < 200; y++) for (int x = 64; x < 400; x++) ink += px(x, y) == 0x00142136u; CHECK("SCREEN: typed text is drawn in the field", ink > 20); }
     to_index(); surf(); shell_draw(&sh, &S);
     { uint32_t muted = 0; for (int y = 152; y < 200; y++) for (int x = 64; x < 400; x++) muted += px(x, y) == 0x0052627Au; CHECK("SCREEN: an empty field shows the muted placeholder", muted > 20); }
@@ -334,7 +334,7 @@ int main(void)
 
     /* Horizon: one source, honest states */
     fresh(); surf(); shell_draw(&sh, &S);
-    CHECK("Horizon: keyboard and pointer found -> aura rail and 'Horizon: ready'", px(500, 65) == 0x0000AEB8u && strcmp(sh.horizon_txt, "Horizon: ready") == 0);
+    CHECK("Horizon: keyboard and pointer found -> aura rail and 'Horizon: ready'", px(500, 65) == 0x0000838Cu && strcmp(sh.horizon_txt, "Horizon: ready") == 0);
     { struct shell_caps kb_only = { 1, 0 }; shell_set_caps(&sh, kb_only); surf(); shell_draw(&sh, &S);
       CHECK("Horizon: a missing pointer -> muted rail and 'Horizon: limited input' (never claims more than it measured)", px(500, 65) == 0x0052627Au && strcmp(sh.horizon_txt, "Horizon: limited input") == 0); }
     { struct shell_caps none = { 0, 0 }; shell_set_caps(&sh, none); surf(); shell_draw(&sh, &S);

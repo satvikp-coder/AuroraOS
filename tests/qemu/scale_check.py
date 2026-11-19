@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gfx_check import Qmp, read_ppm, wait_serial
 
 def rgb(v): return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
-STD = dict(canvas=0xEEF3F8, surface=0xFFFFFF, ink=0x142136, muted=0x52627A, accent=0x3478F6, focus=0x175CD3, scrim=0x525A66, aura=0x00AEB8,
+STD = dict(canvas=0xEEF3F8, surface=0xFFFFFF, ink=0x142136, muted=0x52627A, accent=0x2A68E8, focus=0x175CD3, scrim=0x525A66, aura=0x00838C,
            extra=(0xE4ECF6, 0xCFDCF0, 0xC9D4E3, 0xDCE3ED))
 HC = dict(canvas=0xFFFFFF, surface=0xFFFFFF, ink=0x000000, muted=0x333333, accent=0x101010, focus=0x0000E0, scrim=0x000000, aura=0x000000,
           extra=(0xD9D9D9, 0xB3B3B3, 0x555555, 0x000000))
