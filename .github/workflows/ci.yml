@@ -222,6 +222,10 @@ jobs:
         run: |
           chmod +x tests/qemu/app-tests.sh
           ./tests/qemu/app-tests.sh
+      - name: Run local QEMU package tests (deterministic package build, unsafe inputs refused, fresh install never overwrites a disk, the packaged kernel and disk launch the Calculator)
+        run: |
+          chmod +x tests/qemu/pkg-tests.sh scripts/package-qemu.sh
+          ./tests/qemu/pkg-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

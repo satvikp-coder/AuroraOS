@@ -1,0 +1,51 @@
+#!/bin/sh
+# tests/qemu/pkg-tests.sh - the local QEMU package: it builds deterministically, refuses unsafe inputs, and the PACKAGED kernel + disk (made by
+# fresh-install.sh, booted by run.sh, nothing provisioned by hand) launches the native Calculator from Index. Also: run.sh never creates or resets
+# a disk and fresh-install.sh never overwrites one.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"; cd "$ROOT" || exit 1
+OUT="$ROOT/build/pkg-tests"; rm -rf "$OUT"; mkdir -p "$OUT"
+FAILS=0; PASSES=0
+ok()  { PASSES=$((PASSES + 1)); echo "  PASS: $1"; }
+bad() { FAILS=$((FAILS + 1));   echo "  FAIL: $1"; }
+QPID=""; stop_qemu() { if [ -n "$QPID" ]; then kill "$QPID" 2>/dev/null; wait "$QPID" 2>/dev/null; QPID=""; fi; }
+trap stop_qemu EXIT; trap 'stop_qemu; exit 130' INT TERM
+
+PKG_DIR="$OUT/p1" ./scripts/package-qemu.sh > "$OUT/p1.log" 2>&1 && ok "the package builds" || { bad "package build failed (see $OUT/p1.log)"; tail -5 "$OUT/p1.log"; echo "pkg-tests: $PASSES passed, $FAILS failed"; exit 1; }
+PKG_DIR="$OUT/p2" ./scripts/package-qemu.sh > "$OUT/p2.log" 2>&1 || bad "second package build failed"
+H1=$(cd "$OUT/p1" && sha256sum kernel.bin aurora-fresh.img apps/*.elf); H2=$(cd "$OUT/p2" && sha256sum kernel.bin aurora-fresh.img apps/*.elf)
+if [ "$H1" = "$H2" ]; then ok "two builds are byte-identical (kernel, disk image, executables)"; else bad "the builds differ"; echo "$H1"; echo "$H2"; fi
+grep -q "calc.elf" "$OUT/p1/manifest.txt" && grep -q "kernel.bin" "$OUT/p1/manifest.txt" && ok "the manifest lists hashes and the installed files" || bad "manifest incomplete"
+file "$OUT/p1/apps/calc.elf" | grep -q "ELF 64-bit LSB executable, ARM aarch64" && ok "calc.elf is a 64-bit AArch64 ET_EXEC" || bad "calc.elf has the wrong format"
+SZ=$(wc -c < "$OUT/p1/apps/calc.elf"); if [ "$SZ" -le 24576 ]; then ok "calc.elf ($SZ bytes) is within the loader's 24 KiB limit"; else bad "calc.elf too large"; fi
+
+# the tool refuses what the loader would refuse
+cc -std=c11 -O1 -I tests/tools/shim -I kernel/include -o "$OUT/mkdisk" tools/pkg/mkdisk.c kernel/fs/afs.c kernel/proc/elf.c || { bad "mkdisk failed to build"; exit 1; }
+head -c 100 /dev/zero > "$OUT/junk.elf"
+"$OUT/mkdisk" "$OUT/x.img" 2048 junk.elf="$OUT/junk.elf" > /dev/null 2>&1 && bad "a non-ELF file was installed" || ok "a file that is not a valid ELF is refused"
+head -c 30000 /dev/zero > "$OUT/big.elf"
+"$OUT/mkdisk" "$OUT/x.img" 2048 big.elf="$OUT/big.elf" > /dev/null 2>&1 && bad "an oversize file was installed" || ok "a file over the loader's size limit is refused"
+"$OUT/mkdisk" "$OUT/x.img" 2048 a.elf="$OUT/p1/apps/calc.elf" a.elf="$OUT/p1/apps/calc.elf" > /dev/null 2>&1 && bad "duplicate names accepted" || ok "duplicate names are refused"
+"$OUT/mkdisk" "$OUT/x.img" 2048 "bad/name=$OUT/p1/apps/calc.elf" > /dev/null 2>&1 && bad "an invalid name was accepted" || ok "an invalid AuroraFS name is refused"
+ARGS=""; for i in 1 2 3 4 5 6 7 8 9; do ARGS="$ARGS c$i.elf=$OUT/p1/apps/calc.elf"; done
+"$OUT/mkdisk" "$OUT/x.img" 2048 $ARGS > /dev/null 2>&1 && bad "9 files exceeded the installer quota but were accepted" || ok "more files than the installer quota are refused"
+
+# fresh-install / run semantics
+P="$OUT/p1"
+if "$P/run.sh" -display none > "$OUT/norun.log" 2>&1; then bad "run.sh booted without a disk"; else grep -q "run: no disk" "$OUT/norun.log" && ok "run.sh refuses to run without a disk" || bad "run.sh failed for the wrong reason"; fi
+[ ! -e "$P/data/aurora.img" ] && ok "run.sh created no disk" || bad "run.sh created a disk"
+"$P/fresh-install.sh" > /dev/null && [ -f "$P/data/aurora.img" ] && ok "fresh-install.sh creates data/aurora.img" || bad "fresh-install failed"
+echo marker >> "$P/data/aurora.img"; S1=$(sha256sum "$P/data/aurora.img")
+"$P/fresh-install.sh" > /dev/null 2>&1 && bad "fresh-install overwrote an existing disk" || ok "fresh-install.sh refuses to overwrite an existing disk"
+[ "$S1" = "$(sha256sum "$P/data/aurora.img")" ] && ok "the existing disk is untouched" || bad "disk changed"
+
+# boot the PACKAGED artifacts and launch Calculator from Index (real keys, real pixels)
+"$P/fresh-install.sh" --force > /dev/null
+L="$OUT/boot.log"; : > "$L"
+AURORA_SERIAL=file:"$L" "$P/run.sh" -display none -monitor none -qmp unix:"$OUT/boot.sock",server=on,wait=off &
+QPID=$!
+python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/boot.sock" --serial "$L" --tmp "$OUT" --scenario launch --timeout 400 > "$OUT/boot.check.log" 2>&1
+rc=$?; tail -4 "$OUT/boot.check.log"
+if [ "$rc" -eq 0 ]; then ok "the packaged kernel and disk boot and run the Calculator end to end (no hand provisioning)"; else bad "packaged boot checks failed (see $OUT/boot.check.log)"; fi
+stop_qemu
+echo "pkg-tests: $PASSES passed, $FAILS failed"
+[ "$FAILS" -eq 0 ]

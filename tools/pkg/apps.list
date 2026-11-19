@@ -1,0 +1,3 @@
+# Native applications installed by scripts/package-qemu.sh: <installed file name> <C source>
+# The installed name MUST match the "file" column of the kernel registry (kernel/proc/apps.c); the packager checks this both ways.
+calc.elf tests/programs/calc.c
