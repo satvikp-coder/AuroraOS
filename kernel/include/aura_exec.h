@@ -43,7 +43,12 @@ struct aura_s1_env {
     int (*trail_newest)(struct trail_rec *out);              /* 1 and fills *out if the Trail holds at least one record */
     uint32_t (*trail_last_seq)(void);                        /* sequence number of the newest record */
     uint64_t (*now_ms)(void);                                /* monotonic milliseconds */
+    int (*trail_nth)(uint32_t n, struct trail_rec *out);     /* the n-th newest record (0 = newest); 1 and fills *out, or 0 if there is none (used to find the receipt to undo) */
 };
+/* Undo: the typed word "undo" (trusted shell only) finds the newest S1 receipt = a PRE record immediately followed by its DONE POST record for the same setting, and only if the setting
+ * STILL holds the receipt's recorded result builds the reversal "set <setting> to <previous value>", which then travels the whole S1 chain (broker, NEW trusted review, PRE/POST records,
+ * read-back) like any other change. A newer change by anyone, a failed or unrecorded change, or an empty Trail means "Nothing to undo" and nothing is reviewed or written. */
+int  aura_s1_undo_text(struct shell *sh, char *out, size_t cap, char *why, size_t whycap);   /* 1: *out is the reversal command; 0: *why says why not */
 void aura_s1_attach(const struct aura_s1_env *e);            /* NULL: S1 is unavailable and no review is ever opened */
 /* Called by aura_run_text when the broker answered REVIEW. Opens the trusted review for the shell's own request and sets the outcome (waiting / not available). */
 void aura_s1_begin(struct shell *sh, const struct bp_env *env, uint32_t pid, uint64_t nonce, struct aura_outcome *out);

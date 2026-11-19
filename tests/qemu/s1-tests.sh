@@ -8,6 +8,7 @@
 #   persist   the same disk again: 125 is the saved appearance, both records are on the disk, "make text smaller" is reviewed against the REAL value 125
 #   rodisk    the same disk read-only: refused, honestly
 #   nodisk    no disk: refused, honestly
+#   undo      the writable disk again: the typed word "undo" reverses the earlier receipt (125 -> 100) through a NEW trusted review and a second PRE/POST pair
 # Usage: ./tests/qemu/s1-tests.sh
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -42,5 +43,6 @@ boot approve
 boot persist
 boot rodisk ro
 boot nodisk none
+boot undo
 echo "s1-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]
