@@ -144,9 +144,9 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
         say("tm: done hostile"); quit(0);
     }
     if (mode == 4) {                                                      /* HOLDER */
+        i64 t0 = tm(NOW, 0, 0);                                            /* BEFORE the start: reading the clock after it lets a 1 ms deschedule make a correct 3000 ms timer measure 2999 */
         i64 id = tm(START, 3000, 0);
         sayi("holder start id=", id);
-        i64 t0 = tm(NOW, 0, 0);
         for (;;) {
             if (query(id, &st, &rem) != 0) { say("tm: FAIL holder lost its timer"); quit(1); }
             if (st == 2) break;
