@@ -40,6 +40,12 @@ def main():
     def px(img, x, y):
         w, h, d = img; o = (y * w + x) * 3; return tuple(d[o:o + 3])
     def count(img, x0, y0, x1, y1, col): return sum(1 for y in range(y0, y1) for x in range(x0, x1) if px(img, x, y) == col)
+    def strip_drawn(secs=25):   # poll real pixels until the secure strip is on screen (the log line is printed when the review opens, the frame is presented a little later); bounded, so a missing modal still fails
+        end = time.time() + secs
+        while True:
+            if count(shot(), *STRIP, SECURE) > 1500: return True
+            if time.time() >= end: return False
+            time.sleep(0.3)
     def region(img, x0, y0, x1, y1):
         w, h, d = img
         return b"".join(bytes(d[(y * w + x0) * 3:(y * w + x1) * 3]) for y in range(y0, y1))
@@ -68,8 +74,7 @@ def main():
         check("Aura opens", open_aura())
         typ("make text bigger"); tap("ret")
         check("Enter runs the command: the TRUSTED REVIEW opens (ticket 1, requester Aura)", wait_for(lambda: any(l.startswith("shell: review open ticket=1 requester=Aura") for l in lines("shell: review open")), 20))
-        time.sleep(0.8)
-        check("SCREEN: the secure strip is drawn", count(shot(), *STRIP, SECURE) > 1500)
+        check("SCREEN: the secure strip is drawn", strip_drawn())
         check("default focus is Cancel", focus_now() == "21")
         before = shot()
         tap("ret")
