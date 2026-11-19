@@ -206,6 +206,10 @@ jobs:
         run: |
           chmod +x tests/qemu/ledger-tests.sh
           ./tests/qemu/ledger-tests.sh
+      - name: Run native Trail screen tests (read-only view of the audit ledger on the real kernel and ledgers; records, 200 percent text, no disk, read-only disk, rollback; real QMP key and pointer events, screendump pixels and the guest's own lines; nothing on the screen can change a record)
+        run: |
+          chmod +x tests/qemu/trail-ui-tests.sh
+          ./tests/qemu/trail-ui-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

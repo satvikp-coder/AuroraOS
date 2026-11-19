@@ -20,7 +20,7 @@ static const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, U
 static const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 2, 1, 6 };
 #define PAL(sh) ((sh)->contrast ? &PAL_HC : &PAL_STD)
 
-static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Aura", "Clock" };
+static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Aura", "Clock", "Trail" };
 
 const char *shell_screen_name(uint32_t screen) { return screen < SCR_COUNT ? NAMES[screen] : "?"; }
 
@@ -40,12 +40,13 @@ static const struct idx_item ITEMS[] = {
     { "aura", "Aura", { "assistant", "ask", 0 }, 1 },
     { "settings", "Settings", { "preferences", "options", 0 }, 1 },
     { "notes", "Notes", { "memo", "write", 0 }, 0 },
-    { "clock", "Clock", { "timer", "countdown", "uptime" }, 1 },           /* listed, honestly unavailable: no native Notes app exists */
+    { "clock", "Clock", { "timer", "countdown", "uptime" }, 1 },
+    { "trail", "Trail", { "audit", "history", "log" }, 1 },           /* listed, honestly unavailable: no native Notes app exists */
 };
 static const struct dest DEST[] = {
     { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
     { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
-    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_UNAVAILABLE, 0 }, { D_SCREEN, SCR_CLOCK },
+    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_UNAVAILABLE, 0 }, { D_SCREEN, SCR_CLOCK }, { D_SCREEN, SCR_TRAIL },
 };
 #define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
 _Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");
@@ -990,6 +991,123 @@ int shell_clock_cancel(struct shell *sh)
     return sh->clk_state == CK_CANCELLED;
 }
 
+/* ---- Trail: a read-only view of the audit ledger. Everything shown is a constant or a number from the kernel's copy; no user text, no wall-clock time. ---- */
+static const char *const TV_PERM[] = { "nothing", "navigation", "settings proposals", "file writes", "file deletes", "installs", "sending", "timers" };
+static const char *const TV_WHY[] = { "none", "bad request", "unknown requester", "stale requester", "repeated request", "busy", "no permission", "not a command", "unsupported",
+                                      "navigation unavailable", "review unavailable", "passport unavailable", "trail unavailable", "hold unavailable", "timer unavailable" };
+static const char *const TV_KIND[] = { "none", "open", "space", "setting", "unsupported", "delete", "clarify", "unknown", "refused", "timer" };
+
+static uint64_t tv_digest_of(const struct shell_trail_view *v)
+{
+    uint64_t h = 1469598103934665603ULL;
+    const uint8_t *p = (const uint8_t *)v;
+    for (size_t i = 0; i < sizeof *v; i++) { h ^= p[i]; h *= 1099511628211ULL; }
+    return h;
+}
+static void tr_page(const struct shell *sh, uint32_t *per, uint32_t *total)
+{
+    uint32_t n = sh->tv.n > SHELL_TV_RECS ? SHELL_TV_RECS : sh->tv.n;
+    *per = sh->text_pct > 150 ? 2 : sh->text_pct > 100 ? 4 : 6;
+    *total = n;
+}
+static int tr_streq(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
+static void tr_perm_text(char *d, uint32_t cap, uint8_t perm) { pcat(d, cap, perm < 8 ? TV_PERM[perm] : "an unknown permission"); }
+
+static void tr_texts(struct shell *sh)
+{
+    const struct shell_trail_view *v = &sh->tv;
+    uint32_t per, total; tr_page(sh, &per, &total);
+    for (int i = 0; i < 10; i++) sh->tr_rows[i][0] = 0;
+    sh->tr_head[0] = sh->tr_sum[0] = sh->tr_perm[0] = sh->tr_range[0] = 0;
+    for (int i = 0; i < 8; i++) sh->tr_gr[i][0] = 0;
+    const char *h = !sh->trail_src ? "Trail: not available." : v->health == TV_RECORDING ? "Trail: recording to disk." : v->health == TV_NODISK ? "Trail: off. No disk, nothing is saved."
+        : v->health == TV_READONLY ? "Trail: read-only disk. Changes refused." : v->health == TV_UNREADABLE ? "Trail: file unreadable. Changes refused."
+        : v->health == TV_ROLLBACK ? "Trail: rollback found. Changes refused." : v->health == TV_HELD ? "Trail: held. Another record file needs attention. Changes refused." : "Trail: not available.";
+    pcat(sh->tr_head, sizeof sh->tr_head, h);
+    if (!tr_streq(sh->tr_live, sh->tr_head)) { scpy(sh->tr_live, sizeof sh->tr_live, sh->tr_head); sh->tr_seq++; }                  /* the health line is spoken (logged) when it changes */
+    uint32_t changes = 0, denials = 0;
+    for (uint32_t i = 0; i < total; i++) { if (v->rec[i].kind == 12 || v->rec[i].kind == 13) changes++; if (v->rec[i].state == 2) denials++; }
+    pcat(sh->tr_sum, sizeof sh->tr_sum, "Changes: "); pnum(sh->tr_sum, sizeof sh->tr_sum, changes); pcat(sh->tr_sum, sizeof sh->tr_sum, ". Denials: "); pnum(sh->tr_sum, sizeof sh->tr_sum, denials); pcat(sh->tr_sum, sizeof sh->tr_sum, ".");
+    if (!total) { pcat(sh->tr_rows[0], sizeof sh->tr_rows[0], "No records yet."); }
+    uint32_t first = sh->tr_first; if (first >= total) first = total ? total - 1 : 0;
+    uint32_t last = first + per < total ? first + per : total;
+    for (uint32_t k = first, row = 0; k < last && row < 10; k++, row++) {                       /* newest first: k = 0 is the newest record */
+        const struct shell_trail_rec *r = &v->rec[total - 1 - k];
+        char *d = sh->tr_rows[row]; const uint32_t cap = sizeof sh->tr_rows[row];
+        pcat(d, cap, "#"); pnum(d, cap, r->seq); pcat(d, cap, " ");
+        if (r->kind == 12) { pcat(d, cap, "Granted: principal "); pnum(d, cap, r->principal); pcat(d, cap, " may use "); tr_perm_text(d, cap, r->target); pcat(d, cap, "."); }
+        else if (r->kind == 13) { pcat(d, cap, "Revoked: principal "); pnum(d, cap, r->principal); pcat(d, cap, " may not use "); tr_perm_text(d, cap, r->target); pcat(d, cap, "."); }
+        else if (r->kind == 14) pcat(d, cap, "System started.");
+        else if (r->kind >= 1 && r->kind <= 9) {
+            if (r->state == 2) { pcat(d, cap, "Denied: "); pcat(d, cap, TV_KIND[r->kind]); pcat(d, cap, " request from principal "); pnum(d, cap, r->principal); pcat(d, cap, ". "); pcat(d, cap, r->reason < 15 ? TV_WHY[r->reason] : "unknown reason"); pcat(d, cap, "."); }
+            else { pcat(d, cap, "Request: "); pcat(d, cap, TV_KIND[r->kind]); pcat(d, cap, r->state == 1 ? ". Done." : ". Not done."); }
+        } else { pcat(d, cap, "Unknown record kind "); pnum(d, cap, r->kind); pcat(d, cap, "."); }
+    }
+    if (total > per) {
+        pcat(sh->tr_range, sizeof sh->tr_range, "Showing "); pnum(sh->tr_range, sizeof sh->tr_range, first + 1); pcat(sh->tr_range, sizeof sh->tr_range, "-"); pnum(sh->tr_range, sizeof sh->tr_range, last);
+        pcat(sh->tr_range, sizeof sh->tr_range, " of "); pnum(sh->tr_range, sizeof sh->tr_range, total); pcat(sh->tr_range, sizeof sh->tr_range, ".");
+    }
+    if (v->ngrants) { pcat(sh->tr_perm, sizeof sh->tr_perm, "Saved permissions: "); pnum(sh->tr_perm, sizeof sh->tr_perm, v->ngrants > SHELL_TV_GRANTS ? SHELL_TV_GRANTS : v->ngrants); }
+    else pcat(sh->tr_perm, sizeof sh->tr_perm, "Saved permissions: none.");
+    for (uint32_t i = 0; i < v->ngrants && i < 8 && i < SHELL_TV_GRANTS; i++) {
+        char *d = sh->tr_gr[i]; const uint32_t cap = sizeof sh->tr_gr[i];
+        pcat(d, cap, "Principal "); pnum(d, cap, v->grant[i].principal); pcat(d, cap, " may use "); tr_perm_text(d, cap, v->grant[i].perm); pcat(d, cap, ".");
+    }
+}
+
+static void trail_flow(struct shell *sh, const struct geo *g, int opt)
+{
+    const struct pal *P = PAL(sh);
+    tr_texts(sh);
+    uint32_t per, total; tr_page(sh, &per, &total);
+    uint32_t first = sh->tr_first; if (first >= total) first = total ? total - 1 : 0;
+    uint32_t last = first + per < total ? first + per : total;
+    int32_t y = g->top, w = g->W - 80, iw = w - 32;
+    struct ui_widget *c = card_s(sh, 40, y, w);
+    y += 12;
+    y += sl(sh, 56, y, iw, "Trail", 24, P->ink, 1) + 2;
+    if (opt) y += sl(sh, 56, y, iw, "Read-only. Checksums catch accidents, not tampering.", 14, P->muted, 0) + 2;
+    y += sl(sh, 56, y, iw, sh->tr_head, 16, P->ink, 1) + 2;
+    if (opt) y += sl(sh, 56, y, iw, sh->tr_sum, 14, P->ink, 0) + 4;                 /* the counts are a convenience: dropped before anything essential when space is short */
+    uint32_t rows = total ? last - first : 1;
+    for (uint32_t i = 0; i < rows && i < 10; i++) y += sl(sh, 56, y, iw, sh->tr_rows[i], 14, P->ink, 0);
+    if (sh->tr_range[0]) y += sl(sh, 56, y, iw, sh->tr_range, 14, P->muted, 0);
+    y += 4;
+    y += sl(sh, 56, y, iw, sh->tr_perm, 14, P->ink, 0);
+    if (opt && sh->text_pct <= 125) for (uint32_t i = 0; i < 2 && i < sh->tv.ngrants; i++) y += sl(sh, 56, y, iw, sh->tr_gr[i], 14, P->muted, 0);
+    y += 8;
+    if (total > per) {                                                               /* a window over the records: two scroll buttons, never any other control */
+        int32_t gap = 8, bw = (iw - gap) / 2;
+        int32_t h1 = sb(sh, 56, y, bw, 48, "Show newer", SID_TRAIL_NEWER, first > 0, UI_LAYER_CONTENT);
+        int32_t h2 = sb(sh, 56 + bw + gap, y, bw, 48, "Show older", SID_TRAIL_OLDER, last < total, UI_LAYER_CONTENT);
+        y += (h1 > h2 ? h1 : h2) + 8;
+    }
+    y += sb(sh, 56, y, 200 < iw ? 200 : iw, 48, "Home", SID_TRAIL_HOME, 1, UI_LAYER_CONTENT) + 8;
+    card_end(sh, c, y);
+}
+
+int shell_trail_refresh(struct shell *sh)
+{
+    struct shell_trail_view t;
+    uint8_t *z = (uint8_t *)&t; for (size_t i = 0; i < sizeof t; i++) z[i] = 0;
+    if (sh->trail_src) { if (sh->trail_src(&t) < 0) { z = (uint8_t *)&t; for (size_t i = 0; i < sizeof t; i++) z[i] = 0; } }      /* a failing source shows "not available" */
+    if (t.n > SHELL_TV_RECS) t.n = SHELL_TV_RECS;
+    if (t.ngrants > SHELL_TV_GRANTS) t.ngrants = SHELL_TV_GRANTS;
+    uint64_t d = tv_digest_of(&t);
+    if (sh->tv_valid && d == sh->tv_digest) return 0;
+    sh->tv = t; sh->tv_digest = d; sh->tv_valid = 1;
+    uint32_t per, total; tr_page(sh, &per, &total);
+    if (sh->tr_first >= total) sh->tr_first = 0;                                       /* records may have changed under the window: start from the newest */
+    tr_texts(sh);                                                                      /* also updates the spoken health line */
+    if (sh->screen == SCR_TRAIL) { build(sh); sh->dirty = 1; }
+    return 1;
+}
+void shell_set_trail(struct shell *sh, int (*src)(struct shell_trail_view *out))
+{
+    sh->trail_src = src; sh->tv_valid = 0; sh->tr_first = 0;
+    shell_trail_refresh(sh);
+}
+
 /* The completion toast: a compositor-owned notice in the header (the Horizon status slot). It never takes focus and cannot be clicked; it is drawn on the
  * topmost layer but only inside the header, so it cannot cover the dock, the content, a sheet or a dialog. */
 static void toast_add(struct shell *sh)
@@ -1052,6 +1170,7 @@ static void build_scaled(struct shell *sh)
         else if (sh->screen == SCR_PAGES) pages_flow(sh, &g, opt);
         else if (sh->screen == SCR_AURA) aura_flow(sh, &g, opt);
         else if (sh->screen == SCR_CLOCK) clock_flow(sh, &g, opt);
+        else if (sh->screen == SCR_TRAIL) trail_flow(sh, &g, opt);
         else index_scaled(sh, &g, opt);
         if (sh->lay_bottom <= g.bottom) break;
     }
@@ -1123,6 +1242,7 @@ static void build(struct shell *sh)
     else if (sh->screen == SCR_PAGES) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; pages_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; pages_flow(sh, &g, 0); } }
     else if (sh->screen == SCR_AURA) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; aura_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; aura_flow(sh, &g, 0); } }
     else if (sh->screen == SCR_CLOCK) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; clock_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; clock_flow(sh, &g, 0); } }
+    else if (sh->screen == SCR_TRAIL) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; trail_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; trail_flow(sh, &g, 0); } }
     else build_index(sh);
     build_clients(sh);
     build_dock(sh);
@@ -1202,6 +1322,7 @@ int shell_go(struct shell *sh, uint32_t screen)
     sh->screen = (uint8_t)screen;
     if (screen == SCR_INDEX) { sh->qlen = 0; index_refresh(sh); }      /* a fresh search each time Index opens */
     if (screen == SCR_PAGES) { sh->ps_valid = 0; shell_pages_refresh(sh); }   /* always show the table as it is now */
+    if (screen == SCR_TRAIL) { sh->tr_first = 0; sh->tv_valid = 0; shell_trail_refresh(sh); }   /* the newest records, as they are now */
     build(sh); sh->dirty = 1;
     return 1;
 }
@@ -1307,6 +1428,9 @@ static void activate(struct shell *sh, uint32_t id)
     case SID_CLOCK_START: clk_start(sh, sh->clk_preset); build(sh); { int32_t k = shell_find(sh, clk_eff(sh) == CK_RUNNING ? SID_CLOCK_CANCEL : SID_CLOCK_START); if (k >= 0) ui_focus_set(&sh->fx, k); } break;   /* Start moves focus to Cancel */
     case SID_CLOCK_CANCEL: clk_cancel(sh); build(sh); { int32_t k = shell_find(sh, SID_CLOCK_START); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_CLOCK_HOME: shell_go(sh, SCR_HOME); break;
+    case SID_TRAIL_HOME: shell_go(sh, SCR_HOME); break;
+    case SID_TRAIL_NEWER: { uint32_t per, total; tr_page(sh, &per, &total); sh->tr_first = (uint8_t)(sh->tr_first > per ? sh->tr_first - per : 0); build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_TRAIL_OLDER); if (k >= 0) ui_focus_set(&sh->fx, k); } break; }
+    case SID_TRAIL_OLDER: { uint32_t per, total; tr_page(sh, &per, &total); if (sh->tr_first + per < total) sh->tr_first = (uint8_t)(sh->tr_first + per); build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_TRAIL_NEWER); if (k >= 0) ui_focus_set(&sh->fx, k); } break; }
     case SID_SET_UP: if (sh->set_first) sh->set_first--; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_DOWN); if (k < 0) k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_SET_DOWN: if (sh->set_first + 1 < SHELL_SET_ROWS) sh->set_first++; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_ABOUT: set_about(sh, 1); break;

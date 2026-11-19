@@ -105,6 +105,25 @@ static void reap(void)
 
 static struct shell SH;
 
+/* The Trail screen's source: a COPY of the ledgers' state (the screen never holds a pointer into them, and no system call reads or mutates either ledger). */
+static int trail_view_take(struct shell_trail_view *v)
+{
+    const struct trail *t = ledger_trail(); const struct passport *p = ledger_passport();
+    int ts = ledger_trail_state();
+    v->health = ts == LG_OK ? TV_RECORDING : ts == LG_NODISK ? TV_NODISK : ts == LG_RDONLY ? TV_READONLY : ts == LG_ROLLBACK ? TV_ROLLBACK
+              : ts == LG_HELD ? TV_HELD : (ts == LG_CORRUPT || ts == LG_NEWER) ? TV_UNREADABLE : TV_UNAVAILABLE;
+    v->n = t->n > SHELL_TV_RECS ? SHELL_TV_RECS : t->n;
+    for (uint32_t i = 0; i < v->n; i++) {
+        v->rec[i].seq = t->r[i].seq; v->rec[i].principal = t->r[i].principal; v->rec[i].arg = t->r[i].arg;
+        v->rec[i].kind = t->r[i].kind; v->rec[i].target = t->r[i].target; v->rec[i].risk = t->r[i].risk;
+        v->rec[i].decision = t->r[i].decision; v->rec[i].reason = t->r[i].reason; v->rec[i].state = t->r[i].state;
+    }
+    v->ngrants = 0;
+    for (int i = 0; i < PP_MAX_GRANTS && v->ngrants < SHELL_TV_GRANTS; i++)
+        if (p->g[i].used && p->g[i].gen == 0) { v->grant[v->ngrants].principal = p->g[i].principal; v->grant[v->ngrants].perm = p->g[i].perm; v->ngrants++; }   /* durable grants only: instance grants are RAM-only and not "saved" */
+    return 0;
+}
+
 /* The Clock screen drives the timer service as the trusted shell itself (owner pid 0): its own quota, no way to touch another owner's timers. */
 static const struct shell_timers SHELL_TIMERS = { timersys_shell_start, timersys_shell_query, timersys_shell_cancel, timersys_shell_release };
 
@@ -237,6 +256,7 @@ void shell_loop(struct input_state *in)
         if (g == SETTINGS_OK) shell_set_store(&SH, &STORE);
     } else console_puts("shell: settings store=none (changes last for this session only)\n");
     ledger_boot();                                               /* the durable Passport: loaded and verified (or an honest reason why not) */
+    shell_set_trail(&SH, trail_view_take);                        /* the Trail screen reads a copy of the ledgers */
     console_puts("shell: appearance text="); console_dec(SH.text_pct); console_puts(" contrast="); console_dec(SH.contrast); console_puts("\n");
     present();
     console_puts("shell: ready keyboards="); console_dec((uint64_t)vi->keyboards);
@@ -257,6 +277,7 @@ void shell_loop(struct input_state *in)
 #endif
     uint32_t sseq = SH.set_seq, cdig = 0, clk_seq_logged = SH.clk_seq, toast_logged = 0, clk_state_logged = SH.clk_state;
     uint64_t pg_q = 0, pg_digest = 0; int pg_logged = 0;
+    uint64_t tr_q = 0, tv_logged = 0; uint32_t tr_seq_logged = 0;
     for (;;) {
         /* Execute broker-approved requests of EL0 clients that are STILL the same live instance BEFORE reading input, and show the result at once: the user's
          * next click is then resolved against the screen they actually see, and a press that began on the old layout is dropped (an EL0 navigation must never
@@ -276,6 +297,9 @@ void shell_loop(struct input_state *in)
             console_puts("shell: pages n="); console_dec(SH.ps.n);
             for (uint32_t i = 0; i < SH.ps.n; i++) { console_puts(" "); console_dec(SH.ps.e[i].pid); console_puts("/"); console_puts(SH.ps.e[i].name); console_puts("/"); console_puts(procsnap_state_name(SH.ps.e[i].state)); }
             console_putc(10); } } }   /* Pages: re-read the table four times a second; it repaints only if something shown changed */
+        if (SH.screen == SCR_TRAIL) { uint64_t q = (timer_count() - t0) / (hz / 4 ? hz / 4 : 1); if (q != tr_q) { tr_q = q; shell_trail_refresh(&SH); } }   /* re-read four times a second; it repaints only if something shown changed */
+        if (SH.tr_seq != tr_seq_logged) { tr_seq_logged = SH.tr_seq; console_puts("shell: say "); console_puts(SH.tr_live); console_puts("\n"); }
+        if (SH.screen == SCR_TRAIL && SH.tv_digest != tv_logged) { tv_logged = SH.tv_digest; console_puts("shell: trail view health="); console_dec(SH.tv.health); console_puts(" records="); console_dec(SH.tv.n); console_puts(" grants="); console_dec(SH.tv.ngrants); console_puts(" first="); console_dec(SH.tr_first); console_puts("\n"); }
         log_state(&screen, &space, &focus, &modal, &opens, &qsig, &corner);
 #ifdef AURORA_SHELL_LAYOUT_LOG
         log_layout(&lsig);
