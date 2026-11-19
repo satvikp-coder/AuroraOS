@@ -78,6 +78,7 @@ void bp_decide(const struct bp_env *env, struct bp_replay *replay, const struct 
         if (risk != 1) { res(out, BP_DENY, BPR_BAD_INTENT, risk, principal); return; }
         if (!(rights & BP_RIGHT_SETTINGS)) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
         if (!env->review_path) { res(out, BP_UNAVAILABLE, BPR_NO_REVIEW, risk, principal); return; }
+        if (!env->trail) { res(out, BP_UNAVAILABLE, BPR_NO_TRAIL, risk, principal); return; }              /* a change that must be recorded cannot run when the Trail cannot record it */
         res(out, BP_REVIEW, BPR_NONE, risk, principal); return;
     case AS_UNSUPPORTED:
         res(out, BP_UNAVAILABLE, BPR_UNSUPPORTED, risk == 255 ? 0 : risk, principal); return;

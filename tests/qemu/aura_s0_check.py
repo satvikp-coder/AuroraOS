@@ -53,10 +53,16 @@ def main():
             if row and not inb: n += 1
             inb = row
         return n
-    name = {"allow": "c_nav", "deny": "c_navbad", "crash": "c_navcrash", "flood": "c_navflood"}[a.scenario]
+    name = {"allow": "c_nav", "deny": "c_navbad", "crash": "c_navcrash", "flood": "c_navflood", "durable": "c_navbad", "revoked": "c_navbad"}[a.scenario]
     check("the client was started by the kernel loader", wait_for(lambda: ("shell: client %s pid=" % name) in log(), 120))
     m = re.search(r"shell: client %s pid=(\d+)" % name, log()); pid = int(m.group(1)) if m else 0
-    if a.scenario != "deny": check("the kernel (not the client) granted the navigate right", ("shell: navigate right granted to %s" % name) in log())
+    if a.scenario == "durable":
+        check("the ledger holds a DURABLE grant for this client's principal (granted by a test kernel, stored on the disk)", "ledger: op durable grant 407 navigate rc=0 state=ok" in log())
+        check("... and NO instance grant was made: the right can only have come from the Passport", "navigate right granted" not in log())
+    elif a.scenario == "revoked":
+        check("the earlier durable grant was REVOKED on the same disk (committed)", "ledger: op durable revoke 407 navigate rc=0 state=ok" in log())
+        check("... and no instance grant exists either", "navigate right granted" not in log())
+    elif a.scenario != "deny": check("the kernel (not the client) granted the navigate right", ("shell: navigate right granted to %s" % name) in log())
     else: check("this client was NOT granted any right", "navigate right granted" not in log())
     def user_lines(): return [l for l in after_ready().split(chr(10)) if l.startswith("[user p%d] " % pid)]
     def ans(what):
@@ -66,12 +72,12 @@ def main():
         return None
     def screens(): return re.findall(r"shell: screen=(\w+)", after_ready())
 
-    if a.scenario in ("allow", "deny"):
+    if a.scenario in ("allow", "deny", "durable", "revoked"):
         check("the client's whole battery ran (final request answered)", wait_for(lambda: ans("aura open settings") is not None, 180))
-        ok = a.scenario == "allow"
+        ok = a.scenario in ("allow", "durable")
         check("open pages: %s" % ("allowed (0x100)" if ok else "denied for lack of right (6)"), ans("aura open pages") == (ALLOW if ok else NORIGHT))
         check("the same nonce replayed is refused (4) whoever asks", ans("aura replay of nonce 1") == REPLAY)
-        check("delete everything: unavailable (no Passport), never allowed", ans("aura delete everything") == NOPASS)
+        check("delete everything: unavailable (Passport and Trail are healthy now, but no trusted review path exists), never allowed", ans("aura delete everything") == NOREVIEW)
         check("make text bigger: denied (6): this client holds no settings right, so the request does not even reach the review question", ans("aura make text bigger") == NORIGHT)
         check("start a 5 minute timer: denied (6): the timer belongs to the trusted shell, a client cannot use it even with the navigate right", ans("aura start a timer") == NORIGHT)
         check("cancel my timer: denied (6): a client cannot cancel the shell's timer", ans("aura cancel my timer") == NORIGHT)
@@ -92,6 +98,7 @@ def main():
             check("SCREEN: the Settings screen is really drawn (many text rows)", bands(img, 56, 960, 100, 640) >= 8)
         else:
             check("no request was executed and the shell never left Home", "aura: executed" not in log() and not screens())
+            check("the security refusals (no right) were recorded in the durable Trail (rc 0), not just logged", log().count("aura: audit denial rc=0") >= 3 and "aura: audit denial rc=0" in log() and "audit denial dropped" not in log())
             check("SCREEN: still the Home screen (the Current Space card is drawn)", bands(shot(), 64, 480, 100, 180) >= 2)
         check("the guest logged the broker decisions with the kernel-attested pid", ("aura: request pid=%d decision=%s" % (pid, "allow_now" if ok else "deny")) in log())
         check("text size and appearance were never touched by any request", "shell: setting row=" not in log())

@@ -91,7 +91,7 @@ int main(void)
     CHECK("Notes: unavailable (no native Notes app)", o.state == AX_UNAVAILABLE && strstr(o.msg, "no Notes app") != 0);
     fresh(); o = run(0, "make text bigger");
     CHECK("S1 'make text bigger': shows it needs approval and that the trusted review is not available; nothing changed", o.state == AX_UNAVAILABLE && strstr(o.msg, "trusted review is not available") != 0 && sh.text_pct == 100 && o.intent.kind == AK_SET_SETTING && o.intent.arg == 1);
-    fresh(); ENV.review_path = 1; o = run(0, "make text bigger");
+    fresh(); ENV.review_path = 1; ENV.trail = 1; o = run(0, "make text bigger");
     CHECK("even WITH a review path the policy answers REVIEW and the executor does not run: text size unchanged", o.decision == BP_REVIEW && o.state == AX_NEEDS_APPROVAL && !o.executed && sh.text_pct == 100);
     fresh(); ENV.review_path = ENV.passport = ENV.trail = ENV.hold_input = 1; o = run(0, "delete everything");
     CHECK("S3 with every dependency flagged present is HOLD and still executes nothing", o.decision == BP_HOLD && !o.executed);

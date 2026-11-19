@@ -44,6 +44,18 @@ static int trail_note(uint8_t kind, uint32_t principal)
     return ledger_trail_append(&r);
 }
 
+static int audited(uint8_t kind, uint32_t principal, uint8_t perm, int rc)
+{
+    if (rc != LG_E_OK) return rc;
+    struct trail_rec r; uint8_t *z = (uint8_t *)&r; for (unsigned i = 0; i < sizeof r; i++) z[i] = 0;
+    r.kind = kind; r.principal = principal; r.target = perm; r.state = 1; r.uptime_ms = (uint32_t)timersys_now_ms();
+    int arc = ledger_trail_append(&r);
+    if (arc != LG_E_OK) { console_puts("ledger: audit record for kind "); console_dec(kind); console_puts(" NOT written rc="); console_dec((uint64_t)(uint32_t)(-arc)); console_puts("\n"); }
+    return rc;
+}
+int ledger_grant_audited(uint32_t principal, uint8_t perm) { return audited(12, principal, perm, ledger_grant(principal, perm)); }
+int ledger_revoke_audited(uint32_t principal, uint8_t perm) { return audited(13, principal, perm, ledger_revoke(principal, perm)); }
+
 void ledger_boot(void)
 {
     int s = ledger_attach(&KERNEL_IO);
@@ -58,15 +70,19 @@ void ledger_boot(void)
      * at the result. 1: three durable grants and a RAM-only one; 2: revoke one; 3: fill the table (33 principals); 4: revoke what was never granted. */
     #define OP(label, call) do { int rc_ = (call); console_puts("ledger: op " label " rc="); console_dec((uint64_t)(uint32_t)(-rc_)); console_puts(" state="); console_puts(ledger_state_name(ledger_state())); console_puts("\n"); } while (0)
     #if AURORA_LEDGER_TEST == 1
-    OP("grant 1001 files-write", ledger_grant(1001, PP_FILES_WRITE));
-    OP("grant 1001 timer", ledger_grant(1001, PP_TIMER));
-    OP("grant 1002 navigate", ledger_grant(1002, PP_NAVIGATE));
+    OP("grant 1001 files-write", ledger_grant_audited(1001, PP_FILES_WRITE));
+    OP("grant 1001 timer", ledger_grant_audited(1001, PP_TIMER));
+    OP("grant 1002 navigate", ledger_grant_audited(1002, PP_NAVIGATE));
     OP("instance 1003 timer gen 5", ledger_grant_instance(1003, 5, PP_TIMER));
     OP("reserved 0x7F000004 navigate", ledger_grant(PRINCIPAL_PASSPORT, PP_NAVIGATE));
     OP("principal 0 navigate", ledger_grant(0, PP_NAVIGATE));
     #elif AURORA_LEDGER_TEST == 2
-    OP("revoke 1001 files-write", ledger_revoke(1001, PP_FILES_WRITE));
-    OP("revoke 4242 timer (never granted)", ledger_revoke(4242, PP_TIMER));
+    OP("revoke 1001 files-write", ledger_revoke_audited(1001, PP_FILES_WRITE));
+    OP("revoke 4242 timer (never granted)", ledger_revoke_audited(4242, PP_TIMER));
+    #elif AURORA_LEDGER_TEST == 5
+    OP("durable grant 407 navigate", ledger_grant_audited(407, PP_NAVIGATE));          /* a CLIENT principal: the c_navbad test client, which holds no instance grant */
+    #elif AURORA_LEDGER_TEST == 6
+    OP("durable revoke 407 navigate", ledger_revoke_audited(407, PP_NAVIGATE));
     #elif AURORA_LEDGER_TEST == 3
     for (uint32_t k = 0; k < 40; k++) { int rc_ = ledger_grant(2000 + k, PP_NAVIGATE); if (rc_ != LG_E_OK) { console_puts("ledger: op fill stopped at "); console_dec(k); console_puts(" rc="); console_dec((uint64_t)(uint32_t)(-rc_)); console_puts("\n"); break; } }
     OP("grant after full", ledger_grant(3000, PP_NAVIGATE));

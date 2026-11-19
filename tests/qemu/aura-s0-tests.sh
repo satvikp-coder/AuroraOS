@@ -26,11 +26,11 @@ $CC $PF -o "$OUT/uiclient.elf" tests/programs/uiclient.c && ok "the EL0 UI clien
 cc -std=c11 -Wall -Wextra -O1 -I tests/tools/shim -I kernel/include -o "$OUT/mkafs" tests/tools/mkafs.c kernel/fs/afs.c && ok "mkafs compiled" || { bad "mkafs failed to compile"; exit 1; }
 "$OUT/mkafs" "$OUT/disk.img" 2048 installer 0x7 uiclient.elf "$OUT/uiclient.elf" > "$OUT/mkafs.log" 2>&1 && ok "disk image provisioned with the installer-owned client" || bad "mkafs failed"
 
-boot() {   # scenario mask
-    sc="$1"; mask="$2"
-    echo "== scenario: $sc (clients mask $mask) =="
-    AURORA_SHELL_CLIENTS="$mask" BUILD_DIR="$OUT/k_$sc" ./build.sh >/dev/null 2>&1 || { bad "$sc: kernel build failed"; return; }
-    cp "$OUT/disk.img" "$OUT/disk_$sc.img"
+boot() {   # scenario mask [ledger-test-script [persistent-disk]]
+    sc="$1"; mask="$2"; lt="$3"; pdisk="$4"
+    echo "== scenario: $sc (clients mask $mask${lt:+, ledger script $lt}) =="
+    AURORA_SHELL_CLIENTS="$mask" AURORA_LEDGER_TEST="$lt" BUILD_DIR="$OUT/k_$sc" ./build.sh >/dev/null 2>&1 || { bad "$sc: kernel build failed"; return; }
+    if [ -n "$pdisk" ]; then [ -f "$OUT/$pdisk" ] || cp "$OUT/disk.img" "$OUT/$pdisk"; cp "$OUT/$pdisk" "$OUT/disk_$sc.img"; else cp "$OUT/disk.img" "$OUT/disk_$sc.img"; fi
     L="$OUT/$sc.log"; : > "$L"; rm -f "$OUT/$sc.sock"
     qemu-system-aarch64 -machine virt,highmem=off -cpu cortex-a53 -smp 1 -m 256M -kernel "$OUT/k_$sc/kernel.bin" \
         -display none -serial file:"$L" -monitor none -qmp unix:"$OUT/$sc.sock",server=on,wait=off \
@@ -41,11 +41,16 @@ boot() {   # scenario mask
     rc=$?; cat "$OUT/$sc.check.log"
     if [ "$rc" -eq 0 ]; then ok "$sc: all checks passed"; else bad "$sc: checks failed (see $OUT/$sc.check.log)"; fi
     stop_qemu
+    [ -n "$pdisk" ] && cp "$OUT/disk_$sc.img" "$OUT/$pdisk"          # the disk persists to the next boot, like a real one
 }
 want() { [ -z "$AURA_S0_ONLY" ] || case " $AURA_S0_ONLY " in *" $1 "*) return 0;; *) return 1;; esac; }
 want allow && boot allow 2048
 want deny && boot deny 4096
 want crash && boot crash 8192
 want flood && boot flood 18432
+# the Passport ledger is the only source of rights: a DURABLE grant stored on the disk lets a client with no instance grant navigate; after a restart and a
+# durable revocation the same client is denied
+(want durable || want revoked) && boot durable 4096 5 ledger.img      # revoked needs the grant that durable stores
+want revoked && boot revoked 4096 6 ledger.img
 echo "aura-s0-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]
