@@ -22,7 +22,7 @@
 #include <procsnap.h>
 #include <aura_cmd.h>
 
-enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_CLOCK, SCR_COUNT };
+enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_CLOCK, SCR_TRAIL, SCR_COUNT };
 
 /* Stable control identifiers (never reused for another meaning). */
 enum {
@@ -37,7 +37,8 @@ enum {
     SID_SET_UP = 220, SID_SET_DOWN,     /* scroll the Settings list when it does not fit */
     SID_PAGES_HOME = 230,               /* Pages: return to Home */
     SID_AURA_RUN = 240, SID_AURA_CLEAR, SID_AURA_HOME,  /* Aura: run the typed command, clear it, return to Home */
-    SID_CLOCK_P1 = 250, SID_CLOCK_P5, SID_CLOCK_P25, SID_CLOCK_START, SID_CLOCK_CANCEL, SID_CLOCK_HOME   /* Clock: presets 1/5/25 min, Start, Cancel, Home */
+    SID_CLOCK_P1 = 250, SID_CLOCK_P5, SID_CLOCK_P25, SID_CLOCK_START, SID_CLOCK_CANCEL, SID_CLOCK_HOME,  /* Clock: presets 1/5/25 min, Start, Cancel, Home */
+    SID_TRAIL_NEWER = 260, SID_TRAIL_OLDER, SID_TRAIL_HOME   /* Trail: show newer / older records, Home. There is no other control: the screen is read-only */
 };
 
 #define SHELL_MAX_WIDGETS 160
@@ -58,6 +59,19 @@ struct shell_timers {
 };
 enum { CK_READY = 0, CK_RUNNING, CK_DONE, CK_CANCELLED, CK_UNAVAILABLE, CK_ERROR };
 #define SHELL_TOAST_MS 4000u
+
+/* What the Trail screen shows: a COPY made by the kernel from the ledgers (no pointer into them, nothing the screen could use to change them). */
+enum { TV_UNAVAILABLE = 0, TV_RECORDING, TV_NODISK, TV_READONLY, TV_UNREADABLE, TV_ROLLBACK, TV_HELD };
+struct shell_trail_rec { uint32_t seq, principal; int32_t arg; uint8_t kind, target, risk, decision, reason, state; };
+struct shell_trail_grant { uint32_t principal; uint8_t perm; };
+#define SHELL_TV_RECS 48
+#define SHELL_TV_GRANTS 32
+struct shell_trail_view {
+    uint8_t health;                                   /* TV_* */
+    uint32_t n, ngrants;                              /* records (oldest first, <= SHELL_TV_RECS), durable grants (<= SHELL_TV_GRANTS) */
+    struct shell_trail_rec rec[SHELL_TV_RECS];
+    struct shell_trail_grant grant[SHELL_TV_GRANTS];
+};
 
 struct shell_caps { uint8_t keyboard, pointer; };      /* what input hardware the kernel actually found */
 
@@ -124,6 +138,12 @@ struct shell {
     int32_t clk_id; uint32_t clk_rem_s, clk_dur_s; uint32_t clk_seq;   /* the service's timer id, whole seconds left (rounded up), count of spoken-line changes */
     uint64_t now_ms, toast_until_ms; uint8_t toast_on;
     char clk_live[64], clk_val[12], clk_up[16];
+    /* Trail screen: read-only view of the audit ledger; NULL source = not available */
+    int (*trail_src)(struct shell_trail_view *out);
+    struct shell_trail_view tv; uint64_t tv_digest; uint8_t tv_valid;
+    uint8_t tr_first;                                 /* index (from the newest = 0) of the first record shown */
+    uint32_t tr_seq; char tr_live[80];                /* the health line, spoken (logged) when it changes */
+    char tr_rows[10][88], tr_head[80], tr_sum[48], tr_perm[40], tr_range[40], tr_gr[8][56];
     /* Settings screen */
     const struct shell_store *store;    /* NULL = no usable store: changes last for this session only */
     uint32_t sess[SHELL_SET_ROWS];      /* session values (used when there is no store, and for high contrast always) */
@@ -149,6 +169,9 @@ void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out));
 int  shell_pages_refresh(struct shell *sh);
 /* Attach the Aura runner. It must return 1 and fill state/msg when it ran the pipeline, 0 if it could not. */
 void shell_set_aura(struct shell *sh, int (*run)(struct shell *sh, const char *text, size_t len, uint8_t *state, char *msg, size_t cap));
+/* Attach the ledger view for the Trail screen and take a first copy; shell_trail_refresh re-takes it (returns 1 and redraws only if something shown changed). */
+void shell_set_trail(struct shell *sh, int (*src)(struct shell_trail_view *out));
+int  shell_trail_refresh(struct shell *sh);
 /* Attach (or detach, with NULL) the timer service for the Clock screen. */
 void shell_set_timers(struct shell *sh, const struct shell_timers *timers);
 /* Aura's timer effects (called by the S0 executor after the broker allowed them). Each returns 1 ONLY if the real timer service now shows what was asked:
