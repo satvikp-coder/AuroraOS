@@ -88,6 +88,7 @@ static void churn_step(void)
 #endif
 
 /* Free the slot of every process that has finished or faulted (kernel code only: there is no syscall for this). */
+static struct shell SH;
 static void reap(void)
 {
     for (int pid = 1; pid <= PROC_MAX; pid++) {
@@ -99,6 +100,7 @@ static void reap(void)
         ui_sys_client_gone(pid, p->gen);                         /* its surfaces and queued events go with it */
         timersys_owner_gone(pid, p->gen);                        /* and its timers */
         ledger_drop_instance(p->gen);                            /* and every Passport grant bound to this generation */
+        shell_review_requester_gone(&SH, (uint32_t)pid, p->gen);  /* a review it asked for dies with it */
         proc_destroy(pid);
     }
 }
@@ -148,7 +150,7 @@ static const char *client_name(uint8_t pid) { struct proc *p = proc_get(pid); re
  * the event was consumed and the shell must not see it. */
 static int route_client(const struct input_event *e)
 {
-    int blocked = SH.about_open || SH.corner_open;
+    int blocked = SH.about_open || SH.corner_open || SH.review_open;     /* a modal (the trusted review included) withholds EVERYTHING from clients */
     switch (e->kind) {
     case IN_PTR_MOVE:
         if (!blocked) ui_sys_pointer(e->x, e->y, 0, 0);
@@ -160,6 +162,12 @@ static int route_client(const struct input_event *e)
         return 0;
     }
     case IN_KEY_DOWN: case IN_KEY_UP: case IN_TEXT:
+        /* SECURE ATTENTION: Ctrl+Alt+Delete, decided here, first, from the kernel's own input path (the modifier state comes from the keyboard driver, not from any client). The Delete key
+         * event of the chord is ALWAYS consumed: no client ever sees it, whether or not a review is open. It only arms an open review; it never approves anything. */
+        if (e->kind != IN_TEXT && e->key == KEY_DELETE && (e->mods & MOD_CTRL) && (e->mods & MOD_ALT)) {
+            if (e->kind == IN_KEY_DOWN) shell_review_attention(&SH, timersys_now_ms(), e->repeat);
+            return 1;
+        }
         if (blocked || !ui_sys_has_focus()) return 0;
         if (e->kind != IN_TEXT && (e->key == KEY_TAB || e->key == KEY_ESC)) { if (e->kind == IN_KEY_DOWN) ui_sys_focus_clear(); return 0; }
         if (e->kind == IN_TEXT) return 1;                        /* clients get key codes, not text */
@@ -277,18 +285,40 @@ void shell_loop(struct input_state *in)
 #endif
     uint32_t sseq = SH.set_seq, cdig = 0, clk_seq_logged = SH.clk_seq, toast_logged = 0, clk_state_logged = SH.clk_state;
     uint64_t pg_q = 0, pg_digest = 0; int pg_logged = 0;
-    uint64_t tr_q = 0, tv_logged = 0; uint32_t tr_seq_logged = 0;
+    uint64_t tr_q = 0, tv_logged = 0; uint32_t tr_seq_logged = 0, rv_state_logged = 0; uint8_t rv_open_logged = 0;
     for (;;) {
         /* Execute broker-approved requests of EL0 clients that are STILL the same live instance BEFORE reading input, and show the result at once: the user's
          * next click is then resolved against the screen they actually see, and a press that began on the old layout is dropped (an EL0 navigation must never
          * redirect a click onto a control of a screen the user has not seen). */
         if (broker_drain(&SH) > 0) { SH.fx.pressed = -1; if (SH.dirty) present(); }
+        shell_set_now_ms(&SH, timersys_now_ms());                /* the time of the input about to be handled: the review windows are judged against it */
         vinput_poll(in);
         struct input_event e;
         while (input_pop(in, &e)) { if (!route_client(&e)) shell_handle(&SH, &e); }
         { uint32_t d = uip_digest(ui_sys_state()); if (d != cdig) { cdig = d; SH.dirty = 1; } }     /* a client committed, appeared, vanished or changed focus */
         shell_set_uptime(&SH, (uint32_t)((timer_count() - t0) / hz));
         shell_tick(&SH, timersys_now_ms());                      /* timers and the toast follow the monotonic counter, whatever screen is showing */
+        { uint32_t rs = SH.rv.state; if (rs != rv_state_logged || SH.review_open != rv_open_logged) {
+              if (SH.review_open && !rv_open_logged) { console_puts("shell: review open ticket="); console_dec(SH.rv.last_ticket); console_puts(" requester="); console_puts(SH.rv_name); console_puts("\n"); }
+              if (!SH.review_open && rv_open_logged) console_puts("shell: review closed\n");
+              if (rs != rv_state_logged) { console_puts("shell: review state="); console_puts(rv_state_name((int)rs)); console_puts("\n"); }
+              rv_state_logged = rs; rv_open_logged = SH.review_open; } }
+        { uint64_t tk; if (shell_review_take_approved(&SH, &tk)) { console_puts("shell: review approved ticket="); console_dec(tk); console_puts(" (S1 execution is disabled: nothing was changed)\n"); } }
+#ifdef AURORA_REVIEW_TEST
+        /* TEST BUILDS ONLY: open a fixed S1 review (requester = the shell itself, named "Aura (test)") up to four times, one second after the previous one ended, so the QEMU test can
+         * drive Cancel, Escape, a premature gesture, arming, approval and the timeout in one boot. Nothing it opens can change a setting: S1 execution is disabled. */
+        { static uint64_t rt_next; static int rt_n;
+          uint64_t nowm = timersys_now_ms();
+          if (!SH.review_open && rt_n < 4 && SH.caps.keyboard && nowm > 4000 && nowm >= rt_next) {
+              static const struct aura_caps RC = { 1, 1, 0, 0, 0 };
+              struct rv_request q; uint8_t *qz = (uint8_t *)&q; for (unsigned i = 0; i < sizeof q; i++) qz[i] = 0;
+              aura_parse("make text bigger", 16, &RC, &q.intent);
+              q.pid = BP_SHELL_PID; q.gen = BP_SHELL_GEN; q.principal = PRINCIPAL_SHELL; q.nonce = (uint64_t)rt_n + 1; q.prior = (int32_t)SH.text_pct; q.next = 125;
+              int64_t t = shell_review_open(&SH, nowm, &q, &RC, "Aura (test)");
+              if (t > 0) rt_n++;
+          }
+          if (SH.review_open) rt_next = nowm + 1000; }
+#endif
         if (SH.toast_on != toast_logged) { toast_logged = SH.toast_on; console_puts(toast_logged ? "shell: toast on\n" : "shell: toast off\n"); }
         if (SH.clk_state != clk_state_logged) { clk_state_logged = SH.clk_state; if (clk_state_logged == CK_RUNNING) { console_puts("shell: clock running secs="); console_dec(SH.clk_dur_s); console_puts("\n"); } else if (clk_state_logged == CK_DONE) console_puts("shell: clock finished\n"); else if (clk_state_logged == CK_CANCELLED) console_puts("shell: clock cancelled\n"); }
         if (SH.clk_seq != clk_seq_logged) { clk_seq_logged = SH.clk_seq; console_puts("shell: say "); console_puts(SH.clk_live); console_puts("\n"); }
