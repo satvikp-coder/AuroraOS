@@ -35,6 +35,7 @@ cc $CFLAGS -o "$OUT/trail_test" "$ROOT/tests/kernel-host/trail_test.c" "$ROOT/ke
 cc $CFLAGS -o "$OUT/index_model_test" "$ROOT/tests/kernel-host/index_model_test.c" "$ROOT/kernel/ui/index_model.c"
 cc $CFLAGS -o "$OUT/timersvc_test" "$ROOT/tests/kernel-host/timersvc_test.c" "$ROOT/kernel/ui/timersvc.c"
 cc $CFLAGS -o "$OUT/principal_test" "$ROOT/tests/kernel-host/principal_test.c"
+cc $CFLAGS -o "$OUT/review_test" "$ROOT/tests/kernel-host/review_test.c" "$ROOT/kernel/ui/review.c" "$ROOT/kernel/ui/aura_cmd.c"
 cc $CFLAGS -o "$OUT/ledger_test" "$ROOT/tests/kernel-host/ledger_test.c" "$ROOT/kernel/ui/ledger_store.c" "$ROOT/kernel/ui/passport.c" "$ROOT/kernel/ui/trail.c"
 "$OUT/fdt_pmm_test"
 "$OUT/policy_test"
@@ -65,4 +66,5 @@ cc $CFLAGS -o "$OUT/ledger_test" "$ROOT/tests/kernel-host/ledger_test.c" "$ROOT/
 python3 "$ROOT/tests/aura-eval/selftest.py"
 "$OUT/timersvc_test"
 "$OUT/principal_test"
+"$OUT/review_test"
 "$OUT/ledger_test"
