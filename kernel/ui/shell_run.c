@@ -9,6 +9,7 @@
 #include <input.h>
 #include <irq.h>
 #include <fs.h>
+#include <apps.h>
 #include <launch.h>
 #include <proc.h>
 #include <settings.h>
@@ -98,6 +99,7 @@ static void reap(void)
         console_puts(p->state == PROC_FAULTED ? " faulted\n" : " exited code=");
         if (p->state == PROC_TERMINATED) { console_dec((uint64_t)(uint32_t)p->exit_code); console_puts("\n"); }
         ui_sys_client_gone(pid, p->gen);                         /* its surfaces and queued events go with it */
+        apps_gone(pid, p->gen);                                  /* the launcher forgets the instance: the next launch is a fresh one */
         timersys_owner_gone(pid, p->gen);                        /* and its timers */
         ledger_drop_instance(p->gen);                            /* and every Passport grant bound to this generation */
         shell_review_requester_gone(&SH, (uint32_t)pid, p->gen);  /* a review it asked for dies with it */
@@ -106,6 +108,9 @@ static void reap(void)
 }
 
 static struct shell SH;
+
+/* The launcher the shell sees: application ids only. The kernel decides the executable, the identity and the capability (kernel/include/apps.h). */
+static const struct shell_launcher LAUNCHER = { apps_available, apps_launch, apps_describe };
 
 /* The Trail screen's source: a COPY of the ledgers' state (the screen never holds a pointer into them, and no system call reads or mutates either ledger). */
 static int trail_view_take(struct shell_trail_view *v)
@@ -266,6 +271,8 @@ void shell_loop(struct input_state *in)
     const struct vinput_info *vi = vinput_get_info();
     struct shell_caps caps = { vi->keyboards != 0, vi->pointers != 0 };
     shell_set_caps(&SH, caps);
+    apps_init();                                                 /* register the native applications (kernel table) and grant their UI capability */
+    shell_set_launcher(&SH, &LAUNCHER);
     if (fs_mounted()) {                                          /* a usable AuroraFS: the registry loads (or reports why it fell back to defaults) */
         int st = settings_load();
         int g = settings_grant(PRINCIPAL_SHELL, CAP_SET_APPEARANCE | CAP_SET_ATTENTION);
