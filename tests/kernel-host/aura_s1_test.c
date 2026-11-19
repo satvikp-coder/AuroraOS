@@ -27,7 +27,8 @@ static int e_newest(struct trail_rec *o) { if (!ntr) return 0; *o = TR[ntr - 1];
 static uint32_t e_last(void) { return ntr ? TR[ntr - 1].seq : 0; }
 static uint64_t T;
 static uint64_t e_now(void) { return T; }
-static const struct aura_s1_env ENVS = { e_ok, e_append, e_newest, e_last, e_now };
+static int e_nth(uint32_t n, struct trail_rec *o) { if (n >= (uint32_t)ntr) return 0; *o = TR[ntr - 1 - (int)n]; return 1; }
+static const struct aura_s1_env ENVS = { e_ok, e_append, e_newest, e_last, e_now, e_nth };
 
 static struct shell sh;
 static const struct aura_caps CAPS = { 1, 1, 0, 0, 0 };
@@ -182,6 +183,39 @@ int main(void)
         fresh(); f_healthy = 0; e_append(&pre);
         CHECK("recovery does nothing while the records are unhealthy", aura_s1_recover(&sh) == 0 && ntr == 1);
         fresh(); CHECK("recovery on an empty Trail does nothing", aura_s1_recover(&sh) == 0 && ntr == 0);
+    }
+    { /* Undo: a receipt is reversed only through a NEW trusted review, only if nothing newer changed the setting */
+        fresh(); struct aura_outcome o = run(0, "undo");
+        CHECK("undo with an empty Trail: nothing to undo, no review", !sh.review_open && strstr(o.msg, "Nothing to undo") != 0 && ntr == 0);
+        fresh(); run(0, "make text bigger"); approve(); finish(0); int n0 = ntr;
+        o = run(0, "undo");
+        CHECK("undo after a change opens a NEW review showing 125% -> 100%, nothing written yet", sh.review_open && has_text("Text size: 125% -> 100%") && has_text("Aura (Undo)") && REG[2] == 125 && ntr == n0);
+        CHECK("approving the undo restores 100 and writes a second PRE/POST pair", approve() && finish(0) == AX_DONE && REG[2] == 100 && sh.text_pct == 100 && ntr == n0 + 2 && TR[n0].state == AX_NEEDS_APPROVAL && TR[n0].arg == 125 && TR[n0 + 1].state == AX_DONE && TR[n0 + 1].arg == 100);
+        fresh(); run(0, "make text bigger"); approve(); finish(0); n0 = ntr; run(0, "undo"); key(KEY_ESC);
+        CHECK("declining the undo changes nothing", REG[2] == 125 && ntr == n0);
+        fresh(); run(0, "make text bigger"); approve(); finish(0); REG[2] = 150; n0 = ntr; o = run(0, "undo");
+        CHECK("someone changed the setting after the receipt: undo refuses, never overwrites the newer value", !sh.review_open && REG[2] == 150 && ntr == n0 && strstr(o.msg, "changed since") != 0);
+        fresh(); run(0, "make text bigger"); approve(); finish(0); run(0, "undo"); approve(); REG[2] = 130; int st = finish(0);
+        CHECK("the setting changed between undo approval and execution: refused, no PRE written", st != AX_DONE && REG[2] == 130);
+        fresh(); run(0, "make text bigger"); approve(); f_append_fail_at = 2; finish(0); f_append_fail_at = 0; n0 = ntr; o = run(0, "undo");
+        CHECK("a change whose POST was lost has no receipt: no Undo", !sh.review_open && REG[2] == 125 && ntr == n0);
+        fresh(); run(0, "make text bigger"); approve(); f_set_rc = SETTINGS_ESTORE; finish(0); f_set_rc = 0; n0 = ntr; run(0, "undo");
+        CHECK("a failed change has no receipt: no Undo", !sh.review_open && ntr == n0);
+        fresh(); run(0, "make text bigger"); approve(); finish(0); f_healthy = 0; run(0, "undo");
+        CHECK("unhealthy records: undo not available", !sh.review_open);
+        fresh(); run(0, "make text bigger"); approve(); finish(0); f_healthy = 1; o = run(2, "undo");
+        CHECK("an EL0 requester typing undo does not get the shell's undo", !sh.review_open && REG[2] == 125);
+        fresh(); run(0, "set theme to dark"); approve(); finish(0); run(0, "UNDO "); approve(); finish(0);
+        CHECK("theme undo (also case/space tolerant): back to the previous value 0", REG[1] == 0);
+        { struct trail_rec x; memset(&x, 0, sizeof x); x.kind = AK_SET_SETTING; x.target = 2;
+          fresh(); x.state = AX_NEEDS_APPROVAL; x.arg = 100; e_append(&x); x.state = AX_FAILED; x.arg = 125; e_append(&x); REG[2] = 125; run(0, "undo");
+          CHECK("a newest FAILED record is not a receipt (even if its value happens to match): no Undo", !sh.review_open);
+          fresh(); x.state = AX_DONE; x.arg = 100; e_append(&x); x.state = AX_DONE; x.arg = 125; e_append(&x); REG[2] = 125; run(0, "undo");
+          CHECK("a DONE record not preceded by its own PRE is not a receipt: no Undo", !sh.review_open);
+          fresh(); x.state = AX_NEEDS_APPROVAL; x.arg = 100; x.target = 1; e_append(&x); x.state = AX_DONE; x.arg = 2; x.target = 2; e_append(&x); REG[2] = 2; run(0, "undo");
+          CHECK("a PRE for a different setting is not this receipt: no Undo", !sh.review_open); }
+        fresh(); run(0, "make text bigger"); approve(); finish(0); run(0, "undo"); approve(); finish(0); run(0, "undo");
+        CHECK("undoing an undo is a new, separately reviewed change (redo to 125)", sh.review_open && has_text("Text size: 100% -> 125%"));
     }
     { /* randomized: whatever happens, the setting changes only through a complete approved chain */
         uint32_t s = 2026; int bad = 0; fresh(); int done = 0, changed_ext = 0; uint32_t last_val = REG[2];

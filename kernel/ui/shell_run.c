@@ -137,7 +137,8 @@ static int s1_append(const struct trail_rec *r) { return ledger_trail_append(r) 
 static int s1_newest(struct trail_rec *o) { const struct trail *t = ledger_trail(); if (!t->n) return 0; *o = t->r[t->n - 1]; return 1; }
 static uint32_t s1_last_seq(void) { const struct trail *t = ledger_trail(); return t->n ? t->r[t->n - 1].seq : 0; }
 static uint64_t s1_now(void) { return timersys_now_ms(); }
-static const struct aura_s1_env S1ENV = { s1_ledger_ok, s1_append, s1_newest, s1_last_seq, s1_now };
+static int s1_nth(uint32_t n, struct trail_rec *o) { const struct trail *t = ledger_trail(); if (n >= t->n) return 0; *o = t->r[t->n - 1 - n]; return 1; }
+static const struct aura_s1_env S1ENV = { s1_ledger_ok, s1_append, s1_newest, s1_last_seq, s1_now, s1_nth };
 static void s1_boot_recover(void) { int r = aura_s1_recover(&SH); if (r) console_puts("shell: s1 recovered an interrupted setting change\n"); }
 
 static int aura_glue(struct shell *s, const char *text, size_t len, uint8_t *state, char *msg, size_t cap)

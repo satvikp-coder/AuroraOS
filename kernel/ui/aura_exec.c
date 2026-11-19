@@ -65,6 +65,22 @@ void aura_outcome_from(struct aura_outcome *o, const struct bp_result *d, int ex
     if (d->decision == BP_UNAVAILABLE && o->msg[0] == 0) put(o->msg, sizeof o->msg, "Not available. Nothing changed.", 0);
 }
 
+static const struct aura_s1_env *S1;
+static int s1_undo_flag;                                                                       /* the request in flight is an Undo: the review names its requester "Aura (Undo)" */
+static size_t strlen_(const char *s) { size_t n = 0; while (s[n]) n++; return n; }
+static int s1_is_undo(const char *t, size_t len)
+{
+    static const char *const OK[] = { "undo", "undo that", "undo last change", "undo the last change", "undo my last change" };
+    char b[24]; size_t n = 0; size_t i = 0;
+    while (i < len && t[i] == ' ') i++;
+    while (len > i && t[len - 1] == ' ') len--;
+    if (len - i >= sizeof b) return 0;
+    for (; i < len; i++) { char c = t[i]; b[n++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
+    b[n] = 0;
+    for (size_t k = 0; k < sizeof OK / sizeof OK[0]; k++) { size_t m = 0; while (OK[k][m] && OK[k][m] == b[m]) m++; if (!OK[k][m] && !b[m]) return 1; }
+    return 0;
+}
+
 void aura_run_text(struct shell *sh, const struct bp_env *env, struct bp_replay *rp, uint32_t pid, uint64_t gen, uint64_t nonce,
                    const char *text, size_t len, struct aura_outcome *out)
 {
@@ -72,6 +88,11 @@ void aura_run_text(struct shell *sh, const struct bp_env *env, struct bp_replay 
     if (!out) return;                                                                           /* validate the output pointer BEFORE writing through it */
     uint8_t *z = (uint8_t *)out; for (size_t i = 0; i < sizeof *out; i++) z[i] = 0;
     if (!sh || !env || !env->caps) return;
+    char undo_buf[40], undo_why[72]; int is_undo = 0;
+    if (pid == BP_SHELL_PID && S1 && s1_is_undo(text, len)) {
+        if (aura_s1_undo_text(sh, undo_buf, sizeof undo_buf, undo_why, sizeof undo_why)) { text = undo_buf; len = strlen_(undo_buf); is_undo = 1; }
+        else { out->state = AX_FAILED; put(out->msg, sizeof out->msg, undo_why, 0); return; }
+    }
     aura_parse(text, len, env->caps, &out->intent);
     z = (uint8_t *)&rq; for (size_t i = 0; i < sizeof rq; i++) z[i] = 0;
     rq.pid = pid; rq.gen = gen; rq.nonce = nonce; rq.intent = out->intent;
@@ -79,6 +100,7 @@ void aura_run_text(struct shell *sh, const struct bp_env *env, struct bp_replay 
     int ok = 0;
     if (d.decision == BP_ALLOW_NOW) ok = aura_execute_s0(sh, &out->intent, env->caps);
     aura_outcome_from(out, &d, ok);
+    s1_undo_flag = is_undo;
     if (d.decision == BP_REVIEW) aura_s1_begin(sh, env, pid, nonce, out);                       /* S1: only the trusted shell opens a review; nothing changes until a person approves */
 }
 
@@ -103,7 +125,6 @@ void aura_run_queued(struct shell *sh, const struct bp_env *env, uint32_t pid, u
 #include <settings.h>
 
 _Static_assert(ASET_TEXT_SCALE == SET_TEXT_SCALE && ASET_THEME == SET_THEME, "the Aura setting ids are the registry ids");
-static const struct aura_s1_env *S1;
 void aura_s1_attach(const struct aura_s1_env *e) { S1 = e; }
 
 static const uint32_t TXT_STEPS[6] = { 75, 100, 125, 150, 175, 200 };
@@ -141,7 +162,7 @@ void aura_s1_begin(struct shell *sh, const struct bp_env *env, uint32_t pid, uin
     if (!S1->ledger_ok()) { s1_outcome(out, AX_UNAVAILABLE, "Not available: the records are unhealthy. Nothing changed."); return; }
     struct rv_request q; uint8_t *z = (uint8_t *)&q; for (size_t i = 0; i < sizeof q; i++) z[i] = 0;
     q.intent = out->intent; q.pid = BP_SHELL_PID; q.gen = BP_SHELL_GEN; q.principal = 0x7F000003u; q.nonce = nonce; q.prior = (int32_t)cur; q.next = next;
-    int64_t t = shell_review_open(sh, S1->now_ms(), &q, env->caps, "Aura");
+    int64_t t = shell_review_open(sh, S1->now_ms(), &q, env->caps, s1_undo_flag ? "Aura (Undo)" : "Aura");
     if (t > 0) { s1_outcome(out, AX_NEEDS_APPROVAL, "Waiting for your approval. Nothing changed yet."); return; }
     s1_outcome(out, AX_UNAVAILABLE, t == RV_E_STATE ? "Not available: a review needs a keyboard. Nothing changed." : t == RV_E_BUSY ? "Another review is open. Nothing changed." : "The review could not open. Nothing changed.");
 }
@@ -211,4 +232,29 @@ int aura_s1_recover(struct shell *sh)
     uint32_t cur = (uint32_t)r.arg;
     if (sh->store && sh->store->get && sh->store->get(r.target, &cur) != SETTINGS_OK) cur = (uint32_t)r.arg;
     return s1_rec(S1, r.target, AX_FAILED, 1, (int32_t)cur) == 0;                    /* "interrupted", with the value the setting really has now */
+}
+
+int aura_s1_undo_text(struct shell *sh, char *out, size_t cap, char *why, size_t whycap)
+{
+    if (!sh || !out || !why || cap < 40 || whycap < 72) return 0;
+    put(why, (uint32_t)whycap, "Nothing to undo. Nothing changed.", 0);
+    if (!S1 || !S1->trail_nth || !S1->ledger_ok || !S1->ledger_ok()) { put(why, (uint32_t)whycap, "Not available: the records are unhealthy. Nothing changed.", 0); return 0; }
+    struct trail_rec post, pre;
+    /* the newest S1 record decides: only a completed change (DONE) directly preceded by its own PRE is a receipt; anything newer that is not a receipt ends the search */
+    uint32_t n = 0; int have = 0;
+    while (S1->trail_nth(n, &post)) { if (post.kind == AK_SET_SETTING) { have = 1; break; } if (++n > 64) break; }
+    if (!have || post.state != AX_DONE) return 0;
+    if (!S1->trail_nth(n + 1, &pre) || pre.kind != AK_SET_SETTING || pre.state != AX_NEEDS_APPROVAL || pre.target != post.target) return 0;
+    uint32_t cur = 0;
+    if (!sh->store || !sh->store->get || sh->store->get(post.target, &cur) != SETTINGS_OK) { put(why, (uint32_t)whycap, "Not available: cannot read the setting. Nothing changed.", 0); return 0; }
+    if ((int32_t)cur != post.arg) { put(why, (uint32_t)whycap, "Not undone: the setting has changed since. Nothing changed.", 0); return 0; }
+    if (pre.arg == post.arg) return 0;
+    uint32_t v = (uint32_t)pre.arg; char *w = out;
+    if (post.target == ASET_TEXT_SCALE) {
+        const char *a = "set text size to "; while (*a) *w++ = *a++;
+        char d[8]; int k = 0; if (!v) d[k++] = '0'; while (v && k < 7) { d[k++] = (char)('0' + v % 10); v /= 10; } while (k) *w++ = d[--k];
+    } else if (post.target == ASET_THEME && v <= 2) {
+        const char *a = v == 0 ? "set theme to auto" : v == 1 ? "set theme to light" : "set theme to dark"; while (*a) *w++ = *a++;
+    } else return 0;
+    *w = 0; return 1;
 }
