@@ -210,6 +210,10 @@ jobs:
         run: |
           chmod +x tests/qemu/trail-ui-tests.sh
           ./tests/qemu/trail-ui-tests.sh
+      - name: Run trusted review modal tests (compositor-owned modal on the real kernel; default focus on Cancel, Enter never approves, locked Approve, early and valid Ctrl+Alt+Delete, Escape, 60 second expiry, nothing underneath receives input, with a hostile EL0 UI client running; S1 execution stays disabled; real QMP input and screendump pixels)
+        run: |
+          chmod +x tests/qemu/review-tests.sh
+          ./tests/qemu/review-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

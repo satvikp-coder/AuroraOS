@@ -21,6 +21,7 @@
 #include <ui_proto.h>
 #include <procsnap.h>
 #include <aura_cmd.h>
+#include <review.h>
 
 enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_CLOCK, SCR_TRAIL, SCR_COUNT };
 
@@ -38,7 +39,8 @@ enum {
     SID_PAGES_HOME = 230,               /* Pages: return to Home */
     SID_AURA_RUN = 240, SID_AURA_CLEAR, SID_AURA_HOME,  /* Aura: run the typed command, clear it, return to Home */
     SID_CLOCK_P1 = 250, SID_CLOCK_P5, SID_CLOCK_P25, SID_CLOCK_START, SID_CLOCK_CANCEL, SID_CLOCK_HOME,  /* Clock: presets 1/5/25 min, Start, Cancel, Home */
-    SID_TRAIL_NEWER = 260, SID_TRAIL_OLDER, SID_TRAIL_HOME   /* Trail: show newer / older records, Home. There is no other control: the screen is read-only */
+    SID_TRAIL_NEWER = 260, SID_TRAIL_OLDER, SID_TRAIL_HOME,  /* Trail: show newer / older records, Home. There is no other control: the screen is read-only */
+    SID_REVIEW_CANCEL = 21, SID_REVIEW_APPROVE = 22          /* the trusted review: Cancel (or Close once it ended) and Approve */
 };
 
 #define SHELL_MAX_WIDGETS 160
@@ -89,7 +91,7 @@ enum { SM_NONE = 0, SM_SAVED, SM_RESET_SAVED, SM_SESSION, SM_STORE_FAIL, SM_DENI
 
 struct shell {
     uint32_t width, height;
-    uint8_t screen, space, about_open, corner_open, dirty;
+    uint8_t screen, space, about_open, corner_open, review_open, dirty;
     uint8_t contrast;                   /* 1 = high-contrast appearance (a runtime preference; nothing persists it yet) */
     uint8_t text_pct;                   /* text scale in percent, SHELL_TEXT_MIN..SHELL_TEXT_MAX (100 = the reference layout) */
     int32_t lay_bottom;                 /* lowest content pixel of the last scaled layout (layout fitting and tests) */
@@ -144,6 +146,10 @@ struct shell {
     uint8_t tr_first;                                 /* index (from the newest = 0) of the first record shown */
     uint32_t tr_seq; char tr_live[80];                /* the health line, spoken (logged) when it changes */
     char tr_rows[10][88], tr_head[80], tr_sum[48], tr_perm[40], tr_range[40], tr_gr[8][56];
+    /* Trusted review (compositor-owned modal; the state machine is review.c). Only kernel code opens it; no client message can open, arm, answer or close it. */
+    struct rv rv; struct rv_request rv_req;
+    uint8_t rv_prev, rv_lapsed, rv_approved_pending; uint64_t rv_approved_ticket; uint32_t rv_seq;
+    char rv_name[24], rv_l_req[48], rv_l_chg[64], rv_l_live[72];
     /* Settings screen */
     const struct shell_store *store;    /* NULL = no usable store: changes last for this session only */
     uint32_t sess[SHELL_SET_ROWS];      /* session values (used when there is no store, and for high contrast always) */
@@ -169,6 +175,17 @@ void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out));
 int  shell_pages_refresh(struct shell *sh);
 /* Attach the Aura runner. It must return 1 and fill state/msg when it ran the pipeline, 0 if it could not. */
 void shell_set_aura(struct shell *sh, int (*run)(struct shell *sh, const char *text, size_t len, uint8_t *state, char *msg, size_t cap));
+/* Trusted review. shell_review_open shows the modal for a validated S1 settings request and returns its ticket (> 0) or a negative RV_E_*: RV_E_STATE when there is no
+ * keyboard (a review needs one), RV_E_BUSY while another modal or review is open. requester_name comes from the KERNEL's process table, never from the client.
+ * shell_review_attention is the secure-attention gesture (kernel input path only). shell_review_take_approved returns 1 once, with the ticket, after the person approved;
+ * the executor must then call shell_review_verify (which re-checks everything and consumes the approval). Nothing here executes any change. */
+int64_t shell_review_open(struct shell *sh, uint64_t now_ms, const struct rv_request *q, const struct aura_caps *caps, const char *requester_name);
+int  shell_review_attention(struct shell *sh, uint64_t now_ms, int repeat);
+int  shell_review_requester_gone(struct shell *sh, uint32_t pid, uint64_t gen);
+int  shell_review_take_approved(struct shell *sh, uint64_t *ticket);
+int  shell_review_verify(struct shell *sh, uint64_t now_ms, uint64_t ticket, const struct rv_request *now_q, const struct aura_caps *caps);
+void shell_set_now_ms(struct shell *sh, uint64_t now_ms);             /* the monotonic time of the input about to be handled (kernel loop) */
+
 /* Attach the ledger view for the Trail screen and take a first copy; shell_trail_refresh re-takes it (returns 1 and redraws only if something shown changed). */
 void shell_set_trail(struct shell *sh, int (*src)(struct shell_trail_view *out));
 int  shell_trail_refresh(struct shell *sh);

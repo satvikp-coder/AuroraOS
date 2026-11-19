@@ -55,6 +55,9 @@ fi
 if [ -n "$AURORA_SHELL_TEXT_PCT" ]; then
     CFLAGS="$CFLAGS -DAURORA_SHELL_TEXT_PCT=$AURORA_SHELL_TEXT_PCT -DAURORA_SHELL_LAYOUT_LOG=1"   # test kernel: the real shell started at this text scale; logs control geometry (tests/qemu/scale-tests.sh)
 fi
+if [ -n "$AURORA_REVIEW_TEST" ]; then
+    CFLAGS="$CFLAGS -DAURORA_REVIEW_TEST=1"   # test kernel: opens fixed trusted reviews (S1 execution stays disabled) so tests/qemu/review-tests.sh can drive them
+fi
 if [ -n "$AURORA_LEDGER_TEST" ]; then
     CFLAGS="$CFLAGS -DAURORA_LEDGER_TEST=$AURORA_LEDGER_TEST"   # test kernel: runs a fixed durable-Passport script at boot (tests/qemu/ledger-tests.sh)
 fi
@@ -113,7 +116,7 @@ if [ -n "$AURORA_FS_TEST" ]; then      # EL0 file-access boundary programs: test
 fi
 
 echo "[build] Compiling kernel..."
-for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proc/elf.c kernel/proc/launch.c kernel/proc/procsnap.c kernel/proc/procsnap_k.c kernel/settings.c kernel/settingstest.c kernel/loadtest.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/drivers/fwcfg.c kernel/drivers/fwcfg_proto.c kernel/drivers/virtio_mmio.c kernel/drivers/virtio_input.c kernel/input/input_core.c kernel/input/ui_focus.c kernel/ui/ui_scene.c kernel/ui/ui_demo.c kernel/ui/gfx_bench.c kernel/ui/index_model.c kernel/ui/shell.c kernel/ui/shell_run.c kernel/ui/ui_proto.c kernel/ui/ui_sys.c kernel/ui/aura_cmd.c kernel/ui/passport.c kernel/ui/trail.c kernel/ui/timersvc.c kernel/proc/timersys.c kernel/ui/ledger_store.c kernel/ui/ledger_kernel.c kernel/ui/broker_policy.c kernel/ui/aura_exec.c kernel/ui/broker_kernel.c kernel/input/input_demo.c kernel/gfx/gfx.c kernel/gfx/gfx_draw.c kernel/gfx/gfx_region.c kernel/gfx/gfx_shape.c kernel/gfx/gfx_text.c kernel/gfx/font_noto_mono.c kernel/blktest.c kernel/fs/afs.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
+for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proc/elf.c kernel/proc/launch.c kernel/proc/procsnap.c kernel/proc/procsnap_k.c kernel/settings.c kernel/settingstest.c kernel/loadtest.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/drivers/fwcfg.c kernel/drivers/fwcfg_proto.c kernel/drivers/virtio_mmio.c kernel/drivers/virtio_input.c kernel/input/input_core.c kernel/input/ui_focus.c kernel/ui/ui_scene.c kernel/ui/ui_demo.c kernel/ui/gfx_bench.c kernel/ui/index_model.c kernel/ui/shell.c kernel/ui/shell_run.c kernel/ui/ui_proto.c kernel/ui/ui_sys.c kernel/ui/aura_cmd.c kernel/ui/passport.c kernel/ui/trail.c kernel/ui/timersvc.c kernel/proc/timersys.c kernel/ui/ledger_store.c kernel/ui/ledger_kernel.c kernel/ui/review.c kernel/ui/broker_policy.c kernel/ui/aura_exec.c kernel/ui/broker_kernel.c kernel/input/input_demo.c kernel/gfx/gfx.c kernel/gfx/gfx_draw.c kernel/gfx/gfx_region.c kernel/gfx/gfx_shape.c kernel/gfx/gfx_text.c kernel/gfx/font_noto_mono.c kernel/blktest.c kernel/fs/afs.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
          kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do
     o="$BUILD_DIR/$(basename "$c" .c).o"
     $CC $CFLAGS -c "$c" -o "$o"
