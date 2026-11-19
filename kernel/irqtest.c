@@ -303,8 +303,8 @@ void irqtest_run(const struct fdt_platform *plat)
         irq_cpu_disable();
         base = timer_ticks();
         timer_start_periodic(1000);
-        spin_counter(f / 300);                                    /* 3 ms masked: the compare condition is met and pending */
-        int was_pending = gicv2_is_pending(timer_intid()) && timer_ctl_istatus();
+        int was_pending = 0;                                      /* masked: the compare condition is met after 1 ms and then stays pending. Under a loaded host the emulated GIC can learn of it a few ms later, so */
+        for (int w = 0; w < 100 && !was_pending; w++) { spin_counter(f / 1000); was_pending = gicv2_is_pending(timer_intid()) && timer_ctl_istatus(); }   /* wait (bounded, up to 100 ms) for it instead of assuming 3 ms */
         timer_stop();
         int cleared = !gicv2_is_pending(timer_intid()) && !timer_ctl_istatus() && !timer_enabled();
         irq_cpu_enable(); spin_counter(f / 300); irq_cpu_disable();
