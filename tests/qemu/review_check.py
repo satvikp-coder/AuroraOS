@@ -61,9 +61,10 @@ def main():
 
     # ------------------------------------------------------------ review 1: Enter on the default focus must DECLINE
     check("review 1 opens (ticket 1, requester named by the kernel)", opened(1))
-    time.sleep(0.8)
-    img = shot()
-    n_sec = count(img, *STRIP, SECURE)
+    img = shot(); n_sec = count(img, *STRIP, SECURE)
+    end = time.time() + 25
+    while n_sec <= 1500 and time.time() < end:      # poll real pixels: the log line precedes the presented frame; bounded, so a missing modal still fails
+        time.sleep(0.3); img = shot(); n_sec = count(img, *STRIP, SECURE)
     check("SCREEN: the compositor strip is drawn in the secure colour (%d pixels)" % n_sec, n_sec > 1500)
     open_img = img
     check("the DEFAULT FOCUS is Cancel (id 21)", focus_now() == "21")
