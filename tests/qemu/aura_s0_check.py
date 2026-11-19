@@ -14,6 +14,7 @@ from gfx_check import Qmp, read_ppm, wait_serial
 # reason: 0 none, 4 replay, 6 no_right, 7 not_actionable, 8 unsupported, 10 no_review, 11 no_passport
 ALLOW, REPLAY, NORIGHT, NOTACT = 0x100, 4, 6, 7
 UNSUP, NOREVIEW, NOPASS = (4 << 8) | 8, (4 << 8) | 10, (4 << 8) | 11
+NOHOLD = (4 << 8) | 13                       # the S3 chain now stops at hold-to-confirm input: the trusted review exists, hold input does not
 
 def main():
     ap = argparse.ArgumentParser()
@@ -77,7 +78,7 @@ def main():
         ok = a.scenario in ("allow", "durable")
         check("open pages: %s" % ("allowed (0x100)" if ok else "denied for lack of right (6)"), ans("aura open pages") == (ALLOW if ok else NORIGHT))
         check("the same nonce replayed is refused (4) whoever asks", ans("aura replay of nonce 1") == REPLAY)
-        check("delete everything: unavailable (Passport and Trail are healthy now, but no trusted review path exists), never allowed", ans("aura delete everything") == NOREVIEW)
+        check("delete everything: unavailable (Passport, Trail and the trusted review exist now, but there is no hold-to-confirm input), never allowed", ans("aura delete everything") == NOHOLD)
         check("make text bigger: denied (6): this client holds no settings right, so the request does not even reach the review question", ans("aura make text bigger") == NORIGHT)
         check("start a 5 minute timer: denied (6): the timer belongs to the trusted shell, a client cannot use it even with the navigate right", ans("aura start a timer") == NORIGHT)
         check("cancel my timer: denied (6): a client cannot cancel the shell's timer", ans("aura cancel my timer") == NORIGHT)
