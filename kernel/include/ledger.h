@@ -101,6 +101,12 @@ int  ledger_ok(void);                                /* both ledgers OK: what an
 int  ledger_grant_instance(uint32_t principal, uint64_t gen, uint8_t perm);
 int  ledger_drop_instance(uint64_t gen);
 
+/* Kernel-initiated, AUDITED durable changes: the Passport commit as above, then a Trail record (kind 12 grant / 13 revoke, target = permission, requester = the
+ * principal concerned, outcome done). The grant stands even if the Trail cannot record it (the rc of the audit is logged); an action that MUST be recorded
+ * is a different thing (S1 and above append FIRST and run only if the append succeeded). */
+int  ledger_grant_audited(uint32_t principal, uint8_t perm);
+int  ledger_revoke_audited(uint32_t principal, uint8_t perm);
+
 /* Kernel boot hook (ledger_kernel.c): attach to AuroraFS as PRINCIPAL_PASSPORT, log the verified state. Test builds (AURORA_LEDGER_TEST=n) then run a fixed script. */
 void ledger_boot(void);
 

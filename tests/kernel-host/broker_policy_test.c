@@ -63,6 +63,7 @@ static int oracle(const struct bp_env *e, const struct aura_intent *in, uint32_t
         if (in->kind != AK_SET_SETTING) { *why = BPR_BAD_INTENT; return BP_DENY; }
         if (!(rights & BP_RIGHT_SETTINGS)) { *why = BPR_NO_RIGHT; return BP_DENY; }
         if (!e->review_path) { *why = BPR_NO_REVIEW; return BP_UNAVAILABLE; }
+        if (!e->trail) { *why = BPR_NO_TRAIL; return BP_UNAVAILABLE; }
         return BP_REVIEW;
     }
     if (in->status == AS_UNSUPPORTED) { *why = BPR_UNSUPPORTED; return BP_UNAVAILABLE; }
@@ -96,10 +97,12 @@ int main(void)
     ENV.nav_service = 1;
     r = as(0, "make text bigger");  CHECK("S1 settings: no trusted review path -> UNAVAILABLE (never an unverified approval boolean)", r.decision == BP_UNAVAILABLE && r.reason == BPR_NO_REVIEW && r.risk == 1);
     ENV.review_path = 1;
-    r = as(0, "make text bigger");  CHECK("S1 settings with a review path and the right -> REVIEW (not allowed to run)", r.decision == BP_REVIEW && r.risk == 1);
+    r = as(0, "make text bigger");  CHECK("S1 settings with a review path but NO Trail -> UNAVAILABLE (a recorded change cannot run unrecorded)", r.decision == BP_UNAVAILABLE && r.reason == BPR_NO_TRAIL && r.risk == 1);
+    ENV.trail = 1;
+    r = as(0, "make text bigger");  CHECK("S1 settings with a review path, a Trail and the right -> REVIEW (not allowed to run)", r.decision == BP_REVIEW && r.risk == 1);
     r = as(2, "set theme to dark"); CHECK("S1 without the settings right -> DENY", r.decision == BP_DENY && r.reason == BPR_NO_RIGHT);
     r = as(3, "set theme to dark"); CHECK("S1 with the settings right -> REVIEW", r.decision == BP_REVIEW);
-    ENV.review_path = 0;
+    ENV.review_path = 0; ENV.trail = 0;
     r = as(0, "delete everything"); CHECK("S3 with no Passport -> UNAVAILABLE", r.decision == BP_UNAVAILABLE && r.reason == BPR_NO_PASSPORT && r.risk == 3);
     ENV.passport = 1; r = as(0, "delete everything"); CHECK("S3 with Passport but no Trail -> UNAVAILABLE", r.decision == BP_UNAVAILABLE && r.reason == BPR_NO_TRAIL);
     ENV.trail = 1; r = as(0, "delete everything");    CHECK("S3 with Passport and Trail but no review path -> UNAVAILABLE", r.decision == BP_UNAVAILABLE && r.reason == BPR_NO_REVIEW);
@@ -197,7 +200,7 @@ int main(void)
       r = ask(0, 1, &in, 0xFFFFFFFFFFFFFFFFULL); CHECK("the largest nonce is accepted once", r.decision == BP_ALLOW_NOW);
       r = ask(0, 1, &in, 0xFFFFFFFFFFFFFFFFULL); CHECK("... and then nothing can follow it", r.decision == BP_DENY && r.reason == BPR_REPLAY);
       r = ask(2, 20, &in, 1); CHECK("each requester has its own nonce space", r.decision == BP_ALLOW_NOW);
-      struct aura_intent bad = parse("make text bigger"); ENV.review_path = 1; r = ask(3, 30, &bad, 1); CHECK("a REVIEW decision consumes its nonce", r.decision == BP_REVIEW);
+      struct aura_intent bad = parse("make text bigger"); ENV.review_path = 1; ENV.trail = 1; r = ask(3, 30, &bad, 1); CHECK("a REVIEW decision consumes its nonce", r.decision == BP_REVIEW);
       r = ask(3, 30, &bad, 1); CHECK("replaying a REVIEW request -> DENY", r.decision == BP_DENY && r.reason == BPR_REPLAY); }
 
     /* ---- denied means no side effect: a failed identity must not touch the replay table ---- */

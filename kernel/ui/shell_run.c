@@ -98,6 +98,7 @@ static void reap(void)
         if (p->state == PROC_TERMINATED) { console_dec((uint64_t)(uint32_t)p->exit_code); console_puts("\n"); }
         ui_sys_client_gone(pid, p->gen);                         /* its surfaces and queued events go with it */
         timersys_owner_gone(pid, p->gen);                        /* and its timers */
+        ledger_drop_instance(p->gen);                            /* and every Passport grant bound to this generation */
         proc_destroy(pid);
     }
 }
