@@ -23,6 +23,8 @@ cc $CFLAGS -o "$OUT/shell_settings_test" "$ROOT/tests/kernel-host/shell_settings
 cc $CFLAGS -o "$OUT/shell_pages_test" "$ROOT/tests/kernel-host/shell_pages_test.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/review.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/ui_proto.c" "$ROOT/kernel/proc/procsnap.c" "$ROOT/kernel/ui/index_model.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c"
 cc $CFLAGS -o "$OUT/shell_clock_test" "$ROOT/tests/kernel-host/shell_clock_test.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/review.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/ui_proto.c" "$ROOT/kernel/proc/procsnap.c" "$ROOT/kernel/ui/index_model.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c"
 cc $CFLAGS -o "$OUT/shell_trail_test" "$ROOT/tests/kernel-host/shell_trail_test.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/review.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/ui_proto.c" "$ROOT/kernel/proc/procsnap.c" "$ROOT/kernel/ui/index_model.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c"
+cc $CFLAGS -o "$OUT/shell_apps_test" "$ROOT/tests/kernel-host/shell_apps_test.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/review.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/ui_proto.c" "$ROOT/kernel/proc/procsnap.c" "$ROOT/kernel/ui/index_model.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c"
+cc -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -o "$OUT/calc_test" "$ROOT/tests/kernel-host/calc_test.c"
 cc $CFLAGS -o "$OUT/shell_review_test" "$ROOT/tests/kernel-host/shell_review_test.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/review.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/ui_proto.c" "$ROOT/kernel/proc/procsnap.c" "$ROOT/kernel/ui/index_model.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c" -lm
 cc $CFLAGS -o "$OUT/shell_aura_test" "$ROOT/tests/kernel-host/shell_aura_test.c" "$ROOT/kernel/ui/shell.c" "$ROOT/kernel/ui/review.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/aura_exec.c" "$ROOT/kernel/ui/broker_policy.c" "$ROOT/kernel/ui/ui_proto.c" "$ROOT/kernel/proc/procsnap.c" "$ROOT/kernel/ui/index_model.c" "$ROOT/kernel/ui/ui_scene.c" "$ROOT/kernel/input/ui_focus.c" "$ROOT/kernel/gfx/gfx_draw.c" "$ROOT/kernel/gfx/gfx_shape.c" "$ROOT/kernel/gfx/gfx_text.c" "$ROOT/kernel/gfx/font_noto_mono.c"
 cc $CFLAGS -o "$OUT/procsnap_test" "$ROOT/tests/kernel-host/procsnap_test.c" "$ROOT/kernel/proc/procsnap.c"
@@ -56,6 +58,8 @@ cc $CFLAGS -o "$OUT/ledger_test" "$ROOT/tests/kernel-host/ledger_test.c" "$ROOT/
 "$OUT/shell_pages_test"
 "$OUT/shell_clock_test"
 "$OUT/shell_trail_test"
+"$OUT/shell_apps_test"
+"$OUT/calc_test"
 "$OUT/shell_review_test"
 "$OUT/shell_aura_test"
 "$OUT/procsnap_test"

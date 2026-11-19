@@ -218,6 +218,10 @@ jobs:
         run: |
           chmod +x tests/qemu/s1-tests.sh
           ./tests/qemu/s1-tests.sh
+      - name: Run native application launcher and Calculator tests (the shipped kernel with a real disk, Index launch through the kernel registry and trusted loader, Pages, real keys 12+8=20, double-launch refusal, exit, cleanup and a fresh relaunch, missing executable and disk refuse honestly)
+        run: |
+          chmod +x tests/qemu/app-tests.sh
+          ./tests/qemu/app-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

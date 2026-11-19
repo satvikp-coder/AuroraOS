@@ -75,6 +75,8 @@ struct shell_trail_view {
     struct shell_trail_grant grant[SHELL_TV_GRANTS];
 };
 
+/* The kernel's application launcher as the shell sees it. The shell never names an executable or an identity: it passes a stable application id and the kernel decides. */
+struct shell_launcher { int (*available)(uint32_t app); int (*launch)(uint32_t app); const char *(*describe)(int rc); };
 struct shell_caps { uint8_t keyboard, pointer; };      /* what input hardware the kernel actually found */
 
 /* The settings store the shell talks to (the kernel wires it to the typed registry, kernel/settings.c, as the shell's OWN principal). It returns the
@@ -119,6 +121,8 @@ struct shell {
     char field_txt[IDX_MAX_QUERY + 8];
     char res_txt[SHELL_RESULTS][56];
     uint32_t index_opens;               /* how many results were opened (tests) */
+    const struct shell_launcher *launcher;   /* NULL = no application can be launched from Index */
+    char idx_note[64];                       /* the honest result of the last failed launch, shown in place of the Index hint */
     /* EL0 client surfaces (read-only view owned by the kernel; NULL = none). The compositor draws them in the content band, below the dock, the corner,
      * sheets and modals; chrome text (the application name) comes from client_name, never from the client. */
     const struct uip_state *clients;
@@ -215,6 +219,7 @@ extern const char *const SHELL_SPACE_NAMES[SHELL_SPACES];
 
 void shell_init(struct shell *sh, uint32_t width, uint32_t height);
 void shell_set_caps(struct shell *sh, struct shell_caps caps);
+void shell_set_launcher(struct shell *sh, const struct shell_launcher *l);   /* NULL: application entries in Index are listed as not available */
 void shell_set_uptime(struct shell *sh, uint32_t seconds);                   /* marks dirty only when the shown text changes */
 void shell_set_pointer(struct shell *sh, int32_t x, int32_t y);
 /* Route one normalised input event. Returns 1 if anything visible may have changed. */

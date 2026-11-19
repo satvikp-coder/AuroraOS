@@ -25,7 +25,7 @@ static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settin
 const char *shell_screen_name(uint32_t screen) { return screen < SCR_COUNT ? NAMES[screen] : "?"; }
 
 /* ---- Index registry: only real destinations. The model (index_model.c) ranks them; DEST[] says what opening one does. ---- */
-enum { D_SCREEN, D_SPACE, D_ABOUT, D_UNAVAILABLE };
+enum { D_SCREEN, D_SPACE, D_ABOUT, D_UNAVAILABLE, D_APP };
 struct dest { uint8_t kind, arg; };
 static const struct idx_item ITEMS[] = {
     { "home", "Home", { "desk", "start", 0 }, 1 },
@@ -42,21 +42,31 @@ static const struct idx_item ITEMS[] = {
     { "notes", "Notes", { "memo", "write", 0 }, 0 },
     { "clock", "Clock", { "timer", "countdown", "uptime" }, 1 },
     { "trail", "Trail", { "audit", "history", "log" }, 1 },           /* listed, honestly unavailable: no native Notes app exists */
+    { "calculator", "Calculator", { "calc", "math", "arithmetic" }, 1 },   /* a native EL0 application started by the kernel launcher; available only if installed */
 };
 static const struct dest DEST[] = {
     { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
     { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
-    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_UNAVAILABLE, 0 }, { D_SCREEN, SCR_CLOCK }, { D_SCREEN, SCR_TRAIL },
+    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_UNAVAILABLE, 0 }, { D_SCREEN, SCR_CLOCK }, { D_SCREEN, SCR_TRAIL }, { D_APP, 1 },
 };
 #define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
 _Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");
 
 size_t shell_index_count(void) { return NITEMS; }
 const struct idx_item *shell_index_item(size_t i) { return i < NITEMS ? &ITEMS[i] : 0; }
-int shell_index_available(size_t i) { return i < NITEMS && DEST[i].kind != D_UNAVAILABLE; }
+int shell_index_available(size_t i) { return i < NITEMS && DEST[i].kind != D_UNAVAILABLE && DEST[i].kind != D_APP; }   /* application entries depend on the launcher: see dest_ok */
+static int dest_ok(const struct shell *sh, size_t item)
+{
+    if (item >= NITEMS || DEST[item].kind == D_UNAVAILABLE) return 0;
+    if (DEST[item].kind == D_APP) return sh->launcher && sh->launcher->available && sh->launcher->available(DEST[item].arg);
+    return 1;
+}
+static const char *idx_hint(const struct shell *sh) { return sh->idx_note[0] ? sh->idx_note : "Up/Down choose, Enter open, Esc clears then goes back."; }
+void shell_set_launcher(struct shell *sh, const struct shell_launcher *l) { if (sh) sh->launcher = l; }
 
 static void index_refresh(struct shell *sh)
 {
+    sh->idx_note[0] = 0;                                        /* a launch failure is shown until the person changes the search */
     sh->query[sh->qlen] = 0;
     sh->nres = (uint8_t)idx_search(ITEMS, NITEMS, sh->query, sh->recent, sh->nrecent, sh->res, SHELL_RESULTS);
     sh->sel = (int8_t)idx_default_active(sh->res, sh->nres);      /* never a typo suggestion: Enter must not open one by itself */
@@ -168,11 +178,11 @@ static void build_index(struct shell *sh)
         struct ui_widget *f = add(sh, 64, 152, 880, 48, 12, UI_LAYER_CONTENT, UI_LABEL, sh->field_txt, PAL(sh)->canvas, 0xF400u, UI_VISIBLE);
         if (f) { f->border_w = 2; f->border = PAL(sh)->focus; f->font_size = 18; f->ink = sh->qlen ? PAL(sh)->ink : PAL(sh)->muted; }
     }
-    label(sh, 64, 208, 880, 24, "Up/Down choose, Enter open, Esc clears then goes back.", 14, PAL(sh)->muted, 0);
+    label(sh, 64, 208, 880, 24, idx_hint(sh), 14, PAL(sh)->muted, 0);
     if (!sh->nres) { label(sh, 64, 248, 880, 28, sh->qlen ? "No results." : "Nothing to show.", 16, PAL(sh)->ink, 0); return; }
     for (uint32_t k = 0; k < sh->nres; k++) {
         const struct idx_item *it = &ITEMS[sh->res[k].item];
-        int avail = DEST[sh->res[k].item].kind != D_UNAVAILABLE;
+        int avail = dest_ok(sh, sh->res[k].item);
         char *t = sh->res_txt[k]; uint32_t n = 0;
         const char *pre = sh->res[k].fuzzy ? "Did you mean: " : "";
         for (; *pre && n + 1 < sizeof sh->res_txt[k]; pre++) t[n++] = *pre;
@@ -438,7 +448,7 @@ static void index_scaled(struct shell *sh, const struct geo *g, int opt)
         track(sh, y + fh);
         y += fh + 6;
     }
-    if (opt) y += sl(sh, 56, y, w - 32, "Up/Down choose, Enter open, Esc clears then goes back.", 14, P->muted, 0) + 2;
+    if (opt) y += sl(sh, 56, y, w - 32, idx_hint(sh), 14, P->muted, 0) + 2;
     if (!sh->nres) { y += sl(sh, 56, y, w - 32, sh->qlen ? "No results." : "Nothing to show.", 16, P->ink, 0); card_end(sh, c, y); return; }
     struct fnt rf = pick_font(16, sh->text_pct);
     int32_t rh = lh_of(rf, 0) + 16; if (rh < 40) rh = 40;
@@ -450,7 +460,7 @@ static void index_scaled(struct shell *sh, const struct geo *g, int opt)
     if (sh->nres > rows) { first = sh->sel >= rows ? sh->sel - rows + 1 : 0; if (first > sh->nres - rows) first = sh->nres - rows; }
     for (int32_t k = first; k < first + rows; k++) {
         const struct idx_item *it = &ITEMS[sh->res[k].item];
-        int avail = DEST[sh->res[k].item].kind != D_UNAVAILABLE;
+        int avail = dest_ok(sh, sh->res[k].item);
         char *t = sh->res_txt[k]; uint32_t n = 0;
         const char *pre = sh->res[k].fuzzy ? "Did you mean: " : "";
         for (; *pre && n + 1 < sizeof sh->res_txt[k]; pre++) t[n++] = *pre;
@@ -1531,7 +1541,18 @@ static int index_open(struct shell *sh, uint32_t k)
     uint32_t item = sh->res[k].item;
     if (item >= NITEMS) return 0;
     const struct dest *d = &DEST[item];
-    if (d->kind == D_UNAVAILABLE) return 0;
+    if (!dest_ok(sh, item)) return 0;
+    if (d->kind == D_APP) {                                    /* the kernel launcher decides everything; a failure is shown, never hidden */
+        int rc = sh->launcher->launch ? sh->launcher->launch(d->arg) : -1;
+        const char *why = sh->launcher->describe ? sh->launcher->describe(rc) : "Could not start it.";
+        if (rc != 0) {
+            uint32_t n = 0; for (const char *l = ITEMS[item].label; *l && n + 1 < sizeof sh->idx_note; l++) sh->idx_note[n++] = *l;
+            if (n + 2 < sizeof sh->idx_note) { sh->idx_note[n++] = ':'; sh->idx_note[n++] = ' '; }
+            for (const char *w = why; *w && n + 1 < sizeof sh->idx_note; w++) sh->idx_note[n++] = *w;
+            sh->idx_note[n] = 0; build(sh); sh->dirty = 1; return 0;
+        }
+        sh->idx_note[0] = 0; push_recent(sh, ITEMS[item].key); sh->index_opens++; shell_go(sh, SCR_PAGES); return 1;
+    }
     push_recent(sh, ITEMS[item].key);
     sh->index_opens++;
     switch (d->kind) {
