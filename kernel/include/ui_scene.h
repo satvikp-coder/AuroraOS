@@ -24,7 +24,7 @@
 #define UI_COL_SURFACE 0x00FFFFFFu
 #define UI_COL_INK 0x00142136u
 #define UI_COL_MUTED 0x0052627Au
-#define UI_COL_ACCENT 0x003478F6u
+#define UI_COL_ACCENT 0x002A68E8u
 #define UI_COL_FOCUS 0x00175CD3u
 #define UI_COL_SCRIM 0x00525A66u        /* opaque stand-in for the dimming scrim (Tier 0 has no alpha) */
 #define UI_FOCUS_RING 3                 /* ring thickness in pixels, drawn OUTSIDE the control */

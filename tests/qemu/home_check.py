@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gfx_check import Qmp, read_ppm, wait_serial
 
 def rgb(v): return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
-CANVAS, SURFACE, INK, MUTED, ACCENT, FOCUS, SCRIM, AURA = map(rgb, (0xEEF3F8, 0xFFFFFF, 0x142136, 0x52627A, 0x3478F6, 0x175CD3, 0x525A66, 0x00AEB8))
+CANVAS, SURFACE, INK, MUTED, ACCENT, FOCUS, SCRIM, AURA = map(rgb, (0xEEF3F8, 0xFFFFFF, 0x142136, 0x52627A, 0x2A68E8, 0x175CD3, 0x525A66, 0x00838C))
 AXMAX = 32767
 def raw_for(p, extent): return math.ceil(p * AXMAX / (extent - 1))
 
@@ -252,7 +252,7 @@ def main():
     wait_count("shell: corner open", 2)
     tap("esc")
     check("Escape closes the sheet", wait_count("shell: corner closed", 2))
-    c2 = until("corner2", lambda i: px(i, 900, 250) != SURFACE)
+    c2 = until("corner2", lambda i: px(i, 900, 250) != SURFACE and px(i, 960, 6) == FOCUS)      # wait for the COMPLETE frame (sheet gone AND the focus ring drawn): a screendump can land between the two draws; the assertion below is unchanged
     check("SCREEN: focus returned to the Held handle (3 px ring above it) and the sheet is gone", px(c2, 960, 6) == FOCUS and px(c2, 584, 200) != FOCUS)
     tap("ret")
     check("Enter on the focused handle opens the sheet by keyboard", wait_count("shell: corner open", 3))

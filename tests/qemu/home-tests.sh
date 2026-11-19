@@ -66,7 +66,7 @@ while True:
     q.cmd("screendump", filename=sys.argv[2], format="ppm")
     w, h, d = read_ppm(sys.argv[2])
     px = lambda x, y: tuple(d[(y * w + x) * 3:(y * w + x) * 3 + 3])
-    ok = (w, h) == (1024, 768) and px(500, 30) == (255, 255, 255) and px(500, 65) == (82, 98, 122) and px(410, 704) == (52, 120, 246)
+    ok = (w, h) == (1024, 768) and px(500, 30) == (255, 255, 255) and px(500, 65) == (82, 98, 122) and px(410, 704) == (42, 104, 232)
     cursor = px(506, 384) == (20, 33, 54)
     if (ok and not cursor) or time.time() > end: break
     time.sleep(0.5)

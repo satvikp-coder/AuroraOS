@@ -8,7 +8,7 @@ const char *const SHELL_SPACE_NAMES[SHELL_SPACES] = { "Study", "Work", "Projects
 #define SOLID UI_VISIBLE   /* non-interactive surfaces: they absorb pointer events (no click-through) but never activate */
 #define COL_HOVER 0x00E4ECF6u
 #define COL_PRESSED 0x00CFDCF0u
-#define COL_AURA 0x0000AEB8u
+#define COL_AURA 0x0000838Cu
 #define COL_DISABLED_FILL 0x00F3F6FAu
 
 /* Colour roles. The standard palette is the Aurora Glass "Clear" light set; high contrast is opaque black on white with 2 px borders, a
