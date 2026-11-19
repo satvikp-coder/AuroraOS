@@ -17,7 +17,8 @@
 void broker_init(void);
 const struct bp_env *broker_env(void);
 struct bp_replay *broker_replay(void);
-int  broker_grant_navigate(int pid);                                 /* kernel code only: the CURRENT instance of this live process may navigate; 0 or -1 */
+int  broker_grant_navigate(int pid);
+void broker_set_review_path(int on);       /* kernel code: 1 only when the trusted review modal, its input path and the S1 executor exist (a keyboard is present) */                                 /* kernel code only: the CURRENT instance of this live process may navigate; 0 or -1 */
 int64_t broker_syscall_aura(struct proc *p, uint64_t text_uva, uint64_t len, uint64_t nonce);
 /* The shell loop calls this each iteration: executes every queued, still-valid request. Returns how many were handled. */
 int  broker_drain(struct shell *sh);

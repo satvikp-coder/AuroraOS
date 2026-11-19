@@ -109,6 +109,7 @@ int  ledger_revoke_audited(uint32_t principal, uint8_t perm);
 
 /* Kernel boot hook (ledger_kernel.c): attach to AuroraFS as PRINCIPAL_PASSPORT, log the verified state. Test builds (AURORA_LEDGER_TEST=n) then run a fixed script. */
 void ledger_boot(void);
+void ledger_set_boot_hook(void (*fn)(void));    /* called inside ledger_boot, after the ledgers are verified and BEFORE the boot marker is appended (recovery looks at the newest record) */
 
 /* Diagnostics */
 int  ledger_last_fs_error(void);                     /* the FS_E* behind the last non-OK result (0 if none) */

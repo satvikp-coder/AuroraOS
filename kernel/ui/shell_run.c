@@ -130,11 +130,20 @@ static int trail_view_take(struct shell_trail_view *v)
 static const struct shell_timers SHELL_TIMERS = { timersys_shell_start, timersys_shell_query, timersys_shell_cancel, timersys_shell_release };
 
 /* The native Aura screen runs its command as the trusted shell itself (requester pid 0): parse, validate, policy, narrow S0 executor, verified result. */
+/* The S1 settings chain's environment: the durable ledgers and the monotonic clock. The shell's broker nonce counter is shared by typed commands and by the re-check at execution. */
+static uint64_t shell_nonce;
+static int s1_ledger_ok(void) { return ledger_ok(); }
+static int s1_append(const struct trail_rec *r) { return ledger_trail_append(r) == LG_E_OK ? 0 : -1; }
+static int s1_newest(struct trail_rec *o) { const struct trail *t = ledger_trail(); if (!t->n) return 0; *o = t->r[t->n - 1]; return 1; }
+static uint32_t s1_last_seq(void) { const struct trail *t = ledger_trail(); return t->n ? t->r[t->n - 1].seq : 0; }
+static uint64_t s1_now(void) { return timersys_now_ms(); }
+static const struct aura_s1_env S1ENV = { s1_ledger_ok, s1_append, s1_newest, s1_last_seq, s1_now };
+static void s1_boot_recover(void) { int r = aura_s1_recover(&SH); if (r) console_puts("shell: s1 recovered an interrupted setting change\n"); }
+
 static int aura_glue(struct shell *s, const char *text, size_t len, uint8_t *state, char *msg, size_t cap)
 {
-    static uint64_t nonce;
     struct aura_outcome o;
-    aura_run_text(s, broker_env(), broker_replay(), BP_SHELL_PID, BP_SHELL_GEN, ++nonce, text, len, &o);
+    aura_run_text(s, broker_env(), broker_replay(), BP_SHELL_PID, BP_SHELL_GEN, ++shell_nonce, text, len, &o);
     *state = o.state;
     size_t i = 0; for (; o.msg[i] && i + 1 < cap; i++) msg[i] = o.msg[i]; msg[i] = 0;
     console_puts("aura: shell ran kind="); console_puts(aura_kind_name(o.intent.kind)); console_puts(" decision="); console_puts(bp_decision_name(o.decision));
@@ -263,7 +272,10 @@ void shell_loop(struct input_state *in)
         console_puts(g == SETTINGS_OK ? " (appearance+attention, no system)\n" : " FAILED\n");
         if (g == SETTINGS_OK) shell_set_store(&SH, &STORE);
     } else console_puts("shell: settings store=none (changes last for this session only)\n");
+    aura_s1_attach(&S1ENV);                                      /* the S1 chain exists from here on: it still needs a keyboard, healthy ledgers and a person at the review */
+    ledger_set_boot_hook(s1_boot_recover);
     ledger_boot();                                               /* the durable Passport: loaded and verified (or an honest reason why not) */
+    broker_set_review_path(SH.caps.keyboard != 0);               /* S1 settings changes are reviewable only when a keyboard can answer the trusted review */
     shell_set_trail(&SH, trail_view_take);                        /* the Trail screen reads a copy of the ledgers */
     console_puts("shell: appearance text="); console_dec(SH.text_pct); console_puts(" contrast="); console_dec(SH.contrast); console_puts("\n");
     present();
@@ -303,7 +315,16 @@ void shell_loop(struct input_state *in)
               if (!SH.review_open && rv_open_logged) console_puts("shell: review closed\n");
               if (rs != rv_state_logged) { console_puts("shell: review state="); console_puts(rv_state_name((int)rs)); console_puts("\n"); }
               rv_state_logged = rs; rv_open_logged = SH.review_open; } }
-        { uint64_t tk; if (shell_review_take_approved(&SH, &tk)) { console_puts("shell: review approved ticket="); console_dec(tk); console_puts(" (S1 execution is disabled: nothing was changed)\n"); } }
+        { uint64_t tk;
+          if (shell_review_take_approved(&SH, &tk)) {
+              console_puts("shell: review approved ticket="); console_dec(tk);
+#ifdef AURORA_REVIEW_TEST
+              console_puts(" (review test build: nothing executes)\n");
+#else
+              int st = aura_s1_complete(&SH, broker_env(), broker_replay(), tk, ++shell_nonce);
+              console_puts(" -> s1 state="); console_dec((uint64_t)st); console_puts(" ["); console_puts(SH.aura_msg); console_puts("]\n");
+#endif
+          } }
 #ifdef AURORA_REVIEW_TEST
         /* TEST BUILDS ONLY: open a fixed S1 review (requester = the shell itself, named "Aura (test)") up to four times, one second after the previous one ended, so the QEMU test can
          * drive Cancel, Escape, a premature gesture, arming, approval and the timeout in one boot. Nothing it opens can change a setting: S1 execution is disabled. */

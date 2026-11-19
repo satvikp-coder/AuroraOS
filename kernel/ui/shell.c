@@ -1063,6 +1063,12 @@ static void review_decline(struct shell *sh)               /* Cancel, Close and 
     if (rv_live(sh)) rv_decline(&sh->rv, sh->rv.ticket);
     review_close(sh);
 }
+void shell_aura_report(struct shell *sh, uint8_t state, const char *msg)
+{
+    if (!sh) return;
+    scpy(sh->aura_msg, sizeof sh->aura_msg, msg ? msg : ""); sh->aura_state = state; sh->aura_runs++;
+    build(sh); sh->dirty = 1;
+}
 void shell_set_now_ms(struct shell *sh, uint64_t now_ms) { if (now_ms > sh->now_ms) sh->now_ms = now_ms; }
 int64_t shell_review_open(struct shell *sh, uint64_t now_ms, const struct rv_request *q, const struct aura_caps *caps, const char *requester_name)
 {
@@ -1163,6 +1169,9 @@ static void tr_texts(struct shell *sh)
         if (r->kind == 12) { pcat(d, cap, "Granted: principal "); pnum(d, cap, r->principal); pcat(d, cap, " may use "); tr_perm_text(d, cap, r->target); pcat(d, cap, "."); }
         else if (r->kind == 13) { pcat(d, cap, "Revoked: principal "); pnum(d, cap, r->principal); pcat(d, cap, " may not use "); tr_perm_text(d, cap, r->target); pcat(d, cap, "."); }
         else if (r->kind == 14) pcat(d, cap, "System started.");
+        else if (r->kind == 3 && r->state == 4) { pcat(d, cap, "Setting change started (was "); pnum(d, cap, (uint64_t)(r->arg < 0 ? 0 : r->arg)); pcat(d, cap, ")."); }
+        else if (r->kind == 3 && r->state == 1) { pcat(d, cap, "Setting changed (now "); pnum(d, cap, (uint64_t)(r->arg < 0 ? 0 : r->arg)); pcat(d, cap, ")."); }
+        else if (r->kind == 3 && r->state == 6) { pcat(d, cap, r->reason == 1 ? "Setting change interrupted (value " : "Setting change failed (value "); pnum(d, cap, (uint64_t)(r->arg < 0 ? 0 : r->arg)); pcat(d, cap, ")."); }
         else if (r->kind >= 1 && r->kind <= 9) {
             if (r->state == 2) { pcat(d, cap, "Denied: "); pcat(d, cap, TV_KIND[r->kind]); pcat(d, cap, " request from principal "); pnum(d, cap, r->principal); pcat(d, cap, ". "); pcat(d, cap, r->reason < 15 ? TV_WHY[r->reason] : "unknown reason"); pcat(d, cap, "."); }
             else { pcat(d, cap, "Request: "); pcat(d, cap, TV_KIND[r->kind]); pcat(d, cap, r->state == 1 ? ". Done." : ". Not done."); }

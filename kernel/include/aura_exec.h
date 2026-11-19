@@ -12,6 +12,7 @@
 #define AURORA_AURA_EXEC_H
 #include <broker_policy.h>
 #include <shell.h>
+#include <trail.h>
 
 enum { AX_NONE = 0, AX_DONE, AX_DENIED, AX_UNAVAILABLE, AX_NEEDS_APPROVAL, AX_NOT_UNDERSTOOD, AX_FAILED };
 
@@ -28,6 +29,30 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
 
 /* Turn a policy decision (and, when it was ALLOW_NOW, the execution result) into the outcome and its message. */
 void aura_outcome_from(struct aura_outcome *o, const struct bp_result *d, int executed);
+
+/* ---- S1 settings execution (Cycle 21). The chain, in this order, with every step able to stop it and say so truthfully:
+ *   parse -> validate -> broker decision (REVIEW) -> resolve the previous and proposed value through the registry -> the TRUSTED REVIEW (a person approves exactly this change)
+ *   -> [after approval] health check -> broker decision AGAIN with a fresh nonce -> re-read the previous value -> rv_verify (the approval is bound to every byte)
+ *   -> durable PRE record in the Trail (must succeed or NOTHING runs) -> registry set -> read-back -> apply to the live shell -> durable POST record -> truthful message.
+ * AuroraFS has no transactions: the setting and the Trail records are separate files, so the chain is NOT atomic. Each outcome says which parts really happened:
+ * a crash between PRE and the setting write leaves a PRE without a POST, which aura_s1_recover reports at the next boot; a setting that was saved but whose POST
+ * could not be written is reported as such and offers no Undo. Only the trusted shell (requester pid 0) can start this; an EL0 requester never opens a review. */
+struct aura_s1_env {
+    int (*ledger_ok)(void);                      /* Passport AND Trail healthy, verified and writable */
+    int (*trail_append)(const struct trail_rec *r);          /* 0 only when the record is durably on the disk */
+    int (*trail_newest)(struct trail_rec *out);              /* 1 and fills *out if the Trail holds at least one record */
+    uint32_t (*trail_last_seq)(void);                        /* sequence number of the newest record */
+    uint64_t (*now_ms)(void);                                /* monotonic milliseconds */
+};
+void aura_s1_attach(const struct aura_s1_env *e);            /* NULL: S1 is unavailable and no review is ever opened */
+/* Called by aura_run_text when the broker answered REVIEW. Opens the trusted review for the shell's own request and sets the outcome (waiting / not available). */
+void aura_s1_begin(struct shell *sh, const struct bp_env *env, uint32_t pid, uint64_t nonce, struct aura_outcome *out);
+/* Called by the kernel loop after shell_review_take_approved. Runs the rest of the chain and reports the result on the Aura screen. Returns the AX_* state. */
+int  aura_s1_complete(struct shell *sh, const struct bp_env *env, struct bp_replay *rp, uint64_t ticket, uint64_t fresh_nonce);
+/* At boot: if the newest Trail record is a PRE (an S1 change was interrupted), record that it did not complete and what the setting is now. Returns 1 if it did. */
+int  aura_s1_recover(struct shell *sh);
+/* The shared resolution of "from what to what": 0 and *next, -1 invalid, -2 already so, -3 already at the end of the ladder. */
+int  aura_s1_resolve(const struct aura_intent *in, uint32_t cur, int32_t *next);
 
 /* Full pipeline for TEXT from the trusted shell (requester pid 0) or from any requester the kernel attested. */
 void aura_run_text(struct shell *sh, const struct bp_env *env, struct bp_replay *rp, uint32_t pid, uint64_t gen, uint64_t nonce,

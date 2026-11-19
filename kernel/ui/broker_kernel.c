@@ -52,6 +52,8 @@ void broker_init(void)
     for (int i = 0; i <= PROC_MAX; i++) { last_exec_tick[i] = 0; last_exec_gen[i] = 0; }
 }
 
+void broker_set_review_path(int on) { ENV.review_path = on ? 1 : 0; }
+
 const struct bp_env *broker_env(void)
 {
     ENV.passport = (uint8_t)ledger_passport_ok();                     /* healthy, verified, writable: otherwise a Passport-dependent action is unavailable */

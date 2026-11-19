@@ -56,6 +56,9 @@ static int audited(uint8_t kind, uint32_t principal, uint8_t perm, int rc)
 int ledger_grant_audited(uint32_t principal, uint8_t perm) { return audited(12, principal, perm, ledger_grant(principal, perm)); }
 int ledger_revoke_audited(uint32_t principal, uint8_t perm) { return audited(13, principal, perm, ledger_revoke(principal, perm)); }
 
+static void (*boot_hook)(void);
+void ledger_set_boot_hook(void (*fn)(void)) { boot_hook = fn; }
+
 void ledger_boot(void)
 {
     int s = ledger_attach(&KERNEL_IO);
@@ -63,6 +66,7 @@ void ledger_boot(void)
     console_puts(" ok="); console_dec((uint64_t)ledger_passport_ok()); console_puts(" fs_err="); console_dec((uint64_t)(uint32_t)(-ledger_last_fs_error())); console_puts("\n");
     dump();
     tdump();
+    if (boot_hook) boot_hook();
     { int rc = trail_note(14, 0);                                                /* the boot marker: kind 14, requester = the kernel */
       console_puts("ledger: boot marker rc="); console_dec((uint64_t)(uint32_t)(-rc)); console_puts(" trail="); console_puts(ledger_state_name(ledger_trail_state())); console_puts("\n"); }
 #ifdef AURORA_LEDGER_TEST

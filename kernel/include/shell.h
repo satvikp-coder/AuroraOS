@@ -184,7 +184,9 @@ int  shell_review_attention(struct shell *sh, uint64_t now_ms, int repeat);
 int  shell_review_requester_gone(struct shell *sh, uint32_t pid, uint64_t gen);
 int  shell_review_take_approved(struct shell *sh, uint64_t *ticket);
 int  shell_review_verify(struct shell *sh, uint64_t now_ms, uint64_t ticket, const struct rv_request *now_q, const struct aura_caps *caps);
-void shell_set_now_ms(struct shell *sh, uint64_t now_ms);             /* the monotonic time of the input about to be handled (kernel loop) */
+void shell_set_now_ms(struct shell *sh, uint64_t now_ms);
+/* Show the result of an Aura action that finished AFTER the command was typed (the S1 chain): the Aura screen's result line and state. */
+void shell_aura_report(struct shell *sh, uint8_t state, const char *msg);             /* the monotonic time of the input about to be handled (kernel loop) */
 
 /* Attach the ledger view for the Trail screen and take a first copy; shell_trail_refresh re-takes it (returns 1 and redraws only if something shown changed). */
 void shell_set_trail(struct shell *sh, int (*src)(struct shell_trail_view *out));

@@ -214,6 +214,10 @@ jobs:
         run: |
           chmod +x tests/qemu/review-tests.sh
           ./tests/qemu/review-tests.sh
+      - name: Run real S1 settings execution tests (the shipped kernel with a real disk and keyboard; an Aura command opens the trusted review, Cancel/Escape change nothing, a real approval runs the chain with durable PRE and POST Trail records, the text size really changes and survives a restart; read-only and missing disks refuse honestly)
+        run: |
+          chmod +x tests/qemu/s1-tests.sh
+          ./tests/qemu/s1-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:

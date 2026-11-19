@@ -106,7 +106,7 @@ def main():
     tap("tab")
     check("Tab now reaches Approve (id 22)", focus_now() == "22")
     tap("ret")
-    check("Enter on Approve approves ticket 3 and the log says S1 execution is disabled", wait_for(lambda: any("ticket=3" in l and "S1 execution is disabled" in l for l in lines("shell: review approved")), 10))
+    check("Enter on Approve approves ticket 3 and, in this test build, nothing executes", wait_for(lambda: any("ticket=3" in l and "review test build: nothing executes" in l for l in lines("shell: review approved")), 10))
     check("the modal closed and NO setting was touched", wait_for(lambda: closed_count() >= 3, 10) and "shell: setting row=" not in log())
 
     # ------------------------------------------------------------ review 4: left alone it EXPIRES after 60 s
