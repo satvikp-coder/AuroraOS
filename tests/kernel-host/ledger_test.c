@@ -9,13 +9,14 @@
 #include <fs.h>
 #include <ledger.h>
 #include <principal.h>
+#include <trail.h>
 
 static int passed, failed;
 #define CHECK(name, cond) do { if (cond) { passed++; } else { failed++; printf("  FAIL: %s (line %d)\n", name, __LINE__); } } while (0)
 
 /* ---------------- fake filesystem ---------------- */
 #define NF 4
-static struct { int used; char name[32]; uint32_t size; uint8_t d[1024]; } F[NF];
+static struct { int used; uint32_t owner; char name[32]; uint32_t size; uint8_t d[2048]; } F[NF];
 static int mounted = 1, ro = 0;
 static int nwrites;                                   /* successful + attempted writes since the last reset() */
 static int crash_before = 0, crash_after = 0, uncertain_at = 0, uncertain_applies = 0, fail_at = 0, fail_code = 0, corrupt_readback_at = 0, dead = 0;
@@ -25,15 +26,16 @@ static void wipe(void) { memset(F, 0, sizeof F); mounted = 1; ro = 0; reset_faul
 static int f_mounted(void) { return mounted; }
 static int f_readonly(void) { return ro; }
 static int find(const char *n) { for (int i = 0; i < NF; i++) if (F[i].used && !strcmp(F[i].name, n)) return i; return -1; }
-static int f_lookup(const char *n, uint64_t *id) { if (dead) return FS_EIO; int i = find(n); if (i < 0) return FS_ENOENT; *id = (uint64_t)i + 1; return FS_OK; }
-static int f_create(const char *n, uint64_t *id) { if (dead) return FS_EIO; if (ro) return FS_ERO; for (int i = 0; i < NF; i++) if (!F[i].used) { F[i].used = 1; strcpy(F[i].name, n); F[i].size = 0; *id = (uint64_t)i + 1; return FS_OK; } return FS_ENFILE; }
+static int f_lookup(uint32_t o, const char *n, uint64_t *id) { if (dead) return FS_EIO; int i = find(n); if (i < 0 || F[i].owner != o) return FS_ENOENT; *id = (uint64_t)i + 1; return FS_OK; }
+static int f_create(uint32_t o, const char *n, uint64_t *id) { if (dead) return FS_EIO; if (ro) return FS_ERO; for (int i = 0; i < NF; i++) if (!F[i].used) { F[i].used = 1; F[i].owner = o; strcpy(F[i].name, n); F[i].size = 0; *id = (uint64_t)i + 1; return FS_OK; } return FS_ENFILE; }
 static int f_size(uint64_t id, uint32_t *s) { if (dead) return FS_EIO; if (id < 1 || id > NF || !F[id - 1].used) return FS_EBADID; *s = F[id - 1].size; return FS_OK; }
 static int f_read(uint64_t id, void *b, uint32_t len) { if (dead) return FS_EIO; if (id < 1 || id > NF || !F[id - 1].used) return FS_EBADID; uint32_t n = len < F[id - 1].size ? len : F[id - 1].size; memcpy(b, F[id - 1].d, n); return (int)n; }
-static int f_write(uint64_t id, const void *b, uint32_t len)
+static int f_write(uint32_t o, uint64_t id, const void *b, uint32_t len)
 {
     if (dead) return FS_EIO;
     if (ro) return FS_ERO;
     if (id < 1 || id > NF || !F[id - 1].used) return FS_EBADID;
+    if (F[id - 1].owner != o) return FS_EACCES;                                          /* only the owner writes its file */
     int k = ++nwrites;
     if (crash_before == k) { dead = 1; return FS_EIO; }                                  /* power cut before the write reached the medium */
     if (fail_at == k) return fail_code;                                                    /* a definite refusal: nothing changed */
@@ -62,6 +64,19 @@ static int table_eq(const uint32_t *pr, const uint8_t *pm, int n, int *extra)   
     for (int i = 0; i < n; i++) if (!ledger_peek(pr[i], 0, pm[i])) return 0;
     return cnt == n;
 }
+
+
+/* ---- Trail helpers ---- */
+static uint32_t anchor_pp(void) { int i = find("anchor.v1"); return i < 0 ? 0 : (uint32_t)F[i].d[8] | (uint32_t)F[i].d[9] << 8 | (uint32_t)F[i].d[10] << 16 | (uint32_t)F[i].d[11] << 24; }
+static uint32_t anchor_tn(void) { int i = find("anchor.v1"); return i < 0 ? 0 : (uint32_t)F[i].d[12] | (uint32_t)F[i].d[13] << 8 | (uint32_t)F[i].d[14] << 16 | (uint32_t)F[i].d[15] << 24; }
+static uint64_t anchor_th(void) { int i = find("anchor.v1"); uint64_t v = 0; if (i < 0) return 0; for (int k = 7; k >= 0; k--) v = (v << 8) | F[i].d[16 + k]; return v; }
+static uint32_t tfile_commit(void) { int i = find("trail.v1"); return i < 0 ? 0 : (uint32_t)F[i].d[8] | (uint32_t)F[i].d[9] << 8 | (uint32_t)F[i].d[10] << 16 | (uint32_t)F[i].d[11] << 24; }
+static void set_anchor(uint8_t *d, uint32_t pp, uint32_t tn, uint64_t th) { memset(d, 0, 32); memcpy(d, "ANCH", 4); d[4] = 1; for (int k = 0; k < 4; k++) { d[8 + k] = (uint8_t)(pp >> (8 * k)); d[12 + k] = (uint8_t)(tn >> (8 * k)); } for (int k = 0; k < 8; k++) d[16 + k] = (uint8_t)(th >> (8 * k)); uint32_t c = crc32(d, 28); for (int k = 0; k < 4; k++) d[28 + k] = (uint8_t)(c >> (8 * k)); }
+static void fix_crc_tcontainer(int i) { uint32_t c = crc32(F[i].d, 1996); for (int k = 0; k < 4; k++) F[i].d[1996 + k] = (uint8_t)(c >> (8 * k)); }
+static struct trail_rec mkrec(int i) { struct trail_rec r; memset(&r, 0, sizeof r); r.kind = (uint8_t)(12 + i % 3); r.principal = (uint32_t)(1000 + i); r.state = 1; r.uptime_ms = (uint32_t)(i * 10); r.arg = i; return r; }
+static int nullw(const uint8_t *b, size_t l) { (void)b; (void)l; return 0; }
+static const struct tr_store NULLSTORE = { nullw, 0 };
+static void model_upto(struct trail *m, int k) { trail_init(m); for (int i = 0; i < k; i++) { struct trail_rec r = mkrec(i); trail_append(m, &NULLSTORE, &r); } }
 
 /* the mutation script used by the crash enumeration */
 struct step { int revoke; uint32_t pr; uint8_t pm; };
@@ -186,7 +201,7 @@ int main(void)
         wipe(); reboot(); ledger_grant(1001, PP_NAVIGATE); ledger_grant(1002, PP_TIMER);        /* commit 2, consistent */
         int ip = find("passport.v1"), ia = find("anchor.v1");
         memcpy(ps, F[ip].d, F[ip].size); ps_n = F[ip].size; memcpy(as, F[ia].d, F[ia].size); as_n = F[ia].size;
-        #define RESTORE() do { wipe(); F[0].used = 1; strcpy(F[0].name, "passport.v1"); F[0].size = ps_n; memcpy(F[0].d, ps, ps_n); F[1].used = 1; strcpy(F[1].name, "anchor.v1"); F[1].size = as_n; memcpy(F[1].d, as, as_n); } while (0)
+        #define RESTORE() do { wipe(); F[0].used = 1; F[0].owner = PRINCIPAL_PASSPORT; strcpy(F[0].name, "passport.v1"); F[0].size = ps_n; memcpy(F[0].d, ps, ps_n); F[1].used = 1; F[1].owner = PRINCIPAL_PASSPORT; strcpy(F[1].name, "anchor.v1"); F[1].size = as_n; memcpy(F[1].d, as, as_n); } while (0)
         #define SNAP() uint8_t snap[2][1024]; uint32_t sn0 = F[0].size, sn1 = F[1].size; memcpy(snap[0], F[0].d, sizeof snap[0]); memcpy(snap[1], F[1].d, sizeof snap[1])
         #define UNTOUCHED() (F[0].size == sn0 && F[1].size == sn1 && !memcmp(snap[0], F[0].d, sizeof snap[0]) && !memcmp(snap[1], F[1].d, sizeof snap[1]))
         #define DENIES() (!has(1001, PP_NAVIGATE) && !has(1002, PP_TIMER) && !ledger_passport_ok())
@@ -213,8 +228,8 @@ int main(void)
           CHECK("passport.v1 behind its anchor (an old file restored): ROLLBACK, empty table, untouched", st == LG_ROLLBACK && DENIES() && UNTOUCHED()); }
         { RESTORE(); set_commit(F[1].d, 1); fix_crc_anchor(1); SNAP(); int st = reboot();              /* the file is one ahead of the anchor: the repairable crash window */
           CHECK("passport.v1 exactly one commit ahead of the anchor: verified and REPAIRED", st == LG_OK && has(1001, PP_NAVIGATE) && has(1002, PP_TIMER) && afile_commit() == 2); (void)snap; (void)sn0; (void)sn1; }
-        { RESTORE(); set_commit(F[1].d, 0); /* commit 0 is invalid in an anchor */ fix_crc_anchor(1); SNAP(); int st = reboot();
-          CHECK("an anchor claiming commit 0: CORRUPT", st == LG_CORRUPT && DENIES() && UNTOUCHED()); }
+        { RESTORE(); set_commit(F[1].d, 0); fix_crc_anchor(1); SNAP(); int st = reboot();                 /* a valid anchor that vouches for NO passport commit while the file is at commit 2 */
+          CHECK("an anchor vouching for passport commit 0 while the file is at commit 2: ROLLBACK", st == LG_ROLLBACK && DENIES() && UNTOUCHED()); }
         { RESTORE(); set_commit(F[0].d, 4); fix_crc_container(0); SNAP(); int st = reboot();              /* TWO commits ahead: more than one crash window can explain */
           CHECK("passport.v1 two commits ahead of the anchor: ROLLBACK (only exactly one is a repairable crash), untouched", st == LG_ROLLBACK && DENIES() && UNTOUCHED()); }
         { RESTORE(); set_commit(F[0].d, 9); fix_crc_container(0); SNAP(); int st = reboot();               /* far ahead of the anchor */
@@ -258,6 +273,114 @@ int main(void)
         CHECK("the 33rd is refused by the Passport (FULL), writes nothing, the ledger stays healthy", ledger_grant(3000, PP_NAVIGATE) == LG_E_PASSPORT && nwrites == w && ledger_passport_ok() && ledger_commit() == PP_MAX_GRANTS);
         CHECK("after a reboot all 32 are there", reboot() == LG_OK && has(2000, PP_NAVIGATE) && has(2031, PP_NAVIGATE) && !has(3000, PP_NAVIGATE));
         CHECK("revoking one frees a slot", ledger_revoke(2005, PP_NAVIGATE) == LG_E_OK && ledger_grant(3000, PP_NAVIGATE) == LG_E_OK);
+    }
+    /* ======================= Trail ======================= */
+    { /* basics, ownership, eviction */
+        wipe(); reboot();
+        CHECK("fresh: the Trail is OK and empty, commit 0, nothing created by loading", ledger_trail_ok() && ledger_trail_commit() == 0 && ledger_trail()->n == 0 && find("trail.v1") < 0);
+        CHECK("append 3 records: OK each, commit 3, sequence 1..3", ({ int ok = 1; for (int i = 0; i < 3; i++) { struct trail_rec r = mkrec(i); if (ledger_trail_append(&r) != LG_E_OK) ok = 0; } ok && ledger_trail_commit() == 3 && ledger_trail()->n == 3 && ledger_trail()->r[0].seq == 1 && ledger_trail()->r[2].seq == 3; }));
+        CHECK("trail.v1 is owned by the Trail principal, 2000 bytes; passport and anchor by the Passport principal", F[find("trail.v1")].owner == PRINCIPAL_TRAIL && F[find("trail.v1")].size == LEDGER_TRAIL_BYTES && F[find("anchor.v1")].owner == PRINCIPAL_PASSPORT);
+        CHECK("the anchor vouches for 3 records and the chain head", anchor_tn() == 3 && anchor_th() == trail_head(ledger_trail()) && anchor_th() != 0);
+        uint64_t head3 = trail_head(ledger_trail());
+        CHECK("reboot: the three records survive, chain verifies, same head", reboot() == LG_OK && ledger_trail_ok() && ledger_trail()->n == 3 && trail_verify(ledger_trail()) == TR_OK && trail_head(ledger_trail()) == head3 && ledger_trail_commit() == 3);
+        CHECK("an invalid record (kind 99) and a NULL record are refused with no I/O", ({ int w = nwrites; struct trail_rec bad = mkrec(0); bad.kind = 99; int a = ledger_trail_append(&bad), b = ledger_trail_append(0); a == LG_E_ARG && b == LG_E_ARG && nwrites == w && ledger_trail_ok() && ledger_trail_commit() == 3; }));
+        CHECK("a Passport grant leaves the Trail alone and the anchor keeps vouching for it", ledger_grant(1001, PP_NAVIGATE) == LG_E_OK && anchor_tn() == 3 && anchor_th() == head3 && anchor_pp() == 1 && reboot() == LG_OK && ledger_trail_commit() == 3 && has(1001, PP_NAVIGATE));
+        CHECK("a Trail append leaves the Passport alone and the anchor keeps vouching for it", ({ struct trail_rec r = mkrec(3); ledger_trail_append(&r) == LG_E_OK && anchor_pp() == 1 && anchor_tn() == 4 && reboot() == LG_OK && ledger_commit() == 1 && ledger_trail_commit() == 4; }));
+        wipe(); reboot(); int ok = 1; for (int i = 0; i < 60; i++) { struct trail_rec r = mkrec(i); if (ledger_trail_append(&r) != LG_E_OK) ok = 0; }
+        CHECK("60 appends: the ring holds the newest 48, 12 evicted, the chain still verifies", ok && ledger_trail()->n == TR_MAX && ledger_trail()->evicted == 12 && ledger_trail_commit() == 60 && trail_verify(ledger_trail()) == TR_OK && ledger_trail()->r[0].seq == 13);
+        uint64_t h60 = trail_head(ledger_trail());
+        CHECK("... and survives a reboot exactly (same head, same retained records)", reboot() == LG_OK && ledger_trail()->n == TR_MAX && ledger_trail()->r[0].seq == 13 && trail_head(ledger_trail()) == h60 && ledger_trail_commit() == 60);
+    }
+    { /* the exhaustive crash and uncertain-write enumeration for Trail appends */
+        enum { NA = 6 };
+        int bad = 0, total = 0, ahead_seen = 0, behind_seen = 0;
+        for (int kind = 0; kind < 4; kind++)                     /* 0 power cut before the write, 1 right after it, 2 uncertain (not applied), 3 uncertain (applied) */
+            for (int w = 1; w <= 2 * NA; w++) {
+                wipe(); reboot();
+                if (kind == 0) crash_before = w; else if (kind == 1) crash_after = w; else { uncertain_at = w; uncertain_applies = kind == 3; }
+                int completed = 0, inflight = -1;
+                for (int i = 0; i < NA; i++) { struct trail_rec r = mkrec(i); int rc = ledger_trail_append(&r); if (rc == LG_E_OK) completed = i + 1; else { inflight = i; if (kind >= 2 && (rc != LG_E_UNKNOWN || ledger_trail_state() != LG_FAILED || ledger_trail_ok())) bad++; break; } }
+                if (kind >= 2 && inflight >= 0) { struct trail_rec r = mkrec(9); if (ledger_trail_append(&r) != LG_E_STATE) bad++; }       /* frozen until the next boot */
+                int st = reboot(); total++;
+                struct trail m1, m2; model_upto(&m1, completed); model_upto(&m2, inflight >= 0 ? inflight + 1 : completed);
+                int is1 = ledger_trail_commit() == (uint32_t)completed && trail_head(ledger_trail()) == trail_head(&m1) && ledger_trail()->n == m1.n;
+                int is2 = ledger_trail_commit() == (uint32_t)(inflight >= 0 ? inflight + 1 : completed) && trail_head(ledger_trail()) == trail_head(&m2) && ledger_trail()->n == m2.n;
+                if (st != LG_OK || ledger_trail_state() != LG_OK || (!is1 && !is2) || trail_verify(ledger_trail()) != TR_OK) { bad++; printf("    trail crash kind %d write %d: state %s/%s is1=%d is2=%d\n", kind, w, ledger_state_name(st), ledger_state_name(ledger_trail_state()), is1, is2); continue; }
+                if (is2 && !is1) ahead_seen++; else behind_seen++;
+                if (anchor_tn() != ledger_trail_commit() || tfile_commit() != ledger_trail_commit()) { bad++; printf("    trail crash kind %d write %d: anchor %u file %u commit %u\n", kind, w, anchor_tn(), tfile_commit(), ledger_trail_commit()); }
+                { struct trail_rec r = mkrec(8); if (ledger_trail_append(&r) != LG_E_OK) bad++; }                                       /* still works afterwards */
+            }
+        CHECK("EVERY Trail crash point and uncertain write (4 kinds x 12 writes): the next boot is healthy, the chain is exactly the state before or after the interrupted append, the anchor is repaired, appends keep working", bad == 0);
+        CHECK("... and both outcomes (appended-but-unacknowledged, not-appended) really occurred", ahead_seen > 0 && behind_seen > 0 && total == 4 * 2 * NA);
+    }
+    { /* damaged, newer, rolled-back and inconsistent Trail files; the other ledger is HELD and every file stays untouched */
+        static uint8_t pbak[3][2048]; uint32_t szs[3];
+        wipe(); reboot(); ledger_grant(1001, PP_NAVIGATE); ledger_grant(1002, PP_TIMER);
+        for (int i = 0; i < 3; i++) { struct trail_rec r = mkrec(i); ledger_trail_append(&r); }              /* passport commit 2, trail commit 3 */
+        for (int i = 0; i < 3; i++) { const char *nm = i == 0 ? "passport.v1" : i == 1 ? "anchor.v1" : "trail.v1"; int k = find(nm); memcpy(pbak[i], F[k].d, F[k].size); szs[i] = F[k].size; }
+        struct trail m2, m3; model_upto(&m2, 2); model_upto(&m3, 3);
+        #define TRESTORE() do { wipe(); const char *nm_[3] = { "passport.v1", "anchor.v1", "trail.v1" }; for (int i_ = 0; i_ < 3; i_++) { F[i_].used = 1; F[i_].owner = i_ == 2 ? PRINCIPAL_TRAIL : PRINCIPAL_PASSPORT; strcpy(F[i_].name, nm_[i_]); F[i_].size = szs[i_]; memcpy(F[i_].d, pbak[i_], szs[i_]); } } while (0)
+        #define TSNAP() static uint8_t tsnap[3][2048]; uint32_t tsz[3]; for (int i_ = 0; i_ < 3; i_++) { tsz[i_] = F[i_].size; memcpy(tsnap[i_], F[i_].d, sizeof tsnap[i_]); }
+        #define TUNTOUCHED() ({ int u_ = 1; for (int i_ = 0; i_ < 3; i_++) if (F[i_].size != tsz[i_] || memcmp(tsnap[i_], F[i_].d, sizeof tsnap[i_])) u_ = 0; u_; })
+        TRESTORE(); CHECK("control: a consistent Passport+Trail set loads, both OK", reboot() == LG_OK && ledger_ok() && ledger_commit() == 2 && ledger_trail_commit() == 3 && has(1001, PP_NAVIGATE));
+        { TRESTORE(); F[2].d[100] ^= 1; TSNAP(); int st = reboot(); int w = nwrites; struct trail_rec r = mkrec(0); int a = ledger_trail_append(&r), g = ledger_grant(5000, PP_NAVIGATE);
+          CHECK("a flipped byte in trail.v1: Trail CORRUPT, the Passport is HELD (its verified grants still honoured, but not OK), every write refused, all files untouched",
+                ledger_trail_state() == LG_CORRUPT && st == LG_HELD && !ledger_ok() && !ledger_trail_ok() && !ledger_passport_ok() && has(1001, PP_NAVIGATE) && a == LG_E_STATE && g == LG_E_STATE && nwrites == w && TUNTOUCHED()); }
+        { TRESTORE(); F[2].size = 100; TSNAP(); int st = reboot(); CHECK("trail.v1 truncated: CORRUPT, Passport HELD, untouched", ledger_trail_state() == LG_CORRUPT && st == LG_HELD && TUNTOUCHED()); }
+        { TRESTORE(); F[2].d[4] = 2; TSNAP(); int st = reboot(); CHECK("a NEWER trail.v1: NEWER, Passport HELD, untouched", ledger_trail_state() == LG_NEWER && st == LG_HELD && TUNTOUCHED()); }
+        { TRESTORE(); set_anchor(F[1].d, 2, 5, trail_head(&m3)); TSNAP(); int st = reboot(); CHECK("trail.v1 behind its anchor (an old file restored): ROLLBACK, Passport HELD, untouched", ledger_trail_state() == LG_ROLLBACK && st == LG_HELD && TUNTOUCHED()); }
+        { TRESTORE(); set_anchor(F[1].d, 2, 1, 0); TSNAP(); int st = reboot(); CHECK("trail.v1 two records ahead of its anchor: ROLLBACK", ledger_trail_state() == LG_ROLLBACK && st == LG_HELD && TUNTOUCHED()); }
+        { TRESTORE(); set_anchor(F[1].d, 2, 3, trail_head(&m3) ^ 1); TSNAP(); int st = reboot(); CHECK("same record count but a different chain head (the chain was rewritten): ROLLBACK", ledger_trail_state() == LG_ROLLBACK && st == LG_HELD && TUNTOUCHED()); }
+        { TRESTORE(); F[2].used = 0; TSNAP(); int st = reboot(); CHECK("trail.v1 deleted while the anchor vouches for 3 records: ROLLBACK", ledger_trail_state() == LG_ROLLBACK && st == LG_HELD && TUNTOUCHED()); }
+        { TRESTORE(); F[1].used = 0; F[0].used = 0; TSNAP(); int st = reboot(); (void)st; CHECK("no anchor at all but trail.v1 holds 3 records: ROLLBACK (only a FIRST record that crashed before its anchor may lack one)", ledger_trail_state() == LG_ROLLBACK && TUNTOUCHED()); }
+        { TRESTORE(); F[2].d[8] = 9; fix_crc_tcontainer(2); TSNAP(); int st = reboot(); (void)st; CHECK("the container's record count disagrees with the chain inside it: CORRUPT", ledger_trail_state() == LG_CORRUPT && TUNTOUCHED()); }
+        { TRESTORE(); F[2].d[16 + 4] = 2; fix_crc_tcontainer(2); TSNAP(); int st = reboot(); (void)st; CHECK("a valid container around a NEWER Trail image version: NEWER, untouched", ledger_trail_state() == LG_NEWER && TUNTOUCHED()); }
+        { TRESTORE(); F[1].d[24] = 1; { uint32_t c = crc32(F[1].d, 28); for (int k = 0; k < 4; k++) F[1].d[28 + k] = (uint8_t)(c >> (8 * k)); } TSNAP(); int st = reboot(); CHECK("an anchor with non-zero reserved bytes (a format this code does not know): CORRUPT, untouched", st == LG_CORRUPT && TUNTOUCHED()); }
+        { TRESTORE(); set_anchor(F[1].d, 2, 2, trail_head(&m2)); int st = reboot();             /* exactly one record ahead, and the anchor vouches for the chain minus its newest record: the crash window */
+          CHECK("trail.v1 exactly one record ahead of its anchor (the crash window): verified and REPAIRED", st == LG_OK && ledger_trail_state() == LG_OK && ledger_trail_commit() == 3 && anchor_tn() == 3 && anchor_th() == trail_head(&m3)); }
+        { TRESTORE(); set_anchor(F[1].d, 2, 2, trail_head(&m2) ^ 1); TSNAP(); int st = reboot(); CHECK("one ahead but the anchor's head is NOT the chain minus its newest record: ROLLBACK, not repaired", ledger_trail_state() == LG_ROLLBACK && st == LG_HELD && TUNTOUCHED()); }
+        { TRESTORE(); F[0].d[100] ^= 1; TSNAP(); int st = reboot(); struct trail_rec r = mkrec(0); int a = ledger_trail_append(&r);
+          CHECK("a corrupt passport.v1 HOLDS the Trail: its records stay visible but nothing is appended and nothing is written", st == LG_CORRUPT && ledger_trail_state() == LG_HELD && ledger_trail()->n == 3 && a == LG_E_STATE && TUNTOUCHED()); }
+        { TRESTORE(); F[1].d[10] ^= 1; TSNAP(); int st = reboot(); CHECK("a damaged anchor.v1: both ledgers CORRUPT (neither can be validated), untouched", st == LG_CORRUPT && ledger_trail_state() == LG_CORRUPT && TUNTOUCHED()); }
+        { TRESTORE(); F[2].size = 0; F[1].used = 0; F[0].used = 0; int st = reboot(); CHECK("only an empty trail.v1 shell left: a fresh healthy ledger", st == LG_OK && ledger_trail_ok() && ledger_trail_commit() == 0); }
+        { TRESTORE(); ro = 1; set_anchor(F[1].d, 2, 2, trail_head(&m2)); TSNAP(); int st = reboot(); struct trail_rec r = mkrec(0); int w = nwrites; int a = ledger_trail_append(&r);
+          CHECK("read-only: the Trail is loaded and visible, appends are refused, and the pending anchor repair waits for a writable boot", st == LG_RDONLY && ledger_trail_state() == LG_RDONLY && ledger_trail()->n == 3 && a == LG_E_RDONLY && nwrites == w && TUNTOUCHED());
+          ro = 0; reboot(); CHECK("the next writable boot completes the repair", ledger_trail_ok() && anchor_tn() == 3); }
+        { wipe(); mounted = 0; reboot(); struct trail_rec r = mkrec(0); CHECK("no disk: the Trail is unavailable and appends are refused", ledger_trail_state() == LG_NODISK && !ledger_trail_ok() && ledger_trail_append(&r) == LG_E_STATE); }
+    }
+    { /* randomized: Passport and Trail operations interleaved with random faults; two models; the interrupted operation may have gone either way, nothing else may change */
+        uint32_t s = 4242; int bad = 0, reboots = 0;
+        wipe(); reboot();
+        unsigned pmask = 0; int tcount = 0;
+        for (int it = 0; it < 4000 && !bad; it++) {
+            s = s * 1664525u + 1013904223u;
+            int is_trail = (s >> 5) % 2; int fault = (s >> 8) % 9;
+            reset_faults();
+            if (fault == 0) crash_before = nwrites + 1 + (int)((s >> 20) % 2); else if (fault == 1) crash_after = nwrites + 1 + (int)((s >> 20) % 2);
+            else if (fault == 2) { uncertain_at = nwrites + 1 + (int)((s >> 20) % 2); uncertain_applies = (int)((s >> 22) & 1); }
+            else if (fault == 3) { fail_at = nwrites + 1; fail_code = FS_ENOSPC; }
+            unsigned pm_before = pmask, pm_after = pmask; int tc_before = tcount, tc_after = tcount; int rc;
+            if (is_trail) { struct trail_rec r = mkrec(tcount); tc_after = tcount + 1; rc = ledger_trail_append(&r); }
+            else {
+                uint32_t pr = 1000 + (s >> 12) % 3; uint8_t pm = (uint8_t)(1 + (s >> 16) % 2); int bit = (int)((pr - 1000) * 2 + (pm - 1)); int revoke = (s >> 18) % 3 == 0;
+                if (revoke) pm_after &= ~(1u << bit); else pm_after |= 1u << bit;
+                rc = revoke ? ledger_revoke(pr, pm) : ledger_grant(pr, pm);
+                if (rc == LG_E_PASSPORT) pm_after = pm_before;                                  /* revoking what is not granted */
+            }
+            if (rc == LG_E_OK) { pmask = pm_after; tcount = tc_after; }
+            else if (rc == LG_E_UNKNOWN || dead) {
+                reboot(); reboots++;
+                unsigned got = 0; for (int b = 0; b < 6; b++) if (has(1000 + (unsigned)b / 2, (uint8_t)(1 + b % 2))) got |= 1u << b;
+                int tgot = (int)ledger_trail_commit();
+                int pok = got == pm_before || got == pm_after, tok = tgot == tc_before || tgot == tc_after;
+                if (!pok || !tok || !ledger_ok() || (is_trail && got != pm_before) || (!is_trail && tgot != tc_before)) { bad++; printf("    interleave it %d: got %x/%d before %x/%d after %x/%d state %s/%s\n", it, got, tgot, pm_before, tc_before, pm_after, tc_after, ledger_state_name(ledger_state()), ledger_state_name(ledger_trail_state())); break; }
+                pmask = got; tcount = tgot;
+            } else if (rc != LG_E_PASSPORT && rc != LG_E_NOSPACE) { bad++; printf("    interleave it %d: unexpected rc %d\n", it, rc); break; }
+            { unsigned got = 0; for (int b = 0; b < 6; b++) if (has(1000 + (unsigned)b / 2, (uint8_t)(1 + b % 2))) got |= 1u << b;
+              if (got != pmask || (int)ledger_trail_commit() != tcount) { bad++; printf("    interleave it %d: live %x/%d model %x/%d\n", it, got, (int)ledger_trail_commit(), pmask, tcount); break; } }
+            if ((it % 101) == 0) { reboot(); reboots++; unsigned got = 0; for (int b = 0; b < 6; b++) if (has(1000 + (unsigned)b / 2, (uint8_t)(1 + b % 2))) got |= 1u << b; if (got != pmask || (int)ledger_trail_commit() != tcount) { bad++; printf("    interleave it %d: reboot mismatch\n", it); break; } }
+        }
+        CHECK("4,000 interleaved Passport grants/revocations and Trail appends with random crashes, uncertain outcomes and refusals agree with both models; the interrupted operation went either way and nothing else changed", bad == 0 && reboots > 150);
     }
     { /* randomized: random mutations with random single faults, a model of the durable table; after every reboot the table is one of the two admissible states */
         uint32_t s = 99; int bad = 0, reboots = 0;

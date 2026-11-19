@@ -34,7 +34,7 @@ cc $CFLAGS -o "$OUT/trail_test" "$ROOT/tests/kernel-host/trail_test.c" "$ROOT/ke
 cc $CFLAGS -o "$OUT/index_model_test" "$ROOT/tests/kernel-host/index_model_test.c" "$ROOT/kernel/ui/index_model.c"
 cc $CFLAGS -o "$OUT/timersvc_test" "$ROOT/tests/kernel-host/timersvc_test.c" "$ROOT/kernel/ui/timersvc.c"
 cc $CFLAGS -o "$OUT/principal_test" "$ROOT/tests/kernel-host/principal_test.c"
-cc $CFLAGS -o "$OUT/ledger_test" "$ROOT/tests/kernel-host/ledger_test.c" "$ROOT/kernel/ui/ledger_store.c" "$ROOT/kernel/ui/passport.c"
+cc $CFLAGS -o "$OUT/ledger_test" "$ROOT/tests/kernel-host/ledger_test.c" "$ROOT/kernel/ui/ledger_store.c" "$ROOT/kernel/ui/passport.c" "$ROOT/kernel/ui/trail.c"
 "$OUT/fdt_pmm_test"
 "$OUT/policy_test"
 "$OUT/elf_test"
