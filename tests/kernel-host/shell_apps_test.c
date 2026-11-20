@@ -12,7 +12,7 @@ static int passed, failed;
 
 static struct shell sh;
 static int f_avail, f_rc, n_launch, last_app, n_avail;
-static int l_avail(uint32_t app) { n_avail++; return app == 1 && f_avail; }
+static int l_avail(uint32_t app) { n_avail++; return (app == 1 || app == 3) && f_avail; }
 static int l_launch(uint32_t app) { n_launch++; last_app = (int)app; return f_rc; }
 static const char *l_desc(int rc) { return rc == -2 ? "Already open. See Pages." : rc == -3 ? "Not installed on this disk." : "Not available."; }
 static const struct shell_launcher L = { l_avail, l_launch, l_desc };
@@ -36,7 +36,9 @@ int main(void)
     { /* the registry entry */
         size_t n = shell_index_count(), at = n;
         for (size_t i = 0; i < n; i++) if (strcmp(shell_index_item(i)->key, "calculator") == 0) at = i;
-        CHECK("the registry lists Calculator as an app (last, so every earlier index is unchanged)", at == n - 1 && shell_index_item(at)->is_app == 1);
+        CHECK("the registry lists Calculator as an app", at < n && shell_index_item(at)->is_app == 1);
+        size_t fi = n; for (size_t i = 0; i < n; i++) if (strcmp(shell_index_item(i)->key, "files") == 0) fi = i;
+        CHECK("Files is listed as an app, last, so every earlier index is unchanged", fi == n - 1 && shell_index_item(fi)->is_app == 1);
     }
     { /* available: found, launched on Enter */
         fresh(1); search("calc");
@@ -46,6 +48,11 @@ int main(void)
         CHECK("Enter on it asks the kernel to launch application id 1 exactly once", n_launch == 1 && last_app == 1);
         CHECK("the shell then shows Pages, where the new process is listed", sh.screen == SCR_PAGES);
         CHECK("no failure note is left behind", sh.idx_note[0] == 0);
+    }
+    { /* Files launches application id 3 and nothing else */
+        fresh(1); search("files"); CHECK("'files' finds Files, available", sh.nres == 1 && strstr(sh.res_txt[0], "Files") && !strstr(sh.res_txt[0], "(not available yet)"));
+        key(KEY_ENTER); CHECK("Enter asks the kernel to launch application id 3 exactly once, then Pages", n_launch == 1 && last_app == 3 && sh.screen == SCR_PAGES);
+        fresh(1); f_avail = 0; search("files"); key(KEY_ENTER); CHECK("not installed: listed 'not available yet' and launches nothing", n_launch == 0 && sh.screen == SCR_INDEX);
     }
     { /* a click opens it too, once */
         fresh(1); search("calculator"); click(SID_RESULT_BASE + 0);

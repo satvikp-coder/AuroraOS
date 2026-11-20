@@ -42,12 +42,13 @@ static const struct idx_item ITEMS[] = {
     { "notes", "Notes", { "memo", "write", 0 }, 1 },   /* a native EL0 application (is_app); available only if installed */
     { "clock", "Clock", { "timer", "countdown", "uptime" }, 1 },
     { "trail", "Trail", { "audit", "history", "log" }, 1 },           /* listed, honestly unavailable: no native Notes app exists */
-    { "calculator", "Calculator", { "calc", "math", "arithmetic" }, 1 },   /* a native EL0 application started by the kernel launcher; available only if installed */
+    { "calculator", "Calculator", { "calc", "math", "arithmetic" }, 1 },
+    { "files", "Files", { "documents", "browse", "folders" }, 1 },   /* a native EL0 read-only viewer started by the kernel launcher; available only if installed */   /* a native EL0 application started by the kernel launcher; available only if installed */
 };
 static const struct dest DEST[] = {
     { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
     { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
-    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_APP, 2 }, { D_SCREEN, SCR_CLOCK }, { D_SCREEN, SCR_TRAIL }, { D_APP, 1 },
+    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_APP, 2 }, { D_SCREEN, SCR_CLOCK }, { D_SCREEN, SCR_TRAIL }, { D_APP, 1 }, { D_APP, 3 },
 };
 #define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
 _Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");

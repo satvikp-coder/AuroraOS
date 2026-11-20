@@ -230,6 +230,10 @@ jobs:
         run: |
           chmod +x tests/qemu/notes-tests.sh
           ./tests/qemu/notes-tests.sh
+      - name: Run native Files viewer tests (EL0 app, identity 603; lists only what AuroraFS lets it read, previews text, refuses binary, bounds, first-16 notice, no disk)
+        run: |
+          chmod +x tests/qemu/files-tests.sh
+          ./tests/qemu/files-tests.sh
       - name: Run persistent Spaces tests (select a Space, restart the emulator on the same disk and see it restored; the Calculator is not resumed; read-only, no disk, corrupt, out-of-range and pre-Spaces records handled honestly)
         run: |
           chmod +x tests/qemu/spaces-tests.sh
