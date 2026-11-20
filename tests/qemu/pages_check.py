@@ -74,12 +74,16 @@ def main():
         a1 = shot(); time.sleep(0.4); a2 = shot()
         return a2 if region(a1, 0, 70, 1024, 660) == region(a2, 0, 70, 1024, 660) else shot()
     def complete(secs=20, need=9):
-        """a frame with the Pages card complete (>= 9 text bands) and identical to the next one: a screenshot can catch a half-drawn frame"""
-        end = time.time() + secs
+        """poll real frames until one shows the complete Pages card (>= `need` text bands) and its rows hold text; a screenshot can catch a half-drawn frame, and
+        with live-ticking rows two consecutive frames are NOT expected to be identical, so completeness is judged on the frame's own content. If no frame in `secs`
+        is complete, the one with the most bands is returned and the caller's assertions fail on it (a missing or broken card still fails)."""
+        end = time.time() + secs; best = None; best_key = (-1, -1)
         while True:
-            a1 = shot(); time.sleep(0.4); a2 = shot()
-            if bands(a2, 56, 960, 100, 520) >= need and region(a1, 0, 70, 1024, 660) == region(a2, 0, 70, 1024, 660): return a2
-            if time.time() > end: return a2
+            f = shot(); k = (bands(f, 56, 960, 100, 520), ink_count(f, 56, 200, 960, 420))
+            if k[0] >= need and k[1] > 1500: return f
+            if k > best_key: best, best_key = f, k
+            if time.time() > end: return best
+            time.sleep(0.3)
     SID_PAGES_APP, SID_DOCK_BACK, SID_DOCK_HOME, SID_DOCK_INDEX, SID_PAGES_HOME = 13, 1, 2, 4, 230
 
     sc = a.scenario
