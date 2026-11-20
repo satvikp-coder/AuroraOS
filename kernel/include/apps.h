@@ -10,7 +10,7 @@
 #define AURORA_APPS_H
 #include <stdint.h>
 
-enum { APP_NONE = 0, APP_CALCULATOR = 1, APP_COUNT };
+enum { APP_NONE = 0, APP_CALCULATOR = 1, APP_NOTES = 2, APP_COUNT };
 enum { APPS_OK = 0, APPS_EUNKNOWN = -1, APPS_EBUSY = -2, APPS_ENOTINSTALLED = -3, APPS_EFAILED = -4 };
 
 void apps_init(void);                                   /* kernel code, once at boot: register every application and grant its UI capability */

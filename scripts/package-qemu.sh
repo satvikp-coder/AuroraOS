@@ -19,13 +19,14 @@ BUILD_DIR="$PKG/obj/k" ./build.sh >/dev/null
 cp "$PKG/obj/k/kernel.bin" "$PKG/kernel.bin"
 
 PF="-O1 -ffreestanding -fno-builtin -nostdlib -static -no-pie -fno-pic -fno-pie -mgeneral-regs-only -fno-stack-protector -Wall -Wextra -Werror -Wl,-T,tests/programs/user.ld -Wl,-z,noexecstack -Wl,-z,max-page-size=4096 -Wl,--build-id=none"
+tr -d '\015' < tools/pkg/apps.list > "$PKG/obj/apps.list"     # tolerate CRLF checkouts
 ARGS=""; NAMES=""
 while read -r name src; do
     case "$name" in ''|'#'*) continue;; esac
     echo "package: building $name from $src"
     "${CROSS}gcc" $PF -o "$PKG/apps/$name" "$src"
     ARGS="$ARGS $name=$PKG/apps/$name"; NAMES="$NAMES $name"
-done < tools/pkg/apps.list
+done < "$PKG/obj/apps.list"
 
 # the installed names and the kernel registry's executable names must be the same set, both ways
 # (an app the kernel cannot launch, or a launcher entry with no executable, is a packaging bug)
