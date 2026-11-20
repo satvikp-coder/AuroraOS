@@ -230,6 +230,10 @@ jobs:
         run: |
           chmod +x tests/qemu/notes-tests.sh
           ./tests/qemu/notes-tests.sh
+      - name: Run native Files viewer tests (EL0 app, identity 603; lists only what AuroraFS lets it read, previews text, refuses binary, bounds, first-16 notice, no disk)
+        run: |
+          chmod +x tests/qemu/files-tests.sh
+          ./tests/qemu/files-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:
