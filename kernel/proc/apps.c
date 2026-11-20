@@ -10,6 +10,7 @@ struct appdef { uint32_t id; const char *key, *label, *file; uint32_t principal;
 static const struct appdef DEFS[] = {
     { APP_CALCULATOR, "calculator", "Calculator", "calc.elf", 601 },
     { APP_NOTES, "notes", "Notes", "notes.elf", 602 },
+    { APP_FILES, "files", "Files", "files.elf", 603 },
 };
 static struct { int pid; uint64_t gen; } run[APP_COUNT];
 static int registered[APP_COUNT];
