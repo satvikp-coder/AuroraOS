@@ -1,8 +1,8 @@
 /*
  * kernel/settings.c — the native settings registry. Policy and reasons: kernel/include/settings.h and docs/kernel/settings.md.
  *
- * ON-DISK RECORD "settings.v1" (40 bytes, little-endian): "ASET" | version u32 (=1) | count u32 (=SETTINGS_COUNT) | count x value u32, positional by
- * setting id 1..count | CRC-32 of the preceding 36 bytes. Every value is re-validated against the schema on load: a record with a valid CRC but an
+ * ON-DISK RECORD "settings.v1" (44 bytes, little-endian; a 40-byte record with count 6 written before SET_SPACE existed still loads): "ASET" | version u32 (=1) | count u32 (=SETTINGS_COUNT) | count x value u32, positional by
+ * setting id 1..count | CRC-32 of the preceding bytes. Every value is re-validated against the schema on load: a record with a valid CRC but an
  * out-of-range value is corrupt.
  *
  * LOAD OUTCOMES. valid => RAM = file. missing => defaults (not an error: nothing was ever saved). corrupt (bad size, magic, CRC, count, a value out of
@@ -21,6 +21,7 @@
 
 #define FILE_NAME "settings.v1"
 #define REC_SIZE  (12 + 4 * SETTINGS_COUNT + 4)
+#define REC_SIZE_V1 (12 + 4 * SETTINGS_COUNT_V1 + 4)
 
 enum { T_BOOL, T_ENUM, T_RANGE };
 struct def { uint32_t id; int type; uint32_t min, max, dflt, read_caps, write_caps; };
@@ -31,6 +32,7 @@ static const struct def DEFS[SETTINGS_COUNT] = {
     { SET_FOCUS_MODE,     T_ENUM,  0,  3,   0, CAP_SET_READ, CAP_SET_ATTENTION },
     { SET_AURA_MODE,      T_ENUM,  0,  2,   1, CAP_SET_READ, CAP_SET_SYSTEM },
     { SET_NOTIFICATIONS,  T_ENUM,  0,  2,   0, CAP_SET_READ, CAP_SET_ATTENTION },
+    { SET_SPACE,          T_ENUM,  0,  3,   0, CAP_SET_READ, CAP_SET_APPEARANCE },
 };
 
 static uint32_t cur[SETTINGS_COUNT];
@@ -83,10 +85,12 @@ int settings_load(void)
         /* A different version: a CRC we cannot interpret, so judge only the header. Keep the file; refuse to overwrite it. */
         return status = SETLOAD_VERSION;
     }
-    if (st.size != REC_SIZE || get32(b + 8) != SETTINGS_COUNT) return status = SETLOAD_CORRUPT;
-    if (get32(b + REC_SIZE - 4) != fs_crc32(b, REC_SIZE - 4)) return status = SETLOAD_CORRUPT;
+    uint32_t cnt = get32(b + 8);                                           /* the current layout, or the earlier 6-setting layout (a missing setting takes its default) */
+    if (!((cnt == SETTINGS_COUNT && st.size == REC_SIZE) || (cnt == SETTINGS_COUNT_V1 && st.size == REC_SIZE_V1))) return status = SETLOAD_CORRUPT;
+    if (get32(b + st.size - 4) != fs_crc32(b, st.size - 4)) return status = SETLOAD_CORRUPT;
     uint32_t tmp[SETTINGS_COUNT];
-    for (int i = 0; i < SETTINGS_COUNT; i++) { tmp[i] = get32(b + 12 + 4 * i); if (!settings_valid(DEFS[i].id, tmp[i])) return status = SETLOAD_CORRUPT; }
+    for (int i = 0; i < SETTINGS_COUNT; i++) tmp[i] = DEFS[i].dflt;
+    for (uint32_t i = 0; i < cnt; i++) { tmp[i] = get32(b + 12 + 4 * i); if (!settings_valid(DEFS[i].id, tmp[i])) return status = SETLOAD_CORRUPT; }
     for (int i = 0; i < SETTINGS_COUNT; i++) cur[i] = tmp[i];
     return status = SETLOAD_OK;
 }

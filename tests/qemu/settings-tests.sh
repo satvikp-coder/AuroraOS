@@ -76,7 +76,7 @@ for n in 1 2 3; do
     prev=$next
 done
 expect "$OUT/boot1.log" "\[set\] boot: status=1 \(no saved settings: defaults\) theme=0 text_scale=100 reduced_motion=0 focus=0 aura=1 notifications=0" "boot1: no settings file existed: typed defaults"
-for t in "capabilities:" "authorisation and validation:" "EL0 writer" "saved before it took effect" "EL0 guest" "EL0 system UI" "EL0 reader" "the saved record \(40 bytes" "corrupt record" "version mismatch" "missing file" "storage failure A" "storage failure B" "storage failure C" "quota: with the settings principal" "the final state is on the disk" "no leaks"; do
+for t in "capabilities:" "authorisation and validation:" "EL0 writer" "saved before it took effect" "EL0 guest" "EL0 system UI" "EL0 reader" "the saved record \(44 bytes" "corrupt record" "version mismatch" "missing file" "storage failure A" "storage failure B" "storage failure C" "quota: with the settings principal" "the final state is on the disk" "no leaks"; do
     expect "$OUT/boot3.log" "\[set-test\] $t.*: PASS" "boot3: $t"
 done
 # host-side proof

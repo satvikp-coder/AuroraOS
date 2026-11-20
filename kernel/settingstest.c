@@ -133,12 +133,12 @@ void settingstest_run(void)
     {
         fs_id_t id; struct fs_stat st2; uint8_t b[64];
         int have = file_id(&id) && fs_stat(0, id, &st2) == FS_OK;
-        int ok = have && st2.owner == PRINCIPAL_SETTINGS && st2.perm == (FS_PERM_OWNER_R | FS_PERM_OWNER_W) && st2.size == 40;
-        ok &= fs_read(0, id, 0, b, 40) == 40 && b[0] == 'A' && b[1] == 'S' && b[2] == 'E' && b[3] == 'T' && b[4] == 1;
+        int ok = have && st2.owner == PRINCIPAL_SETTINGS && st2.perm == (FS_PERM_OWNER_R | FS_PERM_OWNER_W) && st2.size == 44;
+        ok &= fs_read(0, id, 0, b, 44) == 44 && b[0] == 'A' && b[1] == 'S' && b[2] == 'E' && b[3] == 'T' && b[4] == 1;
         fs_id_t x;
         ok &= fs_lookup(201, "settings.v1", &x) == FS_ENOENT && fs_read(201, id, 0, b, 40) == FS_EBADID && fs_write(201, id, 0, b, 4) == FS_EBADID &&
               fs_delete(201, id) == FS_EBADID && fs_set_perm(201, id, 0xF) == FS_EBADID && fs_stat(201, id, &st2) == FS_EBADID;
-        check("the saved record (40 bytes, 'ASET' version 1) is owned by the settings principal with no permission for anyone else: a program cannot find, read, write, chmod or delete it, and its id is indistinguishable from a bad id", ok);
+        check("the saved record (44 bytes, 'ASET' version 1) is owned by the settings principal with no permission for anyone else: a program cannot find, read, write, chmod or delete it, and its id is indistinguishable from a bad id", ok);
     }
 
     /* ---- corrupt records: defaults, never wrong values; the next write repairs ---- */

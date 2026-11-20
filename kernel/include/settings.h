@@ -15,11 +15,13 @@
  */
 #define PRINCIPAL_SETTINGS 0x7F000002u        /* owner of the settings file; never given to a process */
 
-enum { SET_THEME = 1, SET_TEXT_SCALE, SET_REDUCED_MOTION, SET_FOCUS_MODE, SET_AURA_MODE, SET_NOTIFICATIONS };
-#define SETTINGS_COUNT 6
+enum { SET_THEME = 1, SET_TEXT_SCALE, SET_REDUCED_MOTION, SET_FOCUS_MODE, SET_AURA_MODE, SET_NOTIFICATIONS, SET_SPACE };
+#define SETTINGS_COUNT 7
+#define SETTINGS_COUNT_V1 6        /* records written before SET_SPACE existed (40 bytes) still load: the missing setting takes its default */
 
 /* theme: 0 auto, 1 light, 2 dark | text scale: percent 75..200 | reduced motion: 0/1 | focus mode: 0 off, 1 work, 2 rest, 3 sleep |
- * aura mode: 0 off, 1 suggest, 2 act with review | notifications: 0 all, 1 priority only, 2 none */
+ * aura mode: 0 off, 1 suggest, 2 act with review | notifications: 0 all, 1 priority only, 2 none |
+ * space: the selected Space, an index into the shell's fixed list (0 Study, 1 Work, 2 Projects, 3 Personal). Stable configuration only: never a process, pointer or capability. */
 
 #define CAP_SET_READ       0x1u               /* read any setting */
 #define CAP_SET_APPEARANCE 0x2u               /* write theme, text scale, reduced motion */
