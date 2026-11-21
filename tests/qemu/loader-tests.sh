@@ -16,7 +16,7 @@ cd "$ROOT" || exit 1
 
 EXPECTED_FULL=24         # 8 in-RAM loader checks + 15 end-to-end checks
 EXPECTED_NODISK=9
-EXPECTED_PROC_TESTS=119
+EXPECTED_PROC_TESTS=128
 
 OUT="$ROOT/build/loader-tests"
 rm -rf "$OUT"; mkdir -p "$OUT"

@@ -22,6 +22,8 @@ static void check(const char *name, int ok)
 static volatile uint64_t kernel_secret = 0x5EC12E7C0FFEEULL;     /* kernel data a user process must never read */
 
 static uint64_t ud(struct proc *p, uint64_t off) { return *(volatile uint64_t *)(uintptr_t)(p->data_pa + off); }
+static void udw(struct proc *p, uint64_t off, const void *src, size_t n) __attribute__((unused));
+static void udw(struct proc *p, uint64_t off, const void *src, size_t n) { volatile uint8_t *d = (volatile uint8_t *)(uintptr_t)(p->data_pa + off); const uint8_t *q = (const uint8_t *)src; for (size_t i = 0; i < n; i++) d[i] = q[i]; }
 static void set_ttbr0(uint64_t v) { __asm__ volatile ("msr ttbr0_el1, %0\n isb" :: "r"(v) : "memory"); }
 static uint64_t get_ttbr0(void) { uint64_t v; __asm__ volatile ("mrs %0, ttbr0_el1" : "=r"(v)); return v; }
 static uint64_t free_pages(void) { struct pmm_stats s; pmm_get_stats(&s); return s.free_pages; }
@@ -373,6 +375,85 @@ void proctest_run(void)
             check("FP/SIMD: a probe that runs right after a faulting process (no destroy in between) also sees zeros",
                   rx == SCHED_ALL_DONE && qdx && qdx->state == PROC_FAULTED && qpx && qpx->state == PROC_TERMINATED && ud(qpx, 8) == 0xEEEE && ud(qpx, 0x10) == 0);
             destroy_all();
+        }
+#endif
+
+#ifdef AURORA_SELFTEST_HOOKS
+        /* ---- NEON matrix-vector product computed by a native EL0 process (the guest does the arithmetic; the kernel's C reference below is also guest code) ---- */
+        {
+            #define FPIMG user_fp_blob_start, (size_t)(user_fp_blob_end - user_fp_blob_start)
+            static int16_t MX[5][8][16], VX[5][16];
+            uint64_t lcg = 0x2545F4914F6CDD1DULL;
+            for (int r = 0; r < 8; r++) for (int c = 0; c < 16; c++) { MX[1][r][c] = (r == c) ? 1 : 0; MX[2][r][c] = (int16_t)-((r * 16 + c + 1) * ((c & 1) ? -1 : 1)); }
+            for (int c = 0; c < 16; c++) {
+                VX[0][c] = (int16_t)(c + 1);
+                VX[1][c] = (int16_t)((c & 1 ? -1 : 1) * (int16_t)(3 + 2 * c * 3 % 17 + c));
+                VX[2][c] = (int16_t)-(c + 2);
+                VX[4][c] = c < 2 ? 32767 : 1;
+            }
+            for (int r = 0; r < 8; r++) for (int c = 0; c < 16; c++) { lcg = lcg * 6364136223846793005ULL + 1442695040888963407ULL; MX[3][r][c] = (int16_t)((int)((lcg >> 33) % 201) - 100); }
+            for (int c = 0; c < 16; c++) { lcg = lcg * 6364136223846793005ULL + 1442695040888963407ULL; VX[3][c] = (int16_t)((int)((lcg >> 33) % 201) - 100); }
+            for (int c = 0; c < 16; c++) {                                      /* boundary values chosen so that no 32-bit sum overflows (asserted below) */
+                MX[4][0][c] = c < 2 ? 32767 : 0;                                /* 2 x 32767 x 32767 = 2,147,352,578 */
+                MX[4][1][c] = c >= 2 ? -32768 : 0;
+                MX[4][2][c] = c == 0 ? 32767 : (c == 1 ? -32767 : 32767);
+                MX[4][3][c] = c == 0 ? -32768 : 0;
+                MX[4][4][c] = c == 0 ? 32767 : (c == 1 ? -32768 : 0);
+                MX[4][5][c] = 0; MX[4][6][c] = (int16_t)(c & 1 ? -1 : 1); MX[4][7][c] = -32768 * 0 + (c == 15 ? 32767 : 0);
+            }
+            static const char *kind[5] = { "zero matrix", "identity", "negative inputs", "dense pseudo-random", "boundary values (+32767, -32768; products up to 2^30)" };
+            int ref_fits = 1; int32_t REF[5][8];
+            for (int k = 0; k < 5; k++) for (int r = 0; r < 8; r++) { int64_t a = 0; for (int c = 0; c < 16; c++) a += (int64_t)MX[k][r][c] * VX[k][c]; if (a != (int64_t)(int32_t)a) ref_fits = 0; REF[k][r] = (int32_t)a; }
+            check("NEON: the five test matrices are constructed so that no row sum overflows 32 bits (the reference is exact, no wrapping to excuse)", ref_fits);
+
+            for (int k = 0; k < 5; k++) {
+                destroy_all(); sched_stats_reset();
+                int mp = proc_create_image(83, 20, "matvec", FPIMG);
+                struct proc *pm = proc_get(mp);
+                if (pm) { udw(pm, 0x100, MX[k], sizeof MX[k]); udw(pm, 0x200, VX[k], sizeof VX[k]); }
+                uint64_t rm = sched_run(5000);
+                int exact_n = 1, exact_s = 1;
+                for (int r = 0; pm && r < 8; r++) {
+                    if ((int32_t)(*(volatile uint32_t *)(uintptr_t)(pm->data_pa + 0x300 + 4 * r)) != REF[k][r]) exact_n = 0;
+                    if ((int32_t)(*(volatile uint32_t *)(uintptr_t)(pm->data_pa + 0x340 + 4 * r)) != REF[k][r]) exact_s = 0;
+                }
+                char msg[160]; int ml = 0; const char *pre = "NEON: an EL0 matrix-vector product (8x16 int16 -> int32), "; while (pre[ml]) { msg[ml] = pre[ml]; ml++; }
+                for (int j = 0; kind[k][j] && ml < 110; j++) msg[ml++] = kind[k][j];
+                const char *suf = ": NEON == scalar == the kernel reference, exactly, over 20 repetitions (0 mismatches)";
+                for (int j = 0; suf[j] && ml < 159; j++) msg[ml++] = suf[j];
+                msg[ml] = 0;
+                check(msg, rm == SCHED_ALL_DONE && pm && pm->state == PROC_TERMINATED && ud(pm, 8) == 0xAAAA && ud(pm, 0x18) == 20 && ud(pm, 0x10) == 0 && exact_n && exact_s);
+            }
+
+            /* two NEON processes at once under timer preemption, plus a third that FAULTS with live vector registers */
+            destroy_all(); sched_stats_reset();
+            int ma = proc_create_image(83, 30000, "mv-a", FPIMG), mb = proc_create_image(83, 30000, "mv-b", FPIMG), mc = proc_create_image(83, (1ULL << 32) | 30, "mv-fault", FPIMG);
+            struct proc *pa2 = proc_get(ma), *pb2 = proc_get(mb), *pc2 = proc_get(mc);
+            if (pa2) { udw(pa2, 0x100, MX[3], sizeof MX[3]); udw(pa2, 0x200, VX[3], sizeof VX[3]); }
+            if (pb2) { udw(pb2, 0x100, MX[4], sizeof MX[4]); udw(pb2, 0x200, VX[4], sizeof VX[4]); }
+            if (pc2) { udw(pc2, 0x100, MX[2], sizeof MX[2]); udw(pc2, 0x200, VX[2], sizeof VX[2]); }
+            sched_set_preempt(1, 2);
+            uint64_t rc3 = sched_run(200000);
+            sched_set_preempt(0, 0);
+            int ex_a = 1, ex_b = 1;
+            for (int r = 0; pa2 && pb2 && r < 8; r++) {
+                if ((int32_t)(*(volatile uint32_t *)(uintptr_t)(pa2->data_pa + 0x300 + 4 * r)) != REF[3][r]) ex_a = 0;
+                if ((int32_t)(*(volatile uint32_t *)(uintptr_t)(pb2->data_pa + 0x300 + 4 * r)) != REF[4][r]) ex_b = 0;
+            }
+            console_puts("[info] neon preemptions a="); console_dec(pa2 ? pa2->preemptions : 0); console_puts(" b="); console_dec(pb2 ? pb2->preemptions : 0); console_puts(" reps a="); console_dec(pa2 ? ud(pa2, 0x18) : 0); console_puts(" b="); console_dec(pb2 ? ud(pb2, 0x18) : 0); console_puts(" mism a="); console_dec(pa2 ? ud(pa2, 0x10) : 99); console_puts(" b="); console_dec(pb2 ? ud(pb2, 0x10) : 99); console_puts(" ex="); console_dec((uint64_t)(ex_a * 2 + ex_b)); console_puts("\n");
+            check("NEON: two processes computing 30000 products each at the same time, switched by the timer several times each, kept every NEON result exact (0 mismatches, results equal their own reference): vector registers are preserved across preemption",
+                  rc3 == SCHED_ALL_DONE && pa2 && pb2 && pa2->state == PROC_TERMINATED && pb2->state == PROC_TERMINATED && ud(pa2, 0x18) == 30000 && ud(pb2, 0x18) == 30000 && ud(pa2, 0x10) == 0 && ud(pb2, 0x10) == 0 &&
+                  pa2->preemptions >= 2 && pb2->preemptions >= 2 && ex_a && ex_b);
+            check("NEON: a third process that FAULTED (unmapped read) right after its NEON work, while the other two were still computing, is FAULTED and did not disturb their results",
+                  pc2 && pc2->state == PROC_FAULTED && ((pc2->fault_esr >> 26) & 0x3F) == 0x24 && ud(pc2, 0x18) == 30 && ud(pc2, 8) == 0xAAAA && ud(pc2, 0x40) == 0 && ex_a && ex_b);
+            destroy_all(); sched_stats_reset();
+            int pzn = proc_create_image(81, 0, "fp-zero", FPIMG);
+            uint64_t rzn = sched_run(2000);
+            struct proc *qzn = proc_get(pzn);
+            check("NEON: a NEW process in a slot used by NEON processes starts with all-zero vector registers, FPCR and FPSR: no matrix data leaks between processes",
+                  rzn == SCHED_ALL_DONE && qzn && qzn->state == PROC_TERMINATED && ud(qzn, 8) == 0xEEEE && ud(qzn, 0x10) == 0);
+            destroy_all(); sched_stats_reset();
+            #undef FPIMG
         }
 #endif
 
