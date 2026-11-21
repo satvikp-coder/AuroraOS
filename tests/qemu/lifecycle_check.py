@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gfx_check import Qmp, wait_serial
 
 SID_DOCK_INDEX = 4
-APPS = (("calculator", "calc", 601), ("notes", "notes", 602), ("files", "files", 603))
+APPS = (("files", "files", 603), ("notes", "notes", 602), ("calculator", "calc", 601))   # later launches sit on top: Files and Notes share one rectangle, the Calculator is small and topmost
 
 def main():
     ap = argparse.ArgumentParser()
@@ -52,7 +52,7 @@ def main():
         return focus_now() == str(fid)
     def launches(key): return re.findall(r"apps: launched %s pid=(\d+) principal=(\d+)" % key, log())
     def surfaces(pid): return [(int(m.group(3)), int(m.group(4)), int(m.group(5)), int(m.group(6))) for m in re.finditer(r"ui: surface slot=(\d+) pid=(%d) at (\d+),(\d+) size (\d+)x(\d+)" % pid, log())]
-    def user(pid, since_marker=0): return [l[len("[user p%d] " % pid):] for l in after_ready()[since_marker:].split(chr(10)) if l.startswith("[user p%d] " % pid)]
+    def user(pid, since_marker=0): return [l[len("[user p%d] " % pid):].rstrip(chr(13)) for l in after_ready()[since_marker:].split(chr(10)) if l.startswith("[user p%d] " % pid)]
     def launch(key, word, n):
         ok = tab_to(SID_DOCK_INDEX); tap("ret"); ok = ok and wait_for(lambda: screen_now() == "Index", 15)
         typ(word); tap("ret")
@@ -60,7 +60,7 @@ def main():
     def focus(pid):
         s = surfaces(pid)
         if not s: return False
-        x, y, w, h = s[-1]; click(x + w // 2, y + h // 2); return True
+        x, y, w, h = s[-1]; click(x + w - 24, y + h - 24); click(x + w - 24, y + h - 24); time.sleep(0.5); return True   # bottom-right corner: not covered by the small Calculator above it
     def pages_has(pid, name): return any(("%d/%s/" % (pid, name)) in l for l in lines("shell: pages n=")[-1:])
     def reaped(pid): return any(("shell: reaped pid=%d exited code=0" % pid) in l for l in lines("shell: reaped"))
 
