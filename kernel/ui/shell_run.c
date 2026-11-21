@@ -320,6 +320,7 @@ void shell_loop(struct input_state *in)
     uint32_t sseq = SH.set_seq, cdig = 0, clk_seq_logged = SH.clk_seq, toast_logged = 0, clk_state_logged = SH.clk_state;
     uint64_t pg_q = 0, pg_digest = 0; int pg_logged = 0;
     uint64_t tr_q = 0, tv_logged = 0; uint32_t tr_seq_logged = 0, rv_state_logged = 0; uint8_t rv_open_logged = 0;
+    uint32_t hd_seq_logged = 0, hd_conf_logged = 0;                  /* the hold-to-confirm DEMO: what it says, and how many times the machine confirmed (a demo count, never an action) */
     for (;;) {
         /* Execute broker-approved requests of EL0 clients that are STILL the same live instance BEFORE reading input, and show the result at once: the user's
          * next click is then resolved against the screen they actually see, and a press that began on the old layout is dropped (an EL0 navigation must never
@@ -371,6 +372,8 @@ void shell_loop(struct input_state *in)
             for (uint32_t i = 0; i < SH.ps.n; i++) { console_puts(" "); console_dec(SH.ps.e[i].pid); console_puts("/"); console_puts(SH.ps.e[i].name); console_puts("/"); console_puts(procsnap_state_name(SH.ps.e[i].state)); }
             console_putc(10); } } }   /* Pages: re-read the table four times a second; it repaints only if something shown changed */
         if (SH.screen == SCR_TRAIL) { uint64_t q = (timer_count() - t0) / (hz / 4 ? hz / 4 : 1); if (q != tr_q) { tr_q = q; shell_trail_refresh(&SH); } }   /* re-read four times a second; it repaints only if something shown changed */
+        if (SH.hd_seq != hd_seq_logged) { hd_seq_logged = SH.hd_seq; console_puts("shell: say "); console_puts(SH.hd_live); console_puts("\n"); }
+        if (SH.hd.confirmations != hd_conf_logged) { hd_conf_logged = SH.hd.confirmations; console_puts("shell: hold confirmed total="); console_dec(hd_conf_logged); console_puts(" (demo: nothing was done)\n"); }
         if (SH.tr_seq != tr_seq_logged) { tr_seq_logged = SH.tr_seq; console_puts("shell: say "); console_puts(SH.tr_live); console_puts("\n"); }
         if (SH.screen == SCR_TRAIL && SH.tv_digest != tv_logged) { tv_logged = SH.tv_digest; console_puts("shell: trail view health="); console_dec(SH.tv.health); console_puts(" records="); console_dec(SH.tv.n); console_puts(" grants="); console_dec(SH.tv.ngrants); console_puts(" first="); console_dec(SH.tr_first); console_puts("\n"); }
         log_state(&screen, &space, &focus, &modal, &opens, &qsig, &corner);

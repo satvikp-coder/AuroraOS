@@ -22,8 +22,9 @@
 #include <procsnap.h>
 #include <aura_cmd.h>
 #include <review.h>
+#include <hold.h>
 
-enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_CLOCK, SCR_TRAIL, SCR_COUNT };
+enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_CLOCK, SCR_TRAIL, SCR_HOLD, SCR_COUNT };
 
 /* Stable control identifiers (never reused for another meaning). */
 enum {
@@ -39,6 +40,7 @@ enum {
     SID_PAGES_HOME = 230,               /* Pages: return to Home */
     SID_AURA_RUN = 240, SID_AURA_CLEAR, SID_AURA_HOME,  /* Aura: run the typed command, clear it, return to Home */
     SID_CLOCK_P1 = 250, SID_CLOCK_P5, SID_CLOCK_P25, SID_CLOCK_START, SID_CLOCK_CANCEL, SID_CLOCK_HOME,  /* Clock: presets 1/5/25 min, Start, Cancel, Home */
+    SID_HOLD_BTN = 270, SID_HOLD_HOME,  /* Hold-to-confirm DEMO: the hold button and Home. It confirms nothing real and enables no action (env.hold_input stays 0) */
     SID_TRAIL_NEWER = 260, SID_TRAIL_OLDER, SID_TRAIL_HOME,  /* Trail: show newer / older records, Home. There is no other control: the screen is read-only */
     SID_REVIEW_CANCEL = 21, SID_REVIEW_APPROVE = 22          /* the trusted review: Cancel (or Close once it ended) and Approve */
 };
@@ -144,6 +146,8 @@ struct shell {
     int32_t clk_id; uint32_t clk_rem_s, clk_dur_s; uint32_t clk_seq;   /* the service's timer id, whole seconds left (rounded up), count of spoken-line changes */
     uint64_t now_ms, toast_until_ms; uint8_t toast_on;
     char clk_live[64], clk_val[12], clk_up[16];
+    /* Hold-to-confirm demo (compositor-owned: no client can start, feed or confirm it). The pure state machine decides; the screen only shows it. */
+    struct hold hd; uint16_t hd_key; uint8_t hd_msg, hd_seg; uint32_t hd_seq; char hd_live[40];
     /* Trail screen: read-only view of the audit ledger; NULL source = not available */
     int (*trail_src)(struct shell_trail_view *out);
     struct shell_trail_view tv; uint64_t tv_digest; uint8_t tv_valid;

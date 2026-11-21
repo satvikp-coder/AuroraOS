@@ -20,7 +20,7 @@ static const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, U
 static const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 0x00000000u, 0x00FFFFFFu, 0x00000000u, 2, 1, 6 };
 #define PAL(sh) ((sh)->contrast ? &PAL_HC : &PAL_STD)
 
-static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Aura", "Clock", "Trail" };
+static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Aura", "Clock", "Trail", "Hold" };
 
 const char *shell_screen_name(uint32_t screen) { return screen < SCR_COUNT ? NAMES[screen] : "?"; }
 
@@ -44,11 +44,12 @@ static const struct idx_item ITEMS[] = {
     { "trail", "Trail", { "audit", "history", "log" }, 1 },           /* listed, honestly unavailable: no native Notes app exists */
     { "calculator", "Calculator", { "calc", "math", "arithmetic" }, 1 },
     { "files", "Files", { "documents", "browse", "folders" }, 1 },   /* a native EL0 read-only viewer started by the kernel launcher; available only if installed */   /* a native EL0 application started by the kernel launcher; available only if installed */
+    { "hold", "Hold", { "confirm", "press", "demo" }, 1 },   /* the hold-to-confirm DEMO screen: changes nothing */
 };
 static const struct dest DEST[] = {
     { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
     { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
-    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_APP, 2 }, { D_SCREEN, SCR_CLOCK }, { D_SCREEN, SCR_TRAIL }, { D_APP, 1 }, { D_APP, 3 },
+    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_APP, 2 }, { D_SCREEN, SCR_CLOCK }, { D_SCREEN, SCR_TRAIL }, { D_APP, 1 }, { D_APP, 3 }, { D_SCREEN, SCR_HOLD },
 };
 #define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
 _Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");
@@ -1275,12 +1276,66 @@ static void toast_add(struct shell *sh)
     if (t) { t->font_size = bf.size; t->mag = bf.mag; t->bold = 1; t->ink = PAL(sh)->surface; }
 }
 
+/* ---- Hold-to-confirm DEMO (Plan C5, spec 2d). The compositor owns it: the pure state machine (hold.c) decides, this code only feeds it real input events and shows
+ * the result. It confirms nothing real and enables no action: env.hold_input stays 0 and S3 stays unavailable. No client can reach it (shell_handle is
+ * never fed a client's events, and the screen has no protocol surface). ---- */
+static int hold_modal(const struct shell *sh) { return sh->review_open || sh->about_open || sh->corner_open; }
+static void hold_sync(struct shell *sh)                       /* derive the sticky status and the spoken line from the machine's state; speak only changes */
+{
+    uint32_t seg = hold_segments(&sh->hd, sh->now_ms);
+    switch (sh->hd.state) {
+    case HD_HOLDING: sh->hd_msg = 1; break;
+    case HD_CONFIRMED: sh->hd_msg = 2; break;
+    case HD_CANCELLED: sh->hd_msg = 3; break;
+    default: if (sh->hd_msg == 1) sh->hd_msg = 0; break;       /* idle: a confirmation or an early release stays on screen until the next press */
+    }
+    char t[40];
+    if (sh->hd_msg == 1) { scpy(t, sizeof t, "Holding: "); uint32_t n = 0; while (t[n]) n++; t[n++] = (char)('0' + seg); scpy(t + n, (uint32_t)sizeof t - n, " of 4"); }
+    else scpy(t, sizeof t, sh->hd_msg == 2 ? "Confirmed." : sh->hd_msg == 3 ? "Released early. Nothing happened." : "Hold for 1.5 seconds to confirm.");
+    uint32_t i = 0; while (t[i] && t[i] == sh->hd_live[i]) i++;
+    if (t[i] || sh->hd_live[i]) { scpy(sh->hd_live, sizeof sh->hd_live, t); sh->hd_seq++; }
+    sh->hd_seg = (uint8_t)seg;
+}
+static void hold_reset(struct shell *sh)                      /* leaving the screen: nothing carries over (the confirmation total is a counter for tests) */
+{
+    uint32_t c = sh->hd.confirmations;
+    hold_init(&sh->hd); sh->hd.confirmations = c; sh->hd_msg = 0; sh->hd_key = 0; hold_sync(sh);
+}
+static void hold_flow(struct shell *sh, const struct geo *g, int opt)
+{
+    const struct pal *P = PAL(sh);
+    hold_sync(sh);
+    int32_t y = g->top, w = g->W - 80, iw = w - 32;
+    struct ui_widget *c = card_s(sh, 40, y, w);
+    y += 12;
+    y += sl(sh, 56, y, iw, "Hold to confirm", 24, P->ink, 1) + 2;
+    if (opt) y += sl(sh, 56, y, iw, "Demonstration only. It changes nothing and enables no action.", 14, P->muted, 0) + 4;
+    int32_t bw = 400 < iw ? 400 : iw;
+    y += sb(sh, 56, y, bw, 48, "Hold to confirm", SID_HOLD_BTN, 1, UI_LAYER_CONTENT) + 8;
+    int32_t step = (bw + 8) / 4, sw = step - 8;
+    for (uint32_t k = 0; k < HOLD_SEGMENTS; k++) {                 /* four segments: empty = canvas with the control edge, filled = ink; never colour alone (the status line says the number) */
+        struct ui_widget *s = add(sh, 56 + (int32_t)k * step, y, sw, 12, 4, UI_LAYER_CONTENT, UI_PANEL, 0, k < sh->hd_seg ? P->ink : P->canvas, 0xF400u + k, SOLID);
+        if (s) { s->border_w = 1; s->border = P->ctl; }
+    }
+    track(sh, y + 12);
+    y += 20;
+    y += sl(sh, 56, y, iw, sh->hd_live, 16, P->ink, 0) + 8;
+    y += sb(sh, 56, y, 200 < iw ? 200 : iw, 48, "Home", SID_HOLD_HOME, 1, UI_LAYER_CONTENT) + 8;
+    card_end(sh, c, y);
+}
+
 int shell_tick(struct shell *sh, uint64_t now_ms)
 {
     int changed = 0;
     if (now_ms > sh->now_ms) sh->now_ms = now_ms;
     review_tick(sh, now_ms);
     if (sh->toast_on && now_ms >= sh->toast_until_ms) { sh->toast_on = 0; changed = 1; }
+    if (sh->screen == SCR_HOLD) {                                         /* the ONLY place a hold can confirm: the poll, after every input already processed */
+        if (hold_modal(sh)) hold_event(&sh->hd, HE_MODAL_CHANGE, now_ms, 0);
+        (void)hold_poll(&sh->hd, now_ms);
+        uint8_t pm = sh->hd_msg, ps = sh->hd_seg; hold_sync(sh);
+        if (pm != sh->hd_msg || ps != sh->hd_seg) changed = 1;
+    }
     if (sh->timers && sh->clk_state == CK_RUNNING) {
         uint8_t st = 0; uint64_t rem = 0;
         int rc = sh->timers->query(sh->clk_id, &st, &rem);
@@ -1317,6 +1372,7 @@ static void build_scaled(struct shell *sh)
         else if (sh->screen == SCR_AURA) aura_flow(sh, &g, opt);
         else if (sh->screen == SCR_CLOCK) clock_flow(sh, &g, opt);
         else if (sh->screen == SCR_TRAIL) trail_flow(sh, &g, opt);
+        else if (sh->screen == SCR_HOLD) hold_flow(sh, &g, opt);
         else index_scaled(sh, &g, opt);
         if (sh->lay_bottom <= g.bottom) break;
     }
@@ -1389,6 +1445,7 @@ static void build(struct shell *sh)
     else if (sh->screen == SCR_AURA) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; aura_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; aura_flow(sh, &g, 0); } }
     else if (sh->screen == SCR_CLOCK) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; clock_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; clock_flow(sh, &g, 0); } }
     else if (sh->screen == SCR_TRAIL) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; trail_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; trail_flow(sh, &g, 0); } }
+    else if (sh->screen == SCR_HOLD) { struct geo g = make_geo(sh); sh->lay_bottom = 0; uint32_t n0 = sh->n; hold_flow(sh, &g, 1); if (sh->lay_bottom > g.bottom) { sh->n = n0; sh->lay_bottom = 0; hold_flow(sh, &g, 0); } }
     else build_index(sh);
     build_clients(sh);
     build_dock(sh);
@@ -1469,6 +1526,7 @@ int shell_go(struct shell *sh, uint32_t screen)
     sh->screen = (uint8_t)screen;
     if (screen == SCR_INDEX) { sh->qlen = 0; index_refresh(sh); }      /* a fresh search each time Index opens */
     if (screen == SCR_PAGES) { sh->ps_valid = 0; shell_pages_refresh(sh); }   /* always show the table as it is now */
+    if (screen == SCR_HOLD) hold_reset(sh);                            /* a fresh demo each time it opens (leaving is handled after every input event) */
     if (screen == SCR_TRAIL) { sh->tr_first = 0; sh->tv_valid = 0; shell_trail_refresh(sh); }   /* the newest records, as they are now */
     build(sh); sh->dirty = 1;
     return 1;
@@ -1594,6 +1652,8 @@ static void activate(struct shell *sh, uint32_t id)
         else { if (rc == RV_E_LAPSED) sh->rv_lapsed = 1; sh->rv_prev = sh->rv.state; sh->rv_seq++; build(sh); }
         break; }
     case SID_TRAIL_HOME: shell_go(sh, SCR_HOME); break;
+    case SID_HOLD_HOME: shell_go(sh, SCR_HOME); break;
+    case SID_HOLD_BTN: break;                                        /* the hold button is NOT activated by Enter or a click: only the hold state machine reacts to it (see hold_post) */
     case SID_TRAIL_NEWER: { uint32_t per, total; tr_page(sh, &per, &total); sh->tr_first = (uint8_t)(sh->tr_first > per ? sh->tr_first - per : 0); build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_TRAIL_OLDER); if (k >= 0) ui_focus_set(&sh->fx, k); } break; }
     case SID_TRAIL_OLDER: { uint32_t per, total; tr_page(sh, &per, &total); if (sh->tr_first + per < total) sh->tr_first = (uint8_t)(sh->tr_first + per); build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_TRAIL_NEWER); if (k >= 0) ui_focus_set(&sh->fx, k); } break; }
     case SID_SET_UP: if (sh->set_first) sh->set_first--; build(sh); if (sh->fx.focus < 0) { int32_t k = shell_find(sh, SID_SET_DOWN); if (k < 0) k = shell_find(sh, SID_SET_UP); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
@@ -1638,7 +1698,7 @@ static int index_input(struct shell *sh, const struct input_event *e)
     }
 }
 
-int shell_handle(struct shell *sh, const struct input_event *e)
+static int shell_handle_core(struct shell *sh, const struct input_event *e)
 {
     uint32_t r = SHELL_NONE;
     if (index_input(sh, e) || aura_input(sh, e)) { build(sh); sh->dirty = 1; return 1; }   /* rebuild: hit testing must see the layout the user sees */
@@ -1660,6 +1720,50 @@ int shell_handle(struct shell *sh, const struct input_event *e)
     build(sh);
     sh->dirty = 1;
     return 1;
+}
+
+static uint32_t hold_focus_id(const struct shell *sh) { return sh->fx.focus >= 0 ? sh->c[sh->fx.focus].id : SHELL_NONE; }
+static int hold_over(const struct shell *sh, int32_t x, int32_t y)
+{
+    int32_t b = shell_find(sh, SID_HOLD_BTN);
+    return b >= 0 && ui_hit(&sh->fx, x, y) == b;
+}
+/* Feed the demo's state machine from a REAL input event after the shell has handled it (so a focus change the event caused is known). */
+static void hold_post(struct shell *sh, const struct input_event *e, uint32_t focus_before)
+{
+    if (sh->screen != SCR_HOLD) { if (sh->hd.state != HD_IDLE || sh->hd_msg) hold_reset(sh); return; }     /* left the screen (Back, Esc, Home): nothing survives */
+    uint64_t now = sh->now_ms;
+    int focused = hold_focus_id(sh) == SID_HOLD_BTN;
+    if (hold_modal(sh)) hold_event(&sh->hd, HE_MODAL_CHANGE, now, 0);
+    else if (hold_focus_id(sh) != focus_before) hold_event(&sh->hd, HE_FOCUS_CHANGE, now, 0);
+    switch (e->kind) {
+    case IN_KEY_DOWN:
+        if (e->key == KEY_ESC) hold_event(&sh->hd, HE_ESCAPE, now, 0);
+        else if ((e->key == KEY_ENTER || e->key == KEY_SPACE) && focused && !hold_modal(sh)) {
+            int was = sh->hd.state == HD_HOLDING;
+            hold_event(&sh->hd, HE_KEY_DOWN, now, e->repeat);
+            if (!was && sh->hd.state == HD_HOLDING) sh->hd_key = e->key;           /* remember which key started it: only ITS release cancels */
+        } else hold_event(&sh->hd, HE_OTHER_KEY, now, e->repeat);
+        break;
+    case IN_KEY_UP: if (e->key == sh->hd_key) hold_event(&sh->hd, HE_KEY_UP, now, 0); break;
+    case IN_PTR_MOVE: hold_event(&sh->hd, hold_over(sh, e->x, e->y) ? HE_PTR_ENTER : HE_PTR_LEAVE, now, 0); break;
+    case IN_PTR_DOWN:
+        if (hold_over(sh, e->x, e->y) && !hold_modal(sh)) hold_event(&sh->hd, HE_PTR_DOWN, now, 0);
+        else hold_event(&sh->hd, HE_PTR_LEAVE, now, 0);
+        break;
+    case IN_PTR_UP: hold_event(&sh->hd, HE_PTR_UP, now, 0); break;
+    default: break;
+    }
+    uint8_t pm = sh->hd_msg, ps = sh->hd_seg; hold_sync(sh);
+    if (pm != sh->hd_msg || ps != sh->hd_seg) { build(sh); sh->dirty = 1; }
+}
+
+int shell_handle(struct shell *sh, const struct input_event *e)
+{
+    uint32_t fb = hold_focus_id(sh);
+    int rc = shell_handle_core(sh, e);
+    hold_post(sh, e, fb);
+    return rc;
 }
 
 int shell_draw(struct shell *sh, const struct gfx_surface *s)
