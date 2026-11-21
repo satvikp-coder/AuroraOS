@@ -133,6 +133,14 @@ Depends on AuroraFS (PR #28). Implemented in `kernel/proc/fssys.c`; tests in `ke
 
 **Not done / limits.** Identities are assigned by kernel code only; there is no login, user database, or capability passing. One 4 KiB transfer per call; 24 KiB files; whole-file rewrite on every write; no handles, no directories, no timestamps; QEMU only.
 
+## Native NEON arithmetic in EL0 (matrix-vector product)
+
+PR #127 made FP/SIMD registers per-process. This proves real numeric work runs natively: a test EL0 program (`role_matvec`, `kernel/proc/user_fp_progs.S`, test kernels only) computes an 8 x 16 signed-16-bit matrix times a 16-element vector into signed 32-bit sums TWICE per repetition inside the guest, once with NEON (`smlal`/`smlal2` into four 32-bit lanes, then `addv`) and once with plain scalar code (`ldrsh`, `madd`), and compares the two in EL0. The kernel's own C reference (also guest code) gives the exact expected values. Nothing is computed on the host.
+
+Tested under QEMU `-cpu cortex-a53` (`kernel/proctest.c`): a zero matrix, an identity, negative inputs, a dense pseudo-random matrix and boundary values (+32767, -32768, a row summing to 2,147,352,578) are exact over 20 repetitions each, the matrices are built so no 32-bit sum overflows (asserted, so there is no wrapping to excuse); two processes computing 30,000 products each at the same time were preempted by the timer 11 and 10 times and kept every result exact (0 mismatches); a third process that faulted right after its NEON work did not disturb them; and a new process in the same slot sees all-zero vector registers. Mutation-checked: removing the kernel's vector-register save on a context switch fails 22 suite checks.
+
+What this does NOT show: any speed (QEMU timing says nothing about a phone), floating-point model arithmetic, quantised weights, or that any language model runs. It is the smallest numerical prerequisite for offline inference, nothing more.
+
 ## SYS_MEM: a bounded user heap (Cycle 22)
 
 `SYS_MEM` (number 10; `x0` = operation, `x1` = page count) lets a process grow and shrink ONE contiguous heap at `USER_HEAP_VA` (`USER_VA_BASE + 0x110000`, see the guard section below), in whole pages, up to a per-process budget of `USER_HEAP_MAX_PAGES` = 32 pages (128 KiB). Operations: `MEMOP_GROW` (returns the new heap size in pages), `MEMOP_SHRINK` (returns what remains), `MEMOP_INFO` (returns `(budget << 32) | pages`). Code: `kernel/proc/memsys.c`, `aspace_unmap` in `kernel/proc/aspace.c`.

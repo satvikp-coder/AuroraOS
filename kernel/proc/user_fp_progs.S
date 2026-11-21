@@ -33,6 +33,8 @@ user_fp_blob_start:
     b.eq    role_fpzero
     cmp     x0, #82
     b.eq    role_fpdirty
+    cmp     x0, #83
+    b.eq    role_matvec
     mov     x0, #99
     sys     SYS_EXIT
     b       .
@@ -42,7 +44,12 @@ user_fp_blob_start:
  *          yields, so the timer preempts it), and verify every one of the 64 doublewords, FPCR and FPSR after each pass.
  *          Results: [0] iterations, [8] marker 0xDDDD, [0x10] register mismatches, [0x28] FPCR/FPSR mismatches.
  *  role 81: read V0-V31, FPCR and FPSR at start-up and count the non-zero ones: a new process must see ZERO (no value left by an earlier process). [8] 0xEEEE, [0x10] count.
- *  role 82: dirty V0-V31, FPCR and FPSR with a recognisable pattern, then fault (an unmapped read): the next process in the slot must still see zero. */
+ *  role 82: dirty V0-V31, FPCR and FPSR with a recognisable pattern, then fault (an unmapped read): the next process in the slot must still see zero.
+ *  role 83 (x1 = repetitions in the low 32 bits; bit 32 set = FAULT after the last repetition): an 8 x 16 matrix-vector product of signed 16-bit values into
+ *          signed 32-bit sums, computed TWICE in EL0 every repetition: with NEON (smlal/smlal2 into 4 x 32-bit lanes, then addv) and with plain scalar code
+ *          (ldrsh, madd); the two are compared in EL0. Inputs are written by the kernel before the process starts. Data page: 0x100 matrix (8 rows x 16 x int16,
+ *          row-major), 0x200 vector (16 x int16), 0x300 NEON result (8 x int32), 0x340 scalar result (8 x int32).
+ *          Results: [0x10] rows where NEON != scalar (summed over all repetitions), [0x18] repetitions done, [8] marker 0xAAAA at the end. */
 role_fpcheck:
     ldr     x20, =DATA_VA
     mov     x12, x1
@@ -219,6 +226,77 @@ role_fpdirty:
     ldr     x3, [x2]                    /* unmapped: faults */
     after_fault
 
+
+role_matvec:
+    ldr     x20, =DATA_VA
+    lsr     x14, x1, #32                /* fault flag */
+    and     x12, x1, #0xFFFFFFFF        /* repetitions */
+    cbnz    x12, 1f
+    mov     x12, #1
+1:  mov     x9, #0                      /* mismatching rows */
+    mov     x13, #0                     /* repetitions done */
+mv_rep:
+    /* ---- NEON ---- */
+    add     x1, x20, #0x200
+    ld1     {v1.8h, v2.8h}, [x1]        /* the vector: x[0..7], x[8..15] */
+    add     x2, x20, #0x100             /* matrix row pointer */
+    add     x3, x20, #0x300             /* NEON result pointer */
+    mov     x4, #8
+mv_nrow:
+    ld1     {v3.8h, v4.8h}, [x2], #32   /* one row: 16 x int16 */
+    movi    v5.4s, #0
+    smlal   v5.4s, v3.4h, v1.4h         /* 4 products, widened and accumulated in 32-bit lanes */
+    smlal2  v5.4s, v3.8h, v1.8h
+    smlal   v5.4s, v4.4h, v2.4h
+    smlal2  v5.4s, v4.8h, v2.8h
+    addv    s6, v5.4s                   /* horizontal sum of the four lanes */
+    str     s6, [x3], #4
+    subs    x4, x4, #1
+    b.ne    mv_nrow
+    /* ---- scalar reference, in EL0 ---- */
+    add     x2, x20, #0x100
+    add     x3, x20, #0x340
+    mov     x4, #8
+mv_srow:
+    add     x7, x20, #0x200
+    mov     x6, #0                      /* 32-bit sum */
+    mov     x5, #16
+mv_scol:
+    ldrsh   w10, [x2], #2
+    ldrsh   w11, [x7], #2
+    madd    w6, w10, w11, w6
+    subs    x5, x5, #1
+    b.ne    mv_scol
+    str     w6, [x3], #4
+    subs    x4, x4, #1
+    b.ne    mv_srow
+    /* ---- compare the two results, still in EL0 ---- */
+    add     x2, x20, #0x300
+    add     x3, x20, #0x340
+    mov     x4, #8
+mv_cmp:
+    ldr     w10, [x2], #4
+    ldr     w11, [x3], #4
+    cmp     w10, w11
+    cset    x5, ne
+    add     x9, x9, x5
+    subs    x4, x4, #1
+    b.ne    mv_cmp
+    add     x13, x13, #1
+    cmp     x13, x12
+    b.lt    mv_rep
+    str     x9, [x20, #0x10]
+    str     x13, [x20, #0x18]
+    ldr     x3, =0xAAAA
+    str     x3, [x20, #8]
+    cbz     x14, mv_exit
+    ldr     x2, =0xDEAD0000
+    ldr     x3, [x2]                    /* unmapped: faults after the NEON work, with vector registers live */
+    after_fault
+mv_exit:
+    mov     x0, #0
+    sys     SYS_EXIT
+    b       .
 
     .ltorg                              /* literals (ldr x, =imm) must lie INSIDE the copied image */
     .balign 4
