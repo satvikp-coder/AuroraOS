@@ -127,7 +127,7 @@ def main():
     def stray(img): return sorted(colors(img) - pal)[:3]
 
     # ---------------- Home ----------------
-    L = layout()
+    L = wait_layout(40)                                   # the Home layout block may still be in flight on a slow runner: wait for it, never read it once
     h0 = shot_until("home", lambda i: any(px(i, x, y) == rgb(T["aura"]) for x in (300, 500, 700) for y in range(60, 100)))      # wait for a COMPLETE frame (a screenshot can catch a half-drawn one)
     check("Home: every pixel is in the palette of this mode (stray: %s)" % stray(h0), palette_ok(h0))
     check("Home: the status rail is drawn (aura in standard, ink in high contrast)", any(px(h0, x, y) == rgb(T["aura"]) for x in (300, 500, 700) for y in range(60, 100)))
