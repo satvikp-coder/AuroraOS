@@ -51,7 +51,7 @@ static void ncopy(struct note *d, const struct note *s) { for (int i = 0; i < s-
 static const char *fs_why(i64 rc)                  /* a short honest reason for a failed storage call */
 {
     if (rc == AE_FS(-16)) return "Disk is read-only";
-    if (rc == AE_FS(-4) || rc == AE_FS(-18)) return "Disk or quota is full";
+    if (rc == AE_FS(-4) || rc == AE_FS(-5) || rc == AE_FS(-18)) return "Disk or quota is full";   /* no space, no free file slot (all 32 used), or this app's own quota */
     if (rc == AE_FS(-15) || rc == AE_FS(-11) || rc == AE_FS(-14)) return "No disk";
     if (rc == AE_FS(-17)) return "Could not confirm the write";
     if (rc == AE_FS(-12)) return "Disk error";

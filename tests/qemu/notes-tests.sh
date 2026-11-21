@@ -29,6 +29,9 @@ mk() { img="$1"; shift; "$OUT/mkafs" "$OUT/$img" 2048 installer 0x7 calc.elf "$A
 mk corrupt.img 602 3 note.a "$OUT/corrupt.bin"
 mk newer.img 602 3 note.a "$OUT/newer.bin"
 mk foreign.img 601 7 note.a "$OUT/foreign.bin"
+mk truncated.img 602 3 note.a "$OUT/truncated.bin"
+mk short.img 602 3 note.a "$OUT/short.bin"
+mk full.img 701 7 f0 "$OUT/corrupt.bin" 701 7 f1 "$OUT/corrupt.bin" 701 7 f2 "$OUT/corrupt.bin" 701 7 f3 "$OUT/corrupt.bin" 701 7 f4 "$OUT/corrupt.bin" 701 7 f5 "$OUT/corrupt.bin" 701 7 f6 "$OUT/corrupt.bin" 701 7 f7 "$OUT/corrupt.bin" 702 7 f8 "$OUT/corrupt.bin" 702 7 f9 "$OUT/corrupt.bin" 702 7 f10 "$OUT/corrupt.bin" 702 7 f11 "$OUT/corrupt.bin" 702 7 f12 "$OUT/corrupt.bin" 702 7 f13 "$OUT/corrupt.bin" 702 7 f14 "$OUT/corrupt.bin" 702 7 f15 "$OUT/corrupt.bin" 703 7 f16 "$OUT/corrupt.bin" 703 7 f17 "$OUT/corrupt.bin" 703 7 f18 "$OUT/corrupt.bin" 703 7 f19 "$OUT/corrupt.bin" 703 7 f20 "$OUT/corrupt.bin" 703 7 f21 "$OUT/corrupt.bin" 703 7 f22 "$OUT/corrupt.bin" 703 7 f23 "$OUT/corrupt.bin" 704 7 f24 "$OUT/corrupt.bin" 704 7 f25 "$OUT/corrupt.bin" 704 7 f26 "$OUT/corrupt.bin" 704 7 f27 "$OUT/corrupt.bin" 704 7 f28 "$OUT/corrupt.bin" 704 7 f29 "$OUT/corrupt.bin"      # 30 small files from four other principals + calc.elf + notes.elf = all 32 file slots used
 mk ro.img
 cp "$OUT/pkg/aurora-fresh.img" "$OUT/persist.img"
 
@@ -55,5 +58,8 @@ boot nodisk none "" nodisk
 boot corrupt corrupt.img "" corrupt
 boot newer newer.img "" newer
 boot foreign foreign.img "" foreign
+boot truncated truncated.img "" truncated
+boot short short.img "" short
+boot full full.img "" full
 echo "notes-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]
