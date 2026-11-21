@@ -16,6 +16,7 @@
  *     1 load  HEAP_VA + 0x1000       (the page after a 1-page heap)                   4 load  HEAP_VA - 0x10000 (the first page of the guard below)
  *     2 store HEAP_VA + 0x20000      (the first page past a full 32-page heap)        5 branch to HEAP_VA - 0x1000 (instruction fetch from the guard)
  *     [8] marker 0x9999 just before the access; [0x40] 0x666 if the access (wrongly) completed.
+ *  role 96 (x1 = pages): grow(x1) once, [0x10] its result, [0x18] info; then exit 0 (the process stays TERMINATED, and keeps its pages, until it is destroyed).
  *  role 95: 8 times {grow(32), count every non-zero doubleword (a regrown heap must be ALL ZERO), fill all 16384 doublewords with a pattern, shrink(32)}.
  *     [0x10] total non-zero words seen (must be 0), [0x18] 0xBAD if grow or shrink returned something unexpected, [8] 0xCCCC at the end.
  */
@@ -63,6 +64,8 @@ user_mem_blob_start:
     b.eq    role_guard
     cmp     x0, #95
     b.eq    role_cycle
+    cmp     x0, #96
+    b.eq    role_grow
     mov     x0, #99
     sys     SYS_EXIT
     b       .
@@ -256,6 +259,17 @@ c_bad:
     ldr     x3, =0xBAD
     str     x3, [x20, #0x18]
     mov     x0, #1
+    sys     SYS_EXIT
+    b       .
+
+role_grow:
+    ldr     x20, =DATA_VA
+    mov     x0, #1
+    sys     SYS_MEM
+    str     x0, [x20, #0x10]
+    memcall 3, 0
+    str     x0, [x20, #0x18]
+    mov     x0, #0
     sys     SYS_EXIT
     b       .
 

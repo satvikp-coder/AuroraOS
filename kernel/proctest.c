@@ -504,6 +504,81 @@ void proctest_run(void)
                 destroy_all();
                 check("guards: and the cycles leaked nothing", free_pages() == free_before_cy);
             }
+            /* ---- per-PRINCIPAL heap budget: processes of one kernel-chosen principal share 64 pages; usage is derived from live processes, never a stored counter ---- */
+            {
+                extern int mem_test_fail_page;
+                #define GROWRES(pr) ((int64_t)ud(proc_get(pr), 0x10))
+                #define HEAPOF(pr)  (ud(proc_get(pr), 0x18) & 0xFFFFFFFFULL)
+                destroy_all(); sched_stats_reset();
+                const uint64_t free_before_pb = free_pages();
+                int pa = proc_create_image(96, 32, "pb-a", MEMIMG), pb = proc_create_image(96, 32, "pb-b", MEMIMG);
+                if (pa > 0) proc_set_principal(pa, 150);
+                if (pb > 0) proc_set_principal(pb, 150);
+                uint64_t r1 = sched_run(3000);
+                check("principal budget: two processes of ONE principal each grow 32 pages (the principal's full 64): the budget is per principal, shared by its processes",
+                      pa > 0 && pb > 0 && r1 == SCHED_ALL_DONE && GROWRES(pa) == 32 && GROWRES(pb) == 32);
+                int pc = proc_create_image(96, 1, "pb-c", MEMIMG), pd = proc_create_image(96, 32, "pb-d", MEMIMG);
+                if (pc > 0) proc_set_principal(pc, 150);
+                if (pd > 0) proc_set_principal(pd, 151);
+                uint64_t r2 = sched_run(3000);
+                check("principal budget: a THIRD process of that principal is refused even 1 page (ENOMEM, heap stays empty) because starting more instances does not buy more memory; a process of ANOTHER principal still gets its 32",
+                      pc > 0 && pd > 0 && r2 == SCHED_ALL_DONE && GROWRES(pc) == AE_ENOMEM && proc_get(pc)->heap_pages == 0 && GROWRES(pd) == 32);
+                proc_destroy(pb);                                                                    /* only pb's pages and charge go */
+                int pe = proc_create_image(96, 32, "pb-e", MEMIMG);
+                if (pe > 0) proc_set_principal(pe, 150);
+                uint64_t r3 = sched_run(3000);
+                check("principal budget: destroying ONE process releases only its own charge: the principal's next process gets its 32 pages at once, and the surviving sibling still holds exactly its 32",
+                      pe > 0 && r3 == SCHED_ALL_DONE && GROWRES(pe) == 32 && proc_get(pa)->heap_pages == 32);
+                check("principal budget: the new process reused the destroyed process's slot and started with an empty heap (grow 32 from nothing): no stale charge or mapping from the previous occupant", pe == pb && HEAPOF(pe) == 32);
+                int pf = proc_create_image(96, 1, "pb-f", MEMIMG);
+                if (pf > 0) proc_set_principal(pf, 150);
+                uint64_t r4 = sched_run(3000);
+                check("principal budget: with the sibling and the replacement holding 64 again, one more page is refused (the charge came back exactly)", pf > 0 && r4 == SCHED_ALL_DONE && GROWRES(pf) == AE_ENOMEM);
+
+                destroy_all(); sched_stats_reset();
+                int pg = proc_create_image(96, 32, "np-g", MEMIMG), ph = proc_create_image(96, 32, "np-h", MEMIMG), pi = proc_create_image(96, 1, "np-i", MEMIMG);
+                uint64_t r5 = sched_run(3000);
+                check("principal budget: processes with NO principal share ONE budget: two take 32 each, a third is refused (having no identity is not a way around the limit)",
+                      pg > 0 && ph > 0 && pi > 0 && r5 == SCHED_ALL_DONE && GROWRES(pg) == 32 && GROWRES(ph) == 32 && GROWRES(pi) == AE_ENOMEM);
+
+                /* a grow that fails PART-WAY must undo itself completely and leave no charge */
+                destroy_all(); sched_stats_reset();
+                int pj = proc_create_image(96, 8, "pf-j", MEMIMG);
+                if (pj > 0) proc_set_principal(pj, 152);
+                const uint64_t free_before_inj = free_pages();
+                mem_test_fail_page = 5;                                                              /* the 6th page of the grow fails after 5 were mapped */
+                uint64_t r6 = sched_run(3000);
+                mem_test_fail_page = -1;
+                check("principal budget: a grow of 8 pages that fails at the 6th page returns ENOMEM, unmaps the 5 it had mapped, leaves the heap empty and every physical page where it was",
+                      pj > 0 && r6 == SCHED_ALL_DONE && GROWRES(pj) == AE_ENOMEM && proc_get(pj)->heap_pages == 0 && free_pages() == free_before_inj);
+                int pk = proc_create_image(96, 32, "pf-k", MEMIMG), pl = proc_create_image(96, 32, "pf-l", MEMIMG);
+                if (pk > 0) proc_set_principal(pk, 152);
+                if (pl > 0) proc_set_principal(pl, 152);
+                uint64_t r7 = sched_run(3000);
+                check("principal budget: after that failed partial grow the principal has no residual charge: two of its processes still get their full 32 + 32", pk > 0 && pl > 0 && r7 == SCHED_ALL_DONE && GROWRES(pk) == 32 && GROWRES(pl) == 32);
+
+                /* a faulted process still owns its pages (and so its charge) until it is destroyed */
+                destroy_all(); sched_stats_reset();
+                int pq = proc_create_image(94, 1, "pq-fault", MEMIMG);                               /* probe 1: grows 1 page, then faults */
+                int pm = proc_create_image(96, 32, "pq-m", MEMIMG);
+                if (pq > 0) proc_set_principal(pq, 153);
+                if (pm > 0) proc_set_principal(pm, 153);
+                uint64_t r8 = sched_run(3000);
+                int pn = proc_create_image(96, 32, "pq-n", MEMIMG);
+                if (pn > 0) proc_set_principal(pn, 153);
+                uint64_t r9 = sched_run(3000);
+                check("principal budget: a FAULTED process keeps its 1 page and its charge: with 33 pages held, a sibling asking for 32 more (65) is refused",
+                      pq > 0 && pm > 0 && pn > 0 && r8 == SCHED_ALL_DONE && r9 == SCHED_ALL_DONE && proc_get(pq)->state == PROC_FAULTED && proc_get(pq)->heap_pages == 1 && GROWRES(pm) == 32 && GROWRES(pn) == AE_ENOMEM);
+                proc_destroy(pq);
+                int po = proc_create_image(96, 32, "pq-o", MEMIMG);
+                if (po > 0) proc_set_principal(po, 153);
+                uint64_t r10 = sched_run(3000);
+                check("principal budget: once the faulted process is destroyed its charge is gone: the same request now succeeds (32 + 32 = 64)", po > 0 && r10 == SCHED_ALL_DONE && GROWRES(po) == 32);
+                destroy_all();
+                check("principal budget: after every scenario each page is back in the allocator (no leak, nothing double-freed)", free_pages() == free_before_pb);
+                #undef GROWRES
+                #undef HEAPOF
+            }
             #undef MEMIMG
         }
 #endif
