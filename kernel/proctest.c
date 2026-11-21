@@ -155,7 +155,6 @@ void proctest_run(void)
         { "write to its own read-only code page", 17, 0, 0x24, 12, 1, USER_CODE_VA, 1 },
         { "jump into its own writable data page (never executable)", 18, 0, 0x20, 12, 1, USER_DATA_VA, 0 },
         { "access to the unmapped stack guard page", 19, 0, 0x24, 4, 1, USER_VA_BASE + 0x2008, 0 },
-        { "floating-point instruction (trapped, state not saved)", 22, 0, 0x07, 0, 0, 0, 0 },
         { "svc with a non-zero immediate (not the syscall instruction)", 42, 0, 0x15, 0, 0, 0, 0 },
     };
     for (unsigned i = 0; i < sizeof cases / sizeof *cases; i++) {
@@ -328,6 +327,54 @@ void proctest_run(void)
         check("preemption: tick accounting is coherent (scheduler ticks == timer interrupts taken, timer deadlines never early, each process was charged ticks)",
               sched_ticks() == timer_delta && timer_hist_sane() && pr.a->ticks_run > 0 && pr.b->ticks_run > 0 && pr.a->ticks_run + pr.b->ticks_run <= sched_ticks() + 1);
         destroy_all();
+
+#ifdef AURORA_SELFTEST_HOOKS
+        /* ---- FP/SIMD: every process has its own V0-V31, FPCR and FPSR, preserved across timer preemption and never visible to another process ---- */
+        {
+            destroy_all(); sched_stats_reset();
+            int f1 = proc_create(22, 0, "fp-insn");
+            uint64_t r1 = sched_run(2000);
+            struct proc *pf1 = proc_get(f1);
+            check("FP/SIMD: an EL0 floating-point instruction now executes (no trap) and the process exits 0",
+                  r1 == SCHED_ALL_DONE && pf1 && pf1->state == PROC_TERMINATED && pf1->exit_code == 0);
+            destroy_all(); sched_stats_reset();
+            int fa = proc_create_image(80, 30, "fp-a", user_fp_blob_start, (size_t)(user_fp_blob_end - user_fp_blob_start)), fb = proc_create_image(80, 30, "fp-b", user_fp_blob_start, (size_t)(user_fp_blob_end - user_fp_blob_start)), fc = proc_create_image(80, 30, "fp-c", user_fp_blob_start, (size_t)(user_fp_blob_end - user_fp_blob_start));
+            sched_set_preempt(1, 2);
+            uint64_t rr = sched_run(5000);
+            sched_set_preempt(0, 0);
+            struct proc *qa = proc_get(fa), *qb = proc_get(fb), *qc = proc_get(fc);
+            int ok3 = rr == SCHED_ALL_DONE && qa && qb && qc && qa->state == PROC_TERMINATED && qb->state == PROC_TERMINATED && qc->state == PROC_TERMINATED &&
+                      qa->exit_code == 0 && qb->exit_code == 0 && qc->exit_code == 0 && ud(qa, 8) == 0xDDDD && ud(qb, 8) == 0xDDDD && ud(qc, 8) == 0xDDDD;
+            check("FP/SIMD: three processes that never yield, each with its own pattern in V0-V31 (and FPCR/FPSR), all ran to completion", ok3 && ud(qa, 0) > 0 && ud(qb, 0) > 0 && ud(qc, 0) > 0);
+            check("FP/SIMD: they were switched by the timer several times each, and every one of their 64 doublewords, FPCR and FPSR was intact after every pass (0 mismatches)",
+                  ok3 && qa->preemptions >= 2 && qb->preemptions >= 2 && qc->preemptions >= 2 && ud(qa, 0x10) == 0 && ud(qb, 0x10) == 0 && ud(qc, 0x10) == 0 &&
+                  ud(qa, 0x28) == 0 && ud(qb, 0x28) == 0 && ud(qc, 0x28) == 0);
+            destroy_all(); sched_stats_reset();
+            int pz = proc_create_image(81, 0, "fp-zero", user_fp_blob_start, (size_t)(user_fp_blob_end - user_fp_blob_start));          /* the slot of an earlier FP process; the CPU registers still hold that process's values */
+            uint64_t rz = sched_run(2000);
+            struct proc *qz = proc_get(pz);
+            check("FP/SIMD: a NEW process (same slot as an earlier one) starts with all-zero V0-V31, FPCR and FPSR: nothing leaks from a previous process",
+                  rz == SCHED_ALL_DONE && qz && qz->state == PROC_TERMINATED && ud(qz, 8) == 0xEEEE && ud(qz, 0x10) == 0);
+            destroy_all(); sched_stats_reset();
+            int pd = proc_create_image(82, 0, "fp-dirty", user_fp_blob_start, (size_t)(user_fp_blob_end - user_fp_blob_start));
+            uint64_t rd = sched_run(2000);
+            struct proc *qd = proc_get(pd);
+            int faulted = rd == SCHED_ALL_DONE && qd && qd->state == PROC_FAULTED && ((qd->fault_esr >> 26) & 0x3F) == 0x24;
+            destroy_all(); sched_stats_reset();
+            int pz2 = proc_create_image(81, 0, "fp-zero", user_fp_blob_start, (size_t)(user_fp_blob_end - user_fp_blob_start));
+            uint64_t rz2 = sched_run(2000);
+            struct proc *qz2 = proc_get(pz2);
+            check("FP/SIMD: a process that dirtied every register and then FAULTED leaves nothing behind either: the next process in its slot sees zeros",
+                  faulted && rz2 == SCHED_ALL_DONE && qz2 && ud(qz2, 8) == 0xEEEE && ud(qz2, 0x10) == 0);
+            destroy_all(); sched_stats_reset();
+            int dx = proc_create_image(82, 0, "fp-dirty", user_fp_blob_start, (size_t)(user_fp_blob_end - user_fp_blob_start)), px2 = proc_create_image(81, 0, "fp-zero", user_fp_blob_start, (size_t)(user_fp_blob_end - user_fp_blob_start));        /* a live dirty process and a probe at the same time */
+            uint64_t rx = sched_run(2000);
+            struct proc *qdx = proc_get(dx), *qpx = proc_get(px2);
+            check("FP/SIMD: a probe that runs right after a faulting process (no destroy in between) also sees zeros",
+                  rx == SCHED_ALL_DONE && qdx && qdx->state == PROC_FAULTED && qpx && qpx->state == PROC_TERMINATED && ud(qpx, 8) == 0xEEEE && ud(qpx, 0x10) == 0);
+            destroy_all();
+        }
+#endif
 
         /* a fault while preempting: the healthy process keeps running and finishes */
         destroy_all(); sched_stats_reset();

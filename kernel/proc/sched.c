@@ -22,6 +22,7 @@
 #define SVC_ENTER_SLICE 0x5c4f   /* a bounded slice for the interactive shell: keeps the tick count and the round-robin position */
 
 static int active, cur_pid;                    /* cur_pid: 0 while no user process owns the CPU */
+static int fp_owner; static uint64_t fp_owner_gen;   /* the process whose FP/SIMD registers are live in the CPU right now (0 = none), and its instance */
 static int rr_cursor;                          /* pid that last ran: where the next round-robin search starts when cur_pid is 0 (a new slice) */
 static struct exc_frame kctx;
 static uint64_t ticks, limit, slice;
@@ -98,6 +99,10 @@ static void switch_to(struct exc_frame *f, int pid)
     struct proc *p = proc_get(pid);
     set_state(p, PROC_RUNNING);
     p->switches_in++; stats.switches++;
+    /* FP/SIMD: the live registers belong to fp_owner (the kernel never touches them). Save them into THAT process, but only if the slot still holds the
+     * same instance: a destroyed and re-created slot must never receive the old process's registers. Then load the incoming process's own state. */
+    if (fp_owner) { struct proc *o = proc_get(fp_owner); if (o && o->gen == fp_owner_gen && o->state != PROC_UNUSED) fp_save(&o->fp); }
+    fp_restore(&p->fp); fp_owner = pid; fp_owner_gen = p->gen;
     cur_pid = pid; rr_cursor = pid; slice = 0; need_resched = 0;
     set_ttbr0(aspace_ttbr(&p->as));                          /* kernel slots are identical in every table: this code keeps running */
     *f = p->ctx;

@@ -248,7 +248,7 @@ role_guard:                             /* the unmapped guard page below the sta
     ldr     x2, =0x4000002008
     ldr     x3, [x2]
     after_fault
-role_fp:                                /* FP/SIMD is not available to user processes (the kernel does not save it) */
+role_fp:                                /* FP/SIMD is available to EL0 (the scheduler saves it per process): this executes and exits 0 */
     fmov    d0, xzr
     after_fault
 role_badsvc:                            /* only "svc #0" is the syscall instruction */
