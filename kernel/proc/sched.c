@@ -213,6 +213,9 @@ static void do_syscall(struct exc_frame *f, struct proc *p)
         reschedule(f);
         return;
     }
+    case SYS_MEM:
+        f->x[0] = (uint64_t)mem_syscall(p, f->x[0], f->x[1]);
+        return;
     case SYS_FS:
         f->x[0] = (uint64_t)fs_syscall(p, f->x[0], f->x[1], f->x[2], f->x[3], f->x[4]);
         return;
