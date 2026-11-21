@@ -238,6 +238,10 @@ jobs:
         run: |
           chmod +x tests/qemu/spaces-tests.sh
           ./tests/qemu/spaces-tests.sh
+      - name: Run multi-app lifecycle tests (Calculator, Notes and Files together; isolation, independent exit, fresh relaunch)
+        run: |
+          chmod +x tests/qemu/lifecycle-tests.sh
+          ./tests/qemu/lifecycle-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:
