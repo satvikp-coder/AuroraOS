@@ -65,6 +65,7 @@ int aspace_map(struct aspace *as, uint64_t va, int perm, const void *init, size_
      * for va near UINT64_MAX and slip past a "> LIMIT" test). */
     if (va < USER_VA_BASE || va >= USER_VA_LIMIT) return -2;
     if ((va >> 30) != (USER_VA_BASE >> 30)) return -2;      /* exactly the user L1 slot; never another slot, never the shared kernel slots */
+    if (!uv_mappable(va)) return -7;                        /* a guard page (or any hole in the process window) is never mapped, by anybody */
     if (len > PAGE_SIZE || (len && !init)) return -3;
 
     uint64_t *l1 = (uint64_t *)(uintptr_t)as->l1_pa;

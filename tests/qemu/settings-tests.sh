@@ -14,7 +14,7 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
 EXPECTED_SET=18
-EXPECTED_PROC_TESTS=95
+EXPECTED_PROC_TESTS=108
 
 OUT="$ROOT/build/settings-tests"
 rm -rf "$OUT"; mkdir -p "$OUT"
