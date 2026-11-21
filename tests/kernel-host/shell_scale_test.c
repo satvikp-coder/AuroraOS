@@ -67,6 +67,7 @@ static int rects_overlap(const struct ui_ctrl *a, const struct ui_ctrl *b)
 }
 
 /* Check the current layout. Returns the number of violations; prints the first few. */
+static double worst_edge_std = 99, worst_edge_hc = 99;   /* the weakest edge of an ENABLED control, against the control's own fill and the surface behind it */
 static int audit(const char *what, double *min_ratio_out)
 {
     int bad = 0;
@@ -77,6 +78,11 @@ static int audit(const char *what, double *min_ratio_out)
         const struct ui_widget *w = &sh.w[i];
         if (w->c.x < 0 || w->c.y < 0 || w->c.x + w->c.w > (int32_t)W || w->c.y + w->c.h > (int32_t)H) { if (bad++ < 100) printf("  %s: widget %u (id %u) outside the screen %d,%d %dx%d\n", what, i, w->c.id, w->c.x, w->c.y, w->c.w, w->c.h); }
         if ((w->c.flags & UI_FOCUSABLE) && (w->c.h < 40 || w->c.w < 48)) { if (bad++ < 100) printf("  %s: touch target too small id %u %dx%d\n", what, w->c.id, w->c.w, w->c.h); }
+        if (w->kind == UI_BUTTON && (w->c.flags & UI_FOCUSABLE) && (w->c.flags & UI_ENABLED) && w->border_w) {
+            double e = ratio(w->border, w->fill), e2 = ratio(w->border, sh.contrast ? 0xFFFFFFu : UI_COL_SURFACE);
+            double m = e < e2 ? e : e2;
+            if (sh.contrast) { if (m < worst_edge_hc) worst_edge_hc = m; } else if (m < worst_edge_std) worst_edge_std = m;
+        }
         if (w->text && w->kind != UI_PANEL && w->text[0]) {
             const struct gfx_font *f = font_for(w);
             int mag = w->mag ? w->mag : 1;
@@ -200,6 +206,9 @@ int main(void)
         /* the Clear accent is now 0x2A68E8: white on it is 4.95:1 (it was 0x3478F6 at 4.07:1, below the 4.5:1 normal-text level) */
         CHECK("standard palette text is at least 4.5:1 everywhere (WCAG AA for normal text), measured over every scale/state layout", worst_std >= 4.5);
         CHECK("high contrast text is at least 7:1 everywhere", worst_hc >= 7.0);
+        printf("  (worst enabled-control edge: standard %.2f:1, high contrast %.2f:1)\n", worst_edge_std, worst_edge_hc);
+        CHECK("every enabled control's edge is at least 3:1 against its fill and the surface (WCAG 1.4.11), in every scale/state layout", worst_edge_std >= 3.0);
+        CHECK("high contrast enabled-control edges are at least 7:1", worst_edge_hc >= 7.0);
     }
 
     /* ---- the reference layout is unchanged at 100 percent ---- */

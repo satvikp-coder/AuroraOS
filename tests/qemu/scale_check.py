@@ -13,7 +13,7 @@ from gfx_check import Qmp, read_ppm, wait_serial
 
 def rgb(v): return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
 STD = dict(canvas=0xEEF3F8, surface=0xFFFFFF, ink=0x142136, muted=0x52627A, accent=0x2A68E8, focus=0x175CD3, scrim=0x525A66, aura=0x00838C,
-           extra=(0xE4ECF6, 0xCFDCF0, 0xC9D4E3, 0xDCE3ED))
+           extra=(0xE4ECF6, 0xCFDCF0, 0xC9D4E3, 0xDCE3ED, 0x6B7C93))
 HC = dict(canvas=0xFFFFFF, surface=0xFFFFFF, ink=0x000000, muted=0x333333, accent=0x101010, focus=0x0000E0, scrim=0x000000, aura=0x000000,
           extra=(0xD9D9D9, 0xB3B3B3, 0x555555, 0x000000))
 AXMAX = 32767
@@ -130,6 +130,9 @@ def main():
     L = wait_layout(40)                                   # the Home layout block may still be in flight on a slow runner: wait for it, never read it once
     h0 = shot_until("home", lambda i: any(px(i, x, y) == rgb(T["aura"]) for x in (300, 500, 700) for y in range(60, 100)))      # wait for a COMPLETE frame (a screenshot can catch a half-drawn one)
     check("Home: every pixel is in the palette of this mode (stray: %s)" % stray(h0), palette_ok(h0))
+    ex, ey, ew, eh = L[4]                                     # the dock Index button is an ENABLED control: its edge is the measured ctl colour (6B7C93 standard, black in high contrast)
+    ctl = rgb(0x000000 if a.contrast else 0x6B7C93)
+    check("Home: an enabled control's edge is drawn in the contrast-checked edge colour (>=3:1), along its whole top edge", sum(1 for xx in range(ex + 20, ex + ew - 20) if any(px(h0, xx, ey + k) == ctl for k in (0, 1))) >= (ew - 40) * 3 // 4)
     check("Home: the status rail is drawn (aura in standard, ink in high contrast)", any(px(h0, x, y) == rgb(T["aura"]) for x in (300, 500, 700) for y in range(60, 100)))
     check("Home: the dock Home item, Spaces, Index and Back are all controls (ids 2, 3, 4 enabled)", all(i in L for i in (2, 3, 4, 10, 16, 11, 12, 40)))
     bc = band_clean(h0, L)

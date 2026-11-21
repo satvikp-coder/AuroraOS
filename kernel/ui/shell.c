@@ -15,9 +15,9 @@ const char *const SHELL_SPACE_NAMES[SHELL_SPACES] = { "Study", "Work", "Projects
  * non-colour marker on the active control, and a strong focus colour. Meaning is never carried by colour alone: the active control also
  * has a marker (high contrast) and the disabled controls say "not available yet" in their text. */
 /* (accent is near-black, not 0: a zero widget override means "use the default") */
-struct pal { uint32_t canvas, surface, ink, muted, accent, active_ink, focus, border, border_dis, scrim, aura, hover, pressed, secure, secure_ink; uint8_t bw, marker, rail; };
-static const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, UI_COL_MUTED, UI_COL_ACCENT, UI_COL_SURFACE, UI_COL_FOCUS, 0x00C9D4E3u, 0x00DCE3EDu, UI_COL_SCRIM, COL_AURA, COL_HOVER, COL_PRESSED, 0x00FFB020u, 0x00142136u, 1, 0, 4 };
-static const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 0x00000000u, 0x00FFFFFFu, 2, 1, 6 };
+struct pal { uint32_t canvas, surface, ink, muted, accent, active_ink, focus, border, border_dis, scrim, aura, hover, pressed, secure, secure_ink, ctl; uint8_t bw, marker, rail; };
+static const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, UI_COL_MUTED, UI_COL_ACCENT, UI_COL_SURFACE, UI_COL_FOCUS, 0x00C9D4E3u, 0x00DCE3EDu, UI_COL_SCRIM, COL_AURA, COL_HOVER, COL_PRESSED, 0x00FFB020u, 0x00142136u, 0x006B7C93u, 1, 0, 4 };
+static const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 0x00000000u, 0x00FFFFFFu, 0x00000000u, 2, 1, 6 };
 #define PAL(sh) ((sh)->contrast ? &PAL_HC : &PAL_STD)
 
 static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Aura", "Clock", "Trail" };
@@ -108,7 +108,7 @@ static void card(struct shell *sh, int32_t x, int32_t y, int32_t w, int32_t h)
 static struct ui_widget *button(struct shell *sh, int32_t x, int32_t y, int32_t w, int32_t h, const char *t, uint32_t id, int enabled, uint8_t layer)
 {
     struct ui_widget *k = add(sh, x, y, w, h, 12, layer, UI_BUTTON, t, PAL(sh)->canvas, id, enabled ? FOC : (UI_VISIBLE));
-    if (k) { k->border_w = enabled ? PAL(sh)->bw : 1; k->border = enabled ? PAL(sh)->border : PAL(sh)->border_dis; k->font_size = 16; }
+    if (k) { k->border_w = enabled ? PAL(sh)->bw : 1; k->border = enabled ? PAL(sh)->ctl : PAL(sh)->border_dis;      /* an ENABLED control's edge must reach 3:1 (WCAG 1.4.11): ctl, not the decorative card border */ k->font_size = 16; }
     return k;
 }
 
