@@ -234,6 +234,10 @@ jobs:
         run: |
           chmod +x tests/qemu/files-tests.sh
           ./tests/qemu/files-tests.sh
+      - name: Run persistent Spaces tests (select a Space, restart the emulator on the same disk and see it restored; the Calculator is not resumed; read-only, no disk, corrupt, out-of-range and pre-Spaces records handled honestly)
+        run: |
+          chmod +x tests/qemu/spaces-tests.sh
+          ./tests/qemu/spaces-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:
