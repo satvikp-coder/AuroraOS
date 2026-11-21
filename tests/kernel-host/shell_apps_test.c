@@ -38,7 +38,7 @@ int main(void)
         for (size_t i = 0; i < n; i++) if (strcmp(shell_index_item(i)->key, "calculator") == 0) at = i;
         CHECK("the registry lists Calculator as an app", at < n && shell_index_item(at)->is_app == 1);
         size_t fi = n; for (size_t i = 0; i < n; i++) if (strcmp(shell_index_item(i)->key, "files") == 0) fi = i;
-        CHECK("Files is listed as an app, last, so every earlier index is unchanged", fi == n - 1 && shell_index_item(fi)->is_app == 1);
+        CHECK("Files is listed as an app, after every earlier entry (only the Hold demo screen follows), so every earlier index is unchanged", fi == n - 2 && shell_index_item(fi)->is_app == 1 && strcmp(shell_index_item(n - 1)->key, "hold") == 0);
     }
     { /* available: found, launched on Enter */
         fresh(1); search("calc");

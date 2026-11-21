@@ -242,6 +242,10 @@ jobs:
         run: |
           chmod +x tests/qemu/lifecycle-tests.sh
           ./tests/qemu/lifecycle-tests.sh
+      - name: Run hold-to-confirm demo tests (real held key and pointer, 1.5 s, one confirmation, cancels)
+        run: |
+          chmod +x tests/qemu/hold-tests.sh
+          ./tests/qemu/hold-tests.sh
 
   # ---------------- Repo integrity ----------------
   repo-integrity:
