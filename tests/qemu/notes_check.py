@@ -157,6 +157,19 @@ def main():
         focus_surface(1); type_note("abc"); ctrl("s")
         check("typing is ignored and Ctrl+S is refused while locked", wait_for(lambda: has(1, "notes save refused locked"), 20) and last_text(1) == "|" and not has(1, "notes save ok"))
         check("exit", quit_notes(1))
+    elif sc in ("truncated", "short"):
+        check("Notes launches", launch(1))
+        check("a saved note that is cut off (%s) is NOT opened and NOT overwritten: it reports 'damaged' and locks" % sc, wait_for(lambda: has(1, "notes load damaged locked"), 20))
+        focus_surface(1); type_note("abc"); ctrl("s")
+        check("typing is ignored and Ctrl+S is refused while locked", wait_for(lambda: has(1, "notes save refused locked"), 20) and last_text(1) == "|" and not has(1, "notes save ok"))
+        check("exit", quit_notes(1))
+    elif sc == "full":
+        check("Notes launches on a disk with every one of the 32 file slots used", launch(1))
+        check("it starts with an empty note", wait_for(lambda: has(1, "notes load empty"), 20))
+        focus_surface(1); type_note("abc"); ctrl("s")
+        check("saving fails HONESTLY: the status says the disk is full and nothing is reported saved", wait_for(lambda: last_status(1) == "Disk or quota is full", 25) and not has(1, "notes save ok"))
+        check("the text stays in the editor, still unsaved", last_text(1) == "abc|")
+        check("exit", quit_notes(1))
     elif sc == "newer":
         check("Notes launches", launch(1))
         check("a note from a NEWER version is not opened and not overwritten", wait_for(lambda: has(1, "notes load newer version locked"), 20))

@@ -10,3 +10,5 @@ def note(text, seq, ver=1):
 open(os.path.join(d, "corrupt.bin"), "wb").write(note("good note", 1)[:-3] + b"\x00\x01\x02")       # right header, body damaged
 open(os.path.join(d, "newer.bin"), "wb").write(note("from the future", 5, ver=2))
 open(os.path.join(d, "foreign.bin"), "wb").write(note("STOLEN", 9))
+open(os.path.join(d, "truncated.bin"), "wb").write(note("good note", 1)[:10])      # cut off inside the header: shorter than any valid note
+open(os.path.join(d, "short.bin"), "wb").write(note("good note with a longer body", 1)[:-6])   # header intact, the body is shorter than its length field says
