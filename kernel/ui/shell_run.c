@@ -26,6 +26,7 @@ static int store_get(uint32_t id, uint32_t *v) { return settings_get(PRINCIPAL_S
 static int store_set(uint32_t id, uint32_t v) { return settings_set(PRINCIPAL_SHELL, id, v); }
 static int store_reset(uint32_t id) { return settings_reset(PRINCIPAL_SHELL, id); }
 static const struct shell_store STORE = { store_get, store_set, store_reset };
+static int space_store;            /* 1 once the shell may save the selected Space (a mounted disk and the shell's appearance right) */
 
 #define SHELL_SLICE_TICKS 6        /* scheduler ticks (1 ms each while it runs) handed to EL0 processes per shell iteration */
 #define SHELL_QUANTUM_TICKS 2      /* round-robin quantum among EL0 processes inside a slice */
@@ -226,7 +227,14 @@ void shell_boot_draw(void)
 static void log_state(uint32_t *screen, uint32_t *space, int32_t *focus, uint32_t *modal, uint32_t *opens, uint32_t *qsig, uint32_t *corner)
 {
     if (SH.screen != *screen) { *screen = SH.screen; console_puts("shell: screen="); console_puts(shell_screen_name(SH.screen)); console_puts(" history="); console_dec(SH.hist_n); console_puts("\n"); }
-    if (SH.space != *space) { *space = SH.space; console_puts("shell: space="); console_puts(SHELL_SPACE_NAMES[SH.space]); console_puts("\n"); }
+    if (SH.space != *space) {
+        *space = SH.space; console_puts("shell: space="); console_puts(SHELL_SPACE_NAMES[SH.space]); console_puts("\n");
+        if (space_store) {                                       /* persist through the ONE settings registry; the answer is reported truthfully, the session keeps the choice either way */
+            int rc = store_set(SET_SPACE, SH.space);
+            if (rc == SETTINGS_OK) { console_puts("shell: space saved="); console_puts(SHELL_SPACE_NAMES[SH.space]); console_puts("\n"); }
+            else { console_puts("shell: space NOT saved rc="); console_dec((uint64_t)(rc < 0 ? -rc : rc)); console_puts("\n"); }
+        }
+    }
     int32_t f = SH.fx.focus >= 0 ? (int32_t)SH.c[SH.fx.focus].id : -1;
     if (f != *focus) { *focus = f; console_puts("shell: focus="); if (f >= 0) console_dec((uint64_t)f); else console_puts("none"); console_puts("\n"); }
     if (SH.screen == SCR_INDEX) {                                /* a signature of the search state, so only real changes are logged */
@@ -278,7 +286,13 @@ void shell_loop(struct input_state *in)
         int g = settings_grant(PRINCIPAL_SHELL, CAP_SET_APPEARANCE | CAP_SET_ATTENTION);
         console_puts("shell: settings store=disk load="); console_dec((uint64_t)st); console_puts(" grant="); console_dec((uint64_t)(g < 0 ? -g : g));
         console_puts(g == SETTINGS_OK ? " (appearance+attention, no system)\n" : " FAILED\n");
-        if (g == SETTINGS_OK) shell_set_store(&SH, &STORE);
+        if (g == SETTINGS_OK) {
+            shell_set_store(&SH, &STORE);
+            uint32_t sp = 0;                                     /* the saved Space: stable configuration only, validated by the registry (0..3) and re-checked here */
+            if (st == SETLOAD_OK && store_get(SET_SPACE, &sp) == SETTINGS_OK && sp < SHELL_SPACES) { shell_select_space(&SH, sp); console_puts("shell: space restored="); console_puts(SHELL_SPACE_NAMES[sp]); console_puts("\n"); }
+            else console_puts("shell: space restored=none (default Study)\n");
+            space_store = 1;
+        }
     } else console_puts("shell: settings store=none (changes last for this session only)\n");
     aura_s1_attach(&S1ENV);                                      /* the S1 chain exists from here on: it still needs a keyboard, healthy ledgers and a person at the review */
     ledger_set_boot_hook(s1_boot_recover);
