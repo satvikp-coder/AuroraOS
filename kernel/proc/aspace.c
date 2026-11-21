@@ -103,6 +103,32 @@ int aspace_map(struct aspace *as, uint64_t va, int perm, const void *init, size_
     return 0;
 }
 
+int aspace_unmap(struct aspace *as, uint64_t va)
+{
+    if (!as || !as->live) return -1;
+    if ((va & (PAGE_SIZE - 1)) || va < USER_VA_BASE || va >= USER_VA_LIMIT || (va >> 30) != (USER_VA_BASE >> 30)) return -2;   /* same range rules as aspace_map */
+    uint64_t *l1 = (uint64_t *)(uintptr_t)as->l1_pa;
+    uint64_t e1 = l1[IDX1(va)];
+    if (!(e1 & PTE_VALID)) return -5;
+    uint64_t *l2 = (uint64_t *)(uintptr_t)(e1 & ADDR_MASK);
+    uint64_t e2 = l2[IDX2(va)];
+    if (!(e2 & PTE_VALID)) return -5;
+    uint64_t *l3 = (uint64_t *)(uintptr_t)(e2 & ADDR_MASK);
+    uint64_t e3 = l3[IDX3(va)];
+    if (!(e3 & PTE_VALID)) return -5;
+    uint64_t pa = e3 & ADDR_MASK;
+    int idx = -1;
+    for (int i = 0; i < as->npages; i++) if (as->pages[i] == pa) { idx = i; break; }
+    if (idx < 0) return -6;                                  /* not a page this address space owns: never free it */
+    l3[IDX3(va)] = 0;
+    __asm__ volatile ("dsb ishst" ::: "memory");
+    uint64_t arg = ((uint64_t)as->asid << 48) | (va >> 12);
+    __asm__ volatile ("tlbi vae1is, %0\n dsb ish\n isb" :: "r"(arg) : "memory");       /* drop the stale translation for this ASID and page before the page can be reused */
+    as->pages[idx] = as->pages[--as->npages];
+    pmm_free_page(pa);
+    return 0;
+}
+
 uint64_t aspace_ttbr(const struct aspace *as) { return ((uint64_t)as->asid << 48) | as->l1_pa; }
 
 void aspace_destroy(struct aspace *as)

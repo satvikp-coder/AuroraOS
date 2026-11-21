@@ -601,7 +601,7 @@ role_recv_flags:
 role_tryall:
     ldr     x20, =DATA_VA
     mov     x19, x1
-    mov     x21, #10
+    mov     x21, #11                    /* 10 is SYS_MEM (it only manages the caller's own heap); 11..40 must be unimplemented */
     mov     x22, #0
 ta_loop:
     mov     x0, #2

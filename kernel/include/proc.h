@@ -28,7 +28,9 @@
 
 /* ---- address spaces ---- */
 enum { UPERM_RX = 1, UPERM_RW = 2, UPERM_RO = 3 };
-#define ASPACE_MAX_PAGES 24
+#define USER_HEAP_VA        (USER_VA_BASE + 0x10000)   /* RW, grown by SYS_MEM; inside the same 2 MiB table as code/data/stack, with unmapped space on both sides */
+#define USER_HEAP_MAX_PAGES 32u                        /* per-process budget: 128 KiB */
+#define ASPACE_MAX_PAGES (24 + (int)USER_HEAP_MAX_PAGES)    /* tables and fixed pages, plus the heap budget */
 struct aspace {
     uint64_t l1_pa;
     uint32_t asid;                              /* 8-bit ASID (TCR_EL1.AS = 0); 0 is the kernel */
@@ -38,6 +40,7 @@ struct aspace {
 };
 int      aspace_create(struct aspace *as, uint32_t asid);
 int      aspace_map(struct aspace *as, uint64_t va, int perm, const void *init, size_t len, uint64_t *pa_out);
+int      aspace_unmap(struct aspace *as, uint64_t va);   /* unmap and free one mapped user page: 0, or -2 (bad address) / -5 (not mapped); flushes its TLB entry */
 void     aspace_destroy(struct aspace *as);     /* flushes the ASID's TLB entries, frees every owned page */
 uint64_t aspace_ttbr(const struct aspace *as);
 
@@ -58,6 +61,7 @@ struct proc {
     struct aspace as;
     uint64_t entry;
     int exit_code;
+    uint32_t heap_pages;                        /* pages currently mapped at USER_HEAP_VA (SYS_MEM), 0..USER_HEAP_MAX_PAGES */
     uint64_t fault_esr, fault_far, fault_elr, fault_spsr;
     uint64_t code_pa, data_pa, stack_pa;
     uint64_t syscalls, ticks_run, switches_in, el0_exceptions, el0_confirmed;   /* el0_confirmed: SPSR said EL0t */
@@ -118,6 +122,8 @@ void sched_trace_reset(void);
 #define SYS_RECV   7   /* x0 = user buffer, x1 = capacity, x2 = flags (1 = do not block): x0 = length or error, x1 = sender pid */
 #define IPC_NONBLOCK 1
 #define SYS_FS     8   /* x0 = operation (FSOP_*), x1..x4 arguments: see kernel/proc/fssys.c */
+#define SYS_MEM    10  /* x0 = operation (MEMOP_*), x1 = page count: a bounded user heap; see kernel/proc/memsys.c */
+enum { MEMOP_GROW = 1, MEMOP_SHRINK, MEMOP_INFO };
 #define SYS_SETTINGS 9   /* x0 = operation (SETOP_*), x1 = setting id, x2 = value: see kernel/settings.c */
 #define SYS_WRITE_MAX 256
 #define AE_OK      0
@@ -128,6 +134,7 @@ void sched_trace_reset(void);
 #define AE_EAGAIN (-5)   /* mailbox full (send) / empty (non-blocking receive) */
 #define AE_ESRCH  (-6)   /* no such live process */
 #define AE_EPERM  (-7)   /* sender not authorised for that destination */
+#define AE_ENOMEM (-8)   /* out of memory, over the process's budget, or the kernel's reserve would be used */
 
 /* ---- file system call (kernel/proc/fssys.c) ---- */
 #include <principal.h>
@@ -139,6 +146,7 @@ enum { FSOP_CREATE = 1, FSOP_LOOKUP, FSOP_READ, FSOP_WRITE, FSOP_STAT, FSOP_LIST
 struct user_fs_stat { uint64_t id; uint32_t size, owner, perm, reserved; char name[32]; };   /* 56 bytes, written to user memory */
 int  proc_set_principal(int pid, uint32_t principal);   /* kernel-only; 0 (the kernel) and PRINCIPAL_NONE are refused */
 int64_t fs_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4);
+int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n);   /* SYS_MEM (kernel/proc/memsys.c) */
 int64_t settings_syscall(struct proc *p, uint64_t op, uint64_t id, uint64_t value);   /* kernel/settings.c */
 
 /* ---- safe user memory access ---- */
@@ -157,6 +165,7 @@ void ipc_cleanup(struct proc *p);
 extern uint8_t user_blob_start[], user_blob_end[];
 #ifdef AURORA_SELFTEST_HOOKS
 extern uint8_t user_fp_blob_start[], user_fp_blob_end[];   /* kernel/proc/user_fp_progs.S: FP/SIMD test programs (test kernels only) */
+extern uint8_t user_mem_blob_start[], user_mem_blob_end[];   /* kernel/proc/user_mem_progs.S: SYS_MEM test programs (test kernels only) */
 #endif
 
 #endif

@@ -20,7 +20,7 @@ cd "$ROOT" || exit 1
 
 EXPECTED_BLK_TESTS=14      # keep in sync with kernel/blktest.c (read/write disk)
 EXPECTED_BLK_TESTS_RO=3    # identify x2 + the read-only check
-EXPECTED_PROC_TESTS=84
+EXPECTED_PROC_TESTS=95
 
 OUT="$ROOT/build/storage-tests"
 rm -rf "$OUT"; mkdir -p "$OUT"

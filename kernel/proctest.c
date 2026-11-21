@@ -376,6 +376,74 @@ void proctest_run(void)
         }
 #endif
 
+#ifdef AURORA_SELFTEST_HOOKS
+        /* ---- SYS_MEM: the bounded user heap (kernel/proc/memsys.c) ---- */
+        {
+            #define MEMIMG user_mem_blob_start, (size_t)(user_mem_blob_end - user_mem_blob_start)
+            destroy_all(); sched_stats_reset();
+            const uint64_t free_before_heap = free_pages();
+            int hp = proc_create_image(90, 0, "memprobe", MEMIMG);
+            uint64_t rh = sched_run(2000);
+            struct proc *ph = proc_get(hp);
+            check("heap: the boundary probe ran to its deliberate final fault (a page it had shrunk away): translation fault at the heap start, nothing else went wrong",
+                  rh == SCHED_ALL_DONE && ph && ph->state == PROC_FAULTED && ((ph->fault_esr >> 26) & 0x3F) == 0x24 && (ph->fault_esr & 0x3C) == 0x04 && ph->fault_far == USER_HEAP_VA && ud(ph, 8) == 0x9999);
+            check("heap: every bad request is refused with the right error and changes nothing: grow(0), grow(2^63) and grow(33) are EINVAL, an unknown op is EINVAL, shrink on an empty heap is EINVAL",
+                  ph && ud(ph, 0x10) == (((uint64_t)USER_HEAP_MAX_PAGES << 32) | 0) && (int64_t)ud(ph, 0x18) == AE_EINVAL && (int64_t)ud(ph, 0x20) == AE_EINVAL && (int64_t)ud(ph, 0x28) == AE_EINVAL &&
+                  (int64_t)ud(ph, 0x30) == AE_EINVAL && (int64_t)ud(ph, 0x38) == AE_EINVAL);
+            check("heap: grow(1) maps one ZERO page that the process can write and read back; growing to the full 32-page budget works and its last doubleword is writable",
+                  ph && ud(ph, 0x40) == 1 && ud(ph, 0x48) == 0 && ud(ph, 0x50) == 0xA5A5C3C35A5A3C3CULL && ud(ph, 0x58) == 32 && ud(ph, 0x60) == 0xA5A5C3C35A5A3C3CULL);
+            check("heap: one page over the budget is ENOMEM, shrinking by more than it holds is EINVAL, and shrinking all 32 pages leaves an empty heap",
+                  ph && (int64_t)ud(ph, 0x68) == AE_ENOMEM && (int64_t)ud(ph, 0x70) == AE_EINVAL && ud(ph, 0x78) == 0 && ph->heap_pages == 0);
+            destroy_all();
+            check("heap: after the process is destroyed every page it ever held (tables, fixed pages, heap) is back in the allocator", free_pages() == free_before_heap);
+
+            destroy_all(); sched_stats_reset();
+            int hx = proc_create_image(91, 0, "heapexec", MEMIMG);
+            uint64_t rx = sched_run(2000);
+            struct proc *phx = proc_get(hx);
+            check("heap: branching into a heap page is an instruction abort with a PERMISSION fault: the heap is never executable (W^X holds for grown memory)",
+                  rx == SCHED_ALL_DONE && phx && phx->state == PROC_FAULTED && ((phx->fault_esr >> 26) & 0x3F) == 0x20 && (phx->fault_esr & 0x3C) == 0x0C && phx->fault_far == USER_HEAP_VA && ud(phx, 0x40) == 0);
+            destroy_all(); sched_stats_reset();
+
+            const uint64_t free_before_pat = free_pages();
+            int h1 = proc_create_image(92, 25, "heap-a", MEMIMG), h2 = proc_create_image(92, 25, "heap-b", MEMIMG);
+            sched_set_preempt(1, 2);
+            uint64_t rp = sched_run(5000);
+            sched_set_preempt(0, 0);
+            struct proc *pq1 = proc_get(h1), *pq2 = proc_get(h2);
+            check("heap: two processes that never yield, each with 8 heap pages filled with its own pid-derived pattern, kept every one of 4096 doublewords across timer preemption (0 mismatches, several preemptions, own pages)",
+                  rp == SCHED_ALL_DONE && pq1 && pq2 && pq1->state == PROC_TERMINATED && pq2->state == PROC_TERMINATED && ud(pq1, 8) == 0xDDDD && ud(pq2, 8) == 0xDDDD && ud(pq1, 0x10) == 0 && ud(pq2, 0x10) == 0 &&
+                  pq1->preemptions >= 2 && pq2->preemptions >= 2 && pq1->heap_pages == 8 && pq2->heap_pages == 8 && pq1->as.l1_pa != pq2->as.l1_pa);
+            destroy_all();
+            check("heap: processes that exit WITHOUT shrinking leak nothing (exit reclaims the heap with the address space)", free_pages() == free_before_pat);
+
+            /* memory pressure: the kernel's reserve (256 pages) is never given to a heap, and the check is exact at the boundary */
+            destroy_all(); sched_stats_reset();
+            int e1 = proc_create_image(93, 0, "memtry", MEMIMG);
+            uintptr_t held = 0; uint64_t nheld = 0;
+            for (;;) { uintptr_t pg = pmm_alloc_page(); if (!pg) break; *(volatile uint64_t *)pg = held; held = pg; nheld++; }
+            for (int i = 0; i < 256; i++) { uintptr_t nx = *(volatile uint64_t *)held; pmm_free_page(held); held = nx; nheld--; }      /* exactly 256 pages free: the whole reserve and nothing more */
+            uint64_t re = sched_run(2000);
+            struct proc *pe1 = proc_get(e1);
+            check("heap: with only the 256-page reserve left, grow(1) is refused (ENOMEM) and the heap stays empty",
+                  re == SCHED_ALL_DONE && pe1 && pe1->state == PROC_TERMINATED && (int64_t)ud(pe1, 0x10) == AE_ENOMEM && ud(pe1, 0x18) == (((uint64_t)USER_HEAP_MAX_PAGES << 32) | 0) && pe1->heap_pages == 0);
+            destroy_all();                                                                       /* gives back the process's pages */
+            int e2 = proc_create_image(93, 0, "memtry", MEMIMG);                                 /* takes some pages again */
+            while (free_pages() > 257) { uintptr_t pg = pmm_alloc_page(); if (!pg) break; *(volatile uint64_t *)pg = held; held = pg; nheld++; }
+            while (free_pages() < 257 && held) { uintptr_t nx = *(volatile uint64_t *)held; pmm_free_page(held); held = nx; nheld--; }
+            uint64_t fp257 = free_pages();
+            uint64_t re2 = sched_run(2000);
+            struct proc *pe2 = proc_get(e2);
+            check("heap: with exactly reserve + 1 pages free, grow(1) succeeds: the boundary is exact (256 refused, 257 granted)",
+                  fp257 == 257 && re2 == SCHED_ALL_DONE && pe2 && pe2->state == PROC_TERMINATED && ud(pe2, 0x10) == 1);
+            destroy_all();
+            while (held) { uintptr_t nx = *(volatile uint64_t *)held; pmm_free_page(held); held = nx; nheld--; }
+            (void)nheld;
+            check("heap: after the pressure test every page is back (no leak, nothing double-freed)", free_pages() == free_before_heap);
+            #undef MEMIMG
+        }
+#endif
+
         /* a fault while preempting: the healthy process keeps running and finishes */
         destroy_all(); sched_stats_reset();
         int bad = proc_create(10, (uint64_t)(uintptr_t)&kernel_secret, "bad"), good = proc_create(50, 25, "good");
@@ -619,8 +687,8 @@ void proctest_run(void)
             int t = proc_create(67, 2, "tryall"), o = proc_create(64, 0, "other");
             r = sched_run(2000);
             struct proc *T = proc_get(t);
-            check("ipc authorisation: no system call lets a process grant itself permission (numbers 10-40 all -ENOSYS; number 8 is the file system call and 9 the settings call, which both refuse a process that has no identity) and its send to an unauthorised pid is -EPERM",
-                  r == SCHED_DEADLOCK && o == 2 && ud(T, 0x20) == 31 && (int64_t)ud(T, 0x28) == AE_EPERM && T->state == PROC_TERMINATED && proc_get(o)->mbox.count == 0);
+            check("ipc authorisation: no system call lets a process grant itself permission (numbers 11-40 all -ENOSYS; number 8 is the file system call, 9 the settings call, which both refuse a process that has no identity, and 10 the memory call, which only ever manages the caller's own heap) and its send to an unauthorised pid is -EPERM",
+                  r == SCHED_DEADLOCK && o == 2 && ud(T, 0x20) == 30 && (int64_t)ud(T, 0x28) == AE_EPERM && T->state == PROC_TERMINATED && proc_get(o)->mbox.count == 0);
             destroy_all();
             int f1 = proc_create(66, 2, "flags"), f2 = proc_create(66, 3, "flags"), f3 = proc_create(66, 1, "flags");
             sched_run(2000);
