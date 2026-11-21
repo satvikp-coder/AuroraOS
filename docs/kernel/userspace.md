@@ -25,8 +25,7 @@ convention could not simply be reused. The new one:
 * Exceptions are distinguished by vector kind: 0/1 = kernel code (EL1t), 8/9 = from EL0 (synchronous / IRQ), 4-7 = taken while
   already on the exception stack (nested: panic), everything else panics. For kind 8 the saved `SPSR` must say EL0t or the
   kernel treats it as a bug.
-* FP/SIMD: `CPACR_EL1.FPEN=01` (EL0 use traps). The kernel does not save FP state, so a user floating-point instruction is a
-  fault (EC 0x07), not a silent cross-process register leak.
+* FP/SIMD (Cycle 22): `CPACR_EL1.FPEN=11`, so EL0 may use floating point and SIMD. The kernel itself is built `-mgeneral-regs-only` and never touches V0-V31/FPSR/FPCR, so at a context switch the registers still belong to the process that last ran. `switch_to` saves them into that process's `struct fpstate` (528 bytes in `struct proc`; `kernel/arch/aarch64/fpsimd.S`) and loads the incoming process's, EAGERLY at every switch (no lazy trapping). The save is skipped unless the slot still holds the same process INSTANCE (`gen`), so a destroyed and re-created slot never receives the old registers; a new process starts with zero state (FPCR=0, FPSR=0). Tested under QEMU TCG in `kernel/proctest.c` with EL0 programs in `kernel/proc/user_fp_progs.S` (test kernels only): three never-yielding processes with distinct V0-V31/FPCR/FPSR keep them across timer preemption; a new process in an earlier process's slot, including one that dirtied everything and then faulted, sees only zeros; removing the restore or the instance check makes those tests fail. NOT claimed: SVE, real-hardware behaviour or performance, or that eager switching is the cheapest design (it costs a 528-byte save and load per switch).
 
 ## Address spaces
 

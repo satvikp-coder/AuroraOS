@@ -103,11 +103,17 @@ mkdir -p "$BUILD_DIR"
 OBJS=""
 
 echo "[build] Assembling..."
-for s in boot/aarch64/start.S kernel/arch/aarch64/vectors.S kernel/arch/aarch64/exc_selftest.S kernel/proc/user_progs.S; do
+for s in boot/aarch64/start.S kernel/arch/aarch64/vectors.S kernel/arch/aarch64/exc_selftest.S kernel/arch/aarch64/fpsimd.S kernel/proc/user_progs.S; do
     o="$BUILD_DIR/$(basename "$s" .S).o"
     $AS -march=armv8-a $ASFLAGS -o "$o" "$s"
     OBJS="$OBJS $o"
 done
+
+if [ -z "$AURORA_PRODUCTION" ]; then      # EL0 FP/SIMD context-switch programs (test kernels only)
+    o="$BUILD_DIR/user_fp_progs.o"
+    $AS -march=armv8-a $ASFLAGS -o "$o" kernel/proc/user_fp_progs.S
+    OBJS="$OBJS $o"
+fi
 
 if [ -n "$AURORA_FS_TEST" ]; then      # EL0 file-access boundary programs: test kernels only, never in a normal or production image
     o="$BUILD_DIR/user_test_progs.o"

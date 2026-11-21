@@ -15,6 +15,7 @@
 #include <arch.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <fpsimd.h>
 
 /* ---- user virtual-address layout (identical in every process, different physical pages) ---- */
 #define USER_VA_BASE   0x4000000000ULL          /* 256 GiB: L1 slot 256, disjoint from the kernel's slots 0-1 */
@@ -53,6 +54,7 @@ struct proc {
     int pid;                                    /* 1..PROC_MAX; also selects the ASID */
     enum proc_state state;
     struct exc_frame ctx;                       /* saved CPU context (valid unless RUNNING) */
+    struct fpstate fp;                          /* saved FP/SIMD registers (valid unless this process owns the live registers); zero for a new process */
     struct aspace as;
     uint64_t entry;
     int exit_code;
@@ -153,5 +155,8 @@ void ipc_cleanup(struct proc *p);
 
 /* ---- user programs (assembly blob copied into each process's code page) ---- */
 extern uint8_t user_blob_start[], user_blob_end[];
+#ifdef AURORA_SELFTEST_HOOKS
+extern uint8_t user_fp_blob_start[], user_fp_blob_end[];   /* kernel/proc/user_fp_progs.S: FP/SIMD test programs (test kernels only) */
+#endif
 
 #endif

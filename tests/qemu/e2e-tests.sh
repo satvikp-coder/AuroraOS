@@ -16,7 +16,7 @@ cd "$ROOT" || exit 1
 
 EXPECTED_LOAD=24
 EXPECTED_SET=18
-EXPECTED_PROC_TESTS=79
+EXPECTED_PROC_TESTS=84
 
 OUT="$ROOT/build/e2e-tests"
 rm -rf "$OUT"; mkdir -p "$OUT"
