@@ -1,7 +1,8 @@
 /*
  * kernel/proc/memsys.c - SYS_MEM: a bounded, quota-checked user heap (Cycle 22).
  *
- * A process may grow and shrink one contiguous heap at USER_HEAP_VA, in whole pages, up to USER_HEAP_MAX_PAGES (a per-process page budget). Rules:
+ * A process may grow and shrink one contiguous heap at USER_HEAP_VA (kernel/include/uvlayout.h), in whole pages, up to USER_HEAP_MAX_PAGES (a per-process
+ * page budget). The heap is bracketed by 16-page GUARDS that are never mapped (aspace_map refuses them), and it lies outside the ELF load window. Rules:
  *   - heap pages are RW and never executable (W^X: aspace_map's RW attribute sets UXN and PXN) and are zero when first mapped (the allocator hands out zeroed pages);
  *   - growth is ATOMIC: if any page cannot be mapped, every page this call mapped is unmapped again and the heap is unchanged;
  *   - the kernel keeps HEAP_RESERVE_PAGES free for itself, the compositor and the loader: a grow that would dig into the reserve fails with AE_ENOMEM;
@@ -28,11 +29,11 @@ int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n)
         if (st.free_pages < n + HEAP_RESERVE_PAGES) return AE_ENOMEM;                /* would dig into the reserve */
         uint32_t base = p->heap_pages, done = 0;
         for (; done < n; done++) {
-            uint64_t va = USER_HEAP_VA + (uint64_t)(base + done) * PAGE_SIZE;
-            if (aspace_map(&p->as, va, UPERM_RW, 0, 0, 0) != 0) break;
+            uint64_t va = uv_heap_page_va((uint64_t)base + done);                    /* 0 if it is not a page the heap may ever own */
+            if (!va || aspace_map(&p->as, va, UPERM_RW, 0, 0, 0) != 0) break;
         }
         if (done < n) {                                                              /* atomic: undo what this call mapped */
-            while (done--) (void)aspace_unmap(&p->as, USER_HEAP_VA + (uint64_t)(base + done) * PAGE_SIZE);
+            while (done--) (void)aspace_unmap(&p->as, uv_heap_page_va((uint64_t)base + done));
             return AE_ENOMEM;
         }
         p->heap_pages = base + (uint32_t)n;
@@ -42,7 +43,7 @@ int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n)
         if (n == 0 || n > p->heap_pages) return AE_EINVAL;
         for (uint64_t i = 0; i < n; i++) {
             p->heap_pages--;
-            (void)aspace_unmap(&p->as, USER_HEAP_VA + (uint64_t)p->heap_pages * PAGE_SIZE);
+            (void)aspace_unmap(&p->as, uv_heap_page_va(p->heap_pages));
         }
         return (int64_t)p->heap_pages;
     }

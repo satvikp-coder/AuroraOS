@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-EXPECTED_PROC_TESTS=95   # keep in sync with kernel/proctest.c
+EXPECTED_PROC_TESTS=108   # keep in sync with kernel/proctest.c
 EXPECTED_MM_TESTS=93
 EXPECTED_IRQ_TESTS=43
 
@@ -78,7 +78,7 @@ normal_boot() { # name machine mem
     expect "$log" "\[proc-test\] ipc: 12 rounds.*: PASS" "$name: repeated create/send/receive/destroy leaks nothing"
     expect "$log" "\[proc-test\] watchdog: .*: PASS" "$name: a never-yielding loop cannot hang the kernel"
     c="$(grep -c '^\[proc [0-9]*\] FAULT at EL0' "$log")"
-    if [ "$c" -eq 18 ]; then ok "$name: the 18 intentional user faults were each reported as an EL0 fault"; else bad "$name: saw $c EL0 fault reports, expected 18"; fi
+    if [ "$c" -eq 24 ]; then ok "$name: the 24 intentional user faults were each reported as an EL0 fault"; else bad "$name: saw $c EL0 fault reports, expected 24"; fi
     expect "$log" "^\[user p1\] A" "$name: kernel-tagged output of an EL0 program (A) reached the console"
     expect "$log" "^\[user p2\] B" "$name: kernel-tagged output of an EL0 program (B) reached the console"
     expect "$log" "Userspace OK" "$name: userspace reported OK"
