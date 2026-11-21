@@ -440,6 +440,70 @@ void proctest_run(void)
             while (held) { uintptr_t nx = *(volatile uint64_t *)held; pmm_free_page(held); held = nx; nheld--; }
             (void)nheld;
             check("heap: after the pressure test every page is back (no leak, nothing double-freed)", free_pages() == free_before_heap);
+            /* ---- guard pages: the heap is bracketed by unmapped space that aspace_map never fills, and EL0 faults on every side of it (kernel/include/uvlayout.h) ---- */
+            {
+                struct aspace ga;
+                const uint64_t free_before_ga = free_pages();
+                int gcr = aspace_create(&ga, 201);
+                const uint64_t guards[] = { USER_VA_BASE + 0x2000, USER_VA_BASE + 0x5000, USER_VA_BASE + 0xF000, ELF_VA_MAX, USER_HEAP_VA - PAGE_SIZE, USER_HEAP_VA - USER_HEAP_GUARD_BYTES,
+                                            USER_HEAP_END, USER_HEAP_END + USER_HEAP_GUARD_BYTES - PAGE_SIZE, USER_VA_BASE + 0x1FF000 };
+                const int npg0 = gcr == 0 ? ga.npages : -1; const uint64_t fr0 = free_pages();
+                int all_refused = gcr == 0;
+                for (unsigned i = 0; gcr == 0 && i < sizeof guards / sizeof *guards; i++) if (aspace_map(&ga, guards[i], UPERM_RW, 0, 0, 0) != -7) all_refused = 0;
+                check("guards: aspace_map refuses every guard page (between data and stack, above the stack, below and above the ELF window, both sides of the heap, the end of the table) with -7, and changes nothing",
+                      all_refused && ga.npages == npg0 && free_pages() == fr0);
+                int ok_maps = gcr == 0 && aspace_map(&ga, USER_HEAP_VA, UPERM_RW, 0, 0, 0) == 0 && aspace_map(&ga, USER_HEAP_END - PAGE_SIZE, UPERM_RW, 0, 0, 0) == 0 &&
+                              aspace_map(&ga, ELF_VA_MIN, UPERM_RW, 0, 0, 0) == 0 && aspace_map(&ga, ELF_VA_MAX - PAGE_SIZE, UPERM_RW, 0, 0, 0) == 0;
+                check("guards: the first and last heap page and the first and last ELF-window page are still mappable (the guards do not eat the regions they protect)", ok_maps);
+                if (gcr == 0) aspace_destroy(&ga);
+                check("guards: destroying that address space returns every page", free_pages() == free_before_ga);
+            }
+            {
+                static const struct { uint64_t off_is_minus; uint64_t off; uint32_t pages; int ec; int store; const char *what; } gp[6] = {
+                    { 1, 8,        1,  0x24, 0, "the last word of the guard just BELOW the heap (a load)" },
+                    { 0, 0x1000,   1,  0x24, 0, "the page just ABOVE a 1-page heap (a load)" },
+                    { 0, 0x20000,  32, 0x24, 1, "the first page past a FULL 32-page heap (a store)" },
+                    { 0, 0x2FFF8,  32, 0x24, 0, "the last word of the guard above a full heap (a load)" },
+                    { 1, 0x10000,  1,  0x24, 0, "the first page of the guard below the heap (a load)" },
+                    { 1, 0x1000,   1,  0x20, 0, "an instruction fetch from the guard just below the heap (a branch)" } };
+                const uint64_t free_before_gp = free_pages();
+                int last_gpid = 0;
+                for (int k = 0; k < 6; k++) {
+                    destroy_all(); sched_stats_reset();
+                    int gpid = proc_create_image(94, (uint64_t)k, "guard", MEMIMG);
+                    uint64_t rg = sched_run(2000);
+                    struct proc *pg = proc_get(gpid);
+                    uint64_t want = gp[k].off_is_minus ? USER_HEAP_VA - gp[k].off : USER_HEAP_VA + gp[k].off;
+                    char msg[200]; int ml = 0; const char *pre = "guards: EL0 touching "; while (pre[ml]) { msg[ml] = pre[ml]; ml++; }
+                    for (int j = 0; gp[k].what[j] && ml < 150; j++) msg[ml++] = gp[k].what[j];
+                    const char *suf = " is a translation fault at exactly that address; the process is FAULTED, did nothing after, and its heap pages are intact";
+                    for (int j = 0; suf[j] && ml < 199; j++) msg[ml++] = suf[j];
+                    msg[ml] = 0;
+                    check(msg, rg == SCHED_ALL_DONE && pg && pg->state == PROC_FAULTED && ((pg->fault_esr >> 26) & 0x3F) == (uint32_t)gp[k].ec && (pg->fault_esr & 0x3C) == 0x04 &&
+                               (gp[k].ec != 0x24 || (((pg->fault_esr >> 6) & 1) == (uint32_t)gp[k].store)) && pg->fault_far == want && ud(pg, 8) == 0x9999 && ud(pg, 0x40) == 0 && pg->heap_pages == gp[k].pages);
+                    last_gpid = gpid;
+                }
+                destroy_all();
+                check("guards: after six processes faulted WITH a heap allocated every page they held is back (no leak on a fault)", free_pages() == free_before_gp);
+
+                /* pid reuse: the next process in a faulted process's slot starts with an empty heap and its own budget */
+                int rp = proc_create_image(93, 0, "memtry", MEMIMG);
+                uint64_t rr = sched_run(2000);
+                struct proc *pr = proc_get(rp);
+                check("guards: a new process that reuses the slot of a faulted one starts with an EMPTY heap (grow(1) gives 1 page, info says 1) and no stale mapping",
+                      rp == last_gpid && rr == SCHED_ALL_DONE && pr && pr->state == PROC_TERMINATED && ud(pr, 0x10) == 1 && (ud(pr, 0x18) & 0xFFFFFFFFULL) == 1 && pr->heap_pages == 1);
+                destroy_all(); sched_stats_reset();
+
+                /* repeated grow/shrink: a regrown heap is all zero (no stale data from a freed page), eight times over the full budget */
+                const uint64_t free_before_cy = free_pages();
+                int cy = proc_create_image(95, 0, "heapcycle", MEMIMG);
+                uint64_t rc2 = sched_run(8000);
+                struct proc *pcy = proc_get(cy);
+                check("guards: eight grow(32)/fill/shrink(32) cycles: every regrown heap is entirely ZERO (0 stale doublewords of 16384 x 8), every grow and shrink returned its exact value, and the heap ends empty",
+                      rc2 == SCHED_ALL_DONE && pcy && pcy->state == PROC_TERMINATED && ud(pcy, 8) == 0xCCCC && ud(pcy, 0x10) == 0 && ud(pcy, 0x18) == 0 && pcy->heap_pages == 0);
+                destroy_all();
+                check("guards: and the cycles leaked nothing", free_pages() == free_before_cy);
+            }
             #undef MEMIMG
         }
 #endif

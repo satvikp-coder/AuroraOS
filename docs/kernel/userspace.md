@@ -135,7 +135,7 @@ Depends on AuroraFS (PR #28). Implemented in `kernel/proc/fssys.c`; tests in `ke
 
 ## SYS_MEM: a bounded user heap (Cycle 22)
 
-`SYS_MEM` (number 10; `x0` = operation, `x1` = page count) lets a process grow and shrink ONE contiguous heap at `USER_HEAP_VA` (`USER_VA_BASE + 0x10000`), in whole pages, up to a per-process budget of `USER_HEAP_MAX_PAGES` = 32 pages (128 KiB). Operations: `MEMOP_GROW` (returns the new heap size in pages), `MEMOP_SHRINK` (returns what remains), `MEMOP_INFO` (returns `(budget << 32) | pages`). Code: `kernel/proc/memsys.c`, `aspace_unmap` in `kernel/proc/aspace.c`.
+`SYS_MEM` (number 10; `x0` = operation, `x1` = page count) lets a process grow and shrink ONE contiguous heap at `USER_HEAP_VA` (`USER_VA_BASE + 0x110000`, see the guard section below), in whole pages, up to a per-process budget of `USER_HEAP_MAX_PAGES` = 32 pages (128 KiB). Operations: `MEMOP_GROW` (returns the new heap size in pages), `MEMOP_SHRINK` (returns what remains), `MEMOP_INFO` (returns `(budget << 32) | pages`). Code: `kernel/proc/memsys.c`, `aspace_unmap` in `kernel/proc/aspace.c`.
 
 Rules, each covered by a test in `kernel/proctest.c` (EL0 programs in `kernel/proc/user_mem_progs.S`, test kernels only):
 * validation before any change: 0 pages, more than the budget or a value such as 2^63 is `AE_EINVAL`; an unknown operation is `AE_EINVAL`; shrinking by more than the heap holds is `AE_EINVAL`; over the budget is `AE_ENOMEM`. No address arithmetic can wrap because the page count is bounded first;
@@ -145,5 +145,26 @@ Rules, each covered by a test in `kernel/proctest.c` (EL0 programs in `kernel/pr
 * shrinking unmaps from the top, drops the ASID-tagged TLB entry (`tlbi vae1is`) and frees the page; the freed address then takes a translation fault;
 * the heap and the process's other pages are released with the address space on exit or fault (tested: exiting without shrinking, and a destroyed process, return every page);
 * two processes with their own heaps keep distinct contents under timer preemption (4096 doublewords each, 0 mismatches).
+
+### Guard pages and the user address layout (kernel/include/uvlayout.h)
+
+The whole layout lives in one pure header, and every guard is the ABSENCE of a mapping that `aspace_map` refuses to create (returns -7), whoever asks:
+
+| offset in the 2 MiB process window | contents |
+| --- | --- |
+| +0x000000 / +0x001000 | code (RX) / data (RW) |
+| +0x002000 | guard |
+| +0x003000 .. +0x005000 | stack (2 pages, RW) |
+| +0x005000 .. +0x010000 | guard |
+| +0x010000 .. +0x100000 | ELF load window (the loader's segments only; installed programs link at +0x10000) |
+| +0x100000 .. +0x110000 | **guard, 16 pages** |
+| +0x110000 .. +0x130000 | heap (32 pages max, RW + XN) |
+| +0x130000 .. +0x200000 | guard |
+
+Before this change the heap started at +0x10000, which is the first address of the ELF load window: an installed program (linked at +0x10000) sat ON the heap's pages, so its `SYS_MEM` grow could never succeed. The heap now lies outside the ELF window, bracketed by guards, and `_Static_assert`s in `uvlayout.h` stop the build if a constant is ever moved so that two regions touch. `uv_mappable()` is a chain of comparisons against constants (no address arithmetic that could wrap); the heap's page addresses come from `uv_heap_page_va()`, which returns 0 for any page the heap may not own.
+
+Tests: `tests/kernel-host/uvlayout_test.c` (all 512 pages of the window against an independent literal oracle, hostile addresses, mutation-checked); `kernel/proctest.c` (`aspace_map` refuses nine guard pages and changes nothing; six EL0 probes fault with a translation fault at EXACTLY the probed address: the word just below the heap, the page above a 1-page heap, the first page past a full heap, the last word of the upper guard, the first guard page, and an instruction fetch from a guard; pages are returned after faults with a heap allocated; a process reusing a faulted slot starts with an empty heap; eight full grow/fill/shrink cycles always regrow all-zero pages).
+
+What this does NOT give: guards between EL0 *and the kernel* are the kernel's separate slots (L1 0 and 1) and are unchanged; there is still no per-principal budget (a principal that starts many processes gets 32 pages each: tracked as the next milestone).
 
 Not provided on purpose: any way to name a physical address, map the framebuffer or another process's memory, change a page's permissions, or map executable memory. `ASPACE_MAX_PAGES` grew from 24 to 56 (the fixed pages and tables plus the heap budget). Not done yet: a per-principal (rather than per-process) budget, demand paging, guard pages between heap and other regions beyond the unmapped gaps that already exist, and file-backed or shared mappings.

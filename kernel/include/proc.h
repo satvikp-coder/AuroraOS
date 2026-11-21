@@ -17,19 +17,11 @@
 #include <stdint.h>
 #include <fpsimd.h>
 
-/* ---- user virtual-address layout (identical in every process, different physical pages) ---- */
-#define USER_VA_BASE   0x4000000000ULL          /* 256 GiB: L1 slot 256, disjoint from the kernel's slots 0-1 */
-#define USER_VA_LIMIT  0x4040000000ULL          /* one 1 GiB slot */
-#define USER_CODE_VA   (USER_VA_BASE + 0x0000)  /* RX, one page */
-#define USER_DATA_VA   (USER_VA_BASE + 0x1000)  /* RW, one page of private data */
-/* 0x2000 is an unmapped guard page */
-#define USER_STACK_VA  (USER_VA_BASE + 0x3000)  /* RW, two pages */
-#define USER_STACK_TOP (USER_VA_BASE + 0x5000)
+/* ---- user virtual-address layout: kernel/include/uvlayout.h (constants, guards and the one mappability predicate) ---- */
+#include <uvlayout.h>
 
 /* ---- address spaces ---- */
 enum { UPERM_RX = 1, UPERM_RW = 2, UPERM_RO = 3 };
-#define USER_HEAP_VA        (USER_VA_BASE + 0x10000)   /* RW, grown by SYS_MEM; inside the same 2 MiB table as code/data/stack, with unmapped space on both sides */
-#define USER_HEAP_MAX_PAGES 32u                        /* per-process budget: 128 KiB */
 #define ASPACE_MAX_PAGES (24 + (int)USER_HEAP_MAX_PAGES)    /* tables and fixed pages, plus the heap budget */
 struct aspace {
     uint64_t l1_pa;
