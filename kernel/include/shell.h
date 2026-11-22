@@ -132,7 +132,7 @@ struct shell {
     /* Pages screen: a read-only snapshot of the process table, refreshed by the run loop (shell_pages_refresh); NULL source = unavailable */
     uint32_t (*pages_src)(struct procsnap *out);
     struct procsnap ps; uint64_t ps_digest; uint8_t ps_valid;
-    char pg_txt[PROC_MAX][96]; char pg_head[80]; char pg_sum[40];
+    char pg_txt[PROC_MAX][96]; char pg_head[80]; char pg_sum[40]; char pg_more[48];
     /* Aura screen: a deterministic quick-command assistant (no language model). Typed text is bounded; the live preview comes from aura_parse (constants only);
      * running is delegated to aura_run, which the kernel wires to the Action Broker as the shell itself. NULL = not connected: nothing can run. */
     int (*aura_run)(struct shell *sh, const char *text, size_t len, uint8_t *state, char *msg, size_t cap);

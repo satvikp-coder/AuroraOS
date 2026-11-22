@@ -126,6 +126,32 @@ static int audit(const char *what, double *min_ratio_out)
     return bad;
 }
 
+/* ---- stand-ins for what the kernel supplies to the other native screens, filled with the LONGEST realistic content ---- */
+static struct procsnap g_ps;
+static uint32_t ps_src(struct procsnap *out) { *out = g_ps; return out->n; }
+static void ps_add(uint8_t pid, uint8_t state, const char *name, uint32_t pages)
+{
+    struct procsnap_entry *e = &g_ps.e[g_ps.n++]; memset(e, 0, sizeof *e);
+    e->pid = pid; e->state = state; e->gen = 100u + pid; e->ticks = 1234567u * pid; e->pages = pages; e->switches = 99999u; e->yields = 8888u; e->preemptions = 777u;
+    strncpy(e->name, name, sizeof e->name - 1);
+}
+static struct shell_trail_view g_tv;
+static int tv_src(struct shell_trail_view *out) { *out = g_tv; return 0; }
+static void tv_rec(uint32_t seq, uint8_t kind, uint32_t principal, uint8_t target, uint8_t state, uint8_t reason)
+{
+    struct shell_trail_rec *r = &g_tv.rec[g_tv.n++]; memset(r, 0, sizeof *r); r->seq = seq; r->kind = kind; r->principal = principal; r->target = target; r->state = state; r->reason = reason;
+}
+static uint64_t t_now = 100000, t_end; static int t_id = -1, t_state;
+static int t_start(uint64_t ms) { if (t_id >= 0) return -406; t_id = 0; t_state = 1; t_end = t_now + ms; return 0; }
+static int t_query(int id, uint8_t *st, uint64_t *rem) { if (id != t_id) return -403; *st = (uint8_t)t_state; *rem = t_state == 1 ? t_end - t_now : 0; return 0; }
+static int t_cancel(int id) { if (id != t_id) return -403; t_state = 3; return 0; }
+static int t_release(int id) { if (id != t_id) return -403; t_id = -1; t_state = 0; return 0; }
+static const struct shell_timers TIMERS = { t_start, t_query, t_cancel, t_release };
+static const struct aura_caps RV_CAPS = { 1, 1, 0, 0, 0 };
+#define NSTATES 22
+static const char *SN2[NSTATES] = { "home", "spaces", "index", "index-s", "index-long", "about", "corner", "no-results", "limited-input", "settings", "settings-refusal",
+    "pages-empty", "pages-full", "trail-recording", "trail-rollback", "trail-nodisk", "clock-idle", "clock-running", "clock-no-service", "hold", "aura-result", "review-modal" };
+
 static void setup_state(int st)
 {
     /* 0 home, 1 spaces, 2 index empty, 3 index query, 4 index long query, 5 about modal, 6 corner open, 7 index with no hits, 8 limited input */
@@ -139,6 +165,33 @@ static void setup_state(int st)
     if (st == 7) { click(SID_DOCK_INDEX); text("zzzz"); }
     if (st == 9 || st == 10) { click(SID_APP_SETTINGS); }
     if (st == 10) { click(SID_SET_VALUE + 4); }                          /* Aura mode with no store: the refusal text is the longest status */
+    if (st == 11) { memset(&g_ps, 0, sizeof g_ps); shell_set_pages(&sh, ps_src); click(SID_APP_PAGES); }
+    if (st == 12) {
+        memset(&g_ps, 0, sizeof g_ps); ps_add(1, 1, "a-very-long-process-name-xxxxxx", 1000); ps_add(2, 2, "faulted-client-0123456789", 4000000000u); ps_add(3, 3, "terminated-process", 32);
+        ps_add(4, 4, "blocked", 64); ps_add(5, 1, "calc.elf", 6); ps_add(6, 2, "notes.elf", 7); ps_add(7, 1, "files.elf", 8); ps_add(8, 3, "ui-client", 9);
+        shell_set_pages(&sh, ps_src); click(SID_APP_PAGES);
+    }
+    if (st >= 13 && st <= 15) {
+        memset(&g_tv, 0, sizeof g_tv); g_tv.health = st == 13 ? TV_RECORDING : st == 14 ? TV_ROLLBACK : TV_NODISK;
+        for (uint32_t i = 0; i < 12; i++) tv_rec(100000u + i, (uint8_t)(1 + i % 5), 0x7F000000u + i, (uint8_t)(i % 4), (uint8_t)(i % 4), (uint8_t)(i % 6));
+        g_tv.ngrants = 6; for (uint32_t i = 0; i < 6; i++) { g_tv.grant[i].principal = 0x1000u + i; g_tv.grant[i].perm = (uint8_t)(1 + i); }
+        shell_set_trail(&sh, tv_src); shell_go(&sh, SCR_TRAIL);
+    }
+    if (st >= 16 && st <= 18) {
+        t_id = -1; t_state = 0; t_now = 100000;
+        if (st != 18) shell_set_timers(&sh, &TIMERS);
+        shell_tick(&sh, t_now); shell_go(&sh, SCR_CLOCK);
+        if (st == 17) { click(SID_CLOCK_P25); click(SID_CLOCK_START); t_now += 1000; shell_tick(&sh, t_now); }
+    }
+    if (st == 19) shell_go(&sh, SCR_HOLD);
+    if (st == 20) {
+        shell_go(&sh, SCR_AURA); text("start a timer for twenty five minutes and then open the settings page please");
+        shell_aura_report(&sh, 2, "Refused: this needs a review, and the review could not be opened because another request is already waiting; nothing was changed.");
+    }
+    if (st == 21) {
+        shell_tick(&sh, 1000); struct rv_request q; memset(&q, 0, sizeof q); aura_parse("start a timer for 25 minutes", 28, &RV_CAPS, &q.intent);
+        q.pid = 3; q.gen = 30; q.principal = 0x1003; q.nonce = 7; q.prior = -1; q.next = -1; shell_review_open(&sh, 1000, &q, &RV_CAPS, "A client with a rather long display name 0123456789");
+    }
 }
 
 int main(void)
@@ -186,16 +239,15 @@ int main(void)
 
     /* ---- every scale x every contrast x every state: nothing clipped, overlapping or out of bounds ---- */
     {
-        static const char *SN[] = { "home", "spaces", "index", "index-s", "index-long", "about", "corner", "no-results", "limited-input", "settings", "settings-refusal" };
         int total_bad = 0, combos = 0;
         double worst_std = 99, worst_hc = 99;
         for (int hc = 0; hc <= 1; hc++)
             for (uint32_t p = 75; p <= 200; p++)
-                for (int st = 0; st <= 10; st++) {
+                for (int st = 0; st < NSTATES; st++) {
                     setup_state(st);
                     shell_set_contrast(&sh, hc);
                     shell_set_text_scale(&sh, p);
-                    char name[64]; snprintf(name, sizeof name, "%s %u%% hc=%d", SN[st], p, hc);
+                    char name[64]; snprintf(name, sizeof name, "%s %u%% hc=%d", SN2[st], p, hc);
                     double mr = 99;
                     total_bad += audit(name, &mr);
                     if (hc) { if (mr < worst_hc) worst_hc = mr; } else if (mr < worst_std) worst_std = mr;

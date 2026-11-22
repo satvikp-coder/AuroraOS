@@ -755,8 +755,24 @@ static void pages_flow(struct shell *sh, const struct geo *g, int opt)
     y += sl(sh, 56, y, iw, "Pages", 24, P->ink, 1) + 2;
     if (opt) y += sl(sh, 56, y, iw, "Live processes. Read-only: nothing here can stop or change them.", 14, P->muted, 0) + 4;
     if (sh->pg_head[0]) y += sl(sh, 56, y, iw, sh->pg_head, 14, P->muted, 0);
-    for (uint32_t i = 0; i < sh->ps.n && i < PROC_MAX; i++)
+    uint32_t total = sh->ps.n < PROC_MAX ? sh->ps.n : PROC_MAX, shown = total;
+    sh->pg_more[0] = 0;
+    if (!opt && total) {                                                              /* last resort: rows that cannot fit are not drawn over the dock; the screen says so instead */
+        struct fnt f14 = pick_font(14, sh->text_pct);
+        int32_t room = g->bottom - y - (lines_for(f14, 0, sh->pg_sum, iw) * lh_of(f14, 0) + 4) - 12 - 48 - 8 - 16;     /* what is left for rows after the summary, Home and the card edge */
+        int32_t used = 0; shown = 0;
+        for (uint32_t i = 0; i < total; i++) {
+            int b = sh->ps.e[i].state == PSS_FAULTED;
+            int32_t rh = lines_for(f14, b, sh->pg_txt[i], iw) * lh_of(f14, b) + 4;
+            int32_t more_h = i + 1 < total ? lines_for(f14, 0, "+9 more not shown at this text size", iw) * lh_of(f14, 0) + 4 : 0;
+            if (used + rh + more_h > room) break;
+            used += rh; shown++;
+        }
+        if (shown < total) { pcat(sh->pg_more, sizeof sh->pg_more, "+"); pnum(sh->pg_more, sizeof sh->pg_more, total - shown); pcat(sh->pg_more, sizeof sh->pg_more, " more not shown at this text size"); }
+    }
+    for (uint32_t i = 0; i < shown; i++)
         y += sl(sh, 56, y, iw, sh->pg_txt[i], 14, P->ink, sh->ps.e[i].state == PSS_FAULTED);
+    if (sh->pg_more[0]) y += sl(sh, 56, y, iw, sh->pg_more, 14, P->muted, 0);
     y += sl(sh, 56, y, iw, sh->pg_sum, 14, P->muted, 0) + 12;
     y += sb(sh, 56, y, 200 < iw ? 200 : iw, 48, "Home", SID_PAGES_HOME, 1, UI_LAYER_CONTENT) + 8;
     card_end(sh, c, y);
@@ -843,7 +859,7 @@ static void aura_flow(struct shell *sh, const struct geo *g, int opt)
         struct fnt f = pick_font(18, sh->text_pct);
         int32_t fh = lh_of(f, 0) * lines_for(f, 0, sh->aura_field, iw - 24) + 16; if (fh < 48) fh = 48;
         struct ui_widget *fl = add(sh, 56, y, iw, fh, 12, UI_LAYER_CONTENT, UI_LABEL, sh->aura_field, P->canvas, 0xF410u, UI_VISIBLE);
-        if (fl) { fl->border_w = 2; fl->border = P->focus; fl->font_size = f.size; fl->mag = f.mag; fl->ink = sh->aura_len ? P->ink : P->muted; }
+        if (fl) { fl->border_w = 2; fl->border = P->focus; fl->font_size = f.size; fl->mag = f.mag; fl->wrap = 1; fl->ink = sh->aura_len ? P->ink : P->muted; }
         track(sh, y + fh);
         y += fh + 6;
     }
