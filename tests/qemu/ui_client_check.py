@@ -210,8 +210,13 @@ def main():
         check("the kernel contained the EL0 fault and carried on", wait_for(lambda: "FAULT at EL0" in after_ready() and "process stopped, kernel continues" in after_ready(), 120))
         check("the shell reaped the faulted process", wait_for(lambda: "faulted" in after_ready() and "shell: reaped pid=%d" % uf in after_ready(), 30))
         check("the compositor dropped the faulted client's surface when it was reaped (guest log)", wait_for(lambda: ("ui: client gone pid=%d surfaces dropped=1" % uf) in after_ready(), 30))
-        img = shot_until(lambda i: px(i, sf[2] + 3, sf[3] - 14) != MUTED and region(i, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]) != region(img0, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]), 30)
-        check("SCREEN: the faulted client's surface is gone: its chrome strip is no longer drawn and the area no longer matches what it showed (the Home page is visible again)", px(img, sf[2] + 3, sf[3] - 14) != MUTED and region(img, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]) != region(img0, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]))
+        # The area can only be compared with "before the fault" if that frame was really captured; on a slow runner the client may fault before
+        # both surfaces are on screen at once (then img0 is already a post-fault frame and can never differ). The chrome strip must be gone either way.
+        gone = lambda i: px(i, sf[2] + 3, sf[3] - 14) != MUTED and (not seen or region(i, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]) != region(img0, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]))
+        if not seen: print("  NOTE: the faulted surface was never captured on screen before it faulted; only the chrome strip is checked for absence")
+        img = shot_until(gone, 30)
+        check("SCREEN: the faulted client's surface is gone: its chrome strip is no longer drawn and, when the surface was seen before, the area no longer matches what it showed (the Home page is visible again)", gone(img),
+              lambda: "faulted surface x,y,w,h=%s: chrome probe (%d,%d)=%s (MUTED=%s means still drawn); area differs from before the fault: %s" % (sf[2:6], sf[2] + 3, sf[3] - 14, px(img, sf[2] + 3, sf[3] - 14), MUTED, region(img, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]) != region(img0, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5])))
         check("SCREEN: the other client's surface survived", px(img, s1[2] + 3, s1[3] - 14) == MUTED and px(img, s1[2] + s1[4] // 2, s1[3] + s1[5] - 6) == WHITE,
               lambda: "survivor surface x,y,w,h=%s: chrome probe (%d,%d)=%s want %s; body probe (%d,%d)=%s want %s; faulted surface was %s; this frame still has the faulted chrome: %s" % (
                   s1[2:6], s1[2] + 3, s1[3] - 14, px(img, s1[2] + 3, s1[3] - 14), MUTED, s1[2] + s1[4] // 2, s1[3] + s1[5] - 6, px(img, s1[2] + s1[4] // 2, s1[3] + s1[5] - 6), WHITE, sf[2:6],
