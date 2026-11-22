@@ -17,6 +17,7 @@
 #include <input.h>
 #include <mm.h>
 #include <virtio_mmio.h>
+#include <virtqueue.h>
 
 #define QN 16u                                   /* queue size, power of two, must be <= QueueNumMax */
 #define EVT_SIZE 8u
@@ -29,8 +30,7 @@ struct desc { uint64_t addr; uint32_t len; uint16_t flags, next; };
 struct dev {
     volatile uint8_t *regs;
     int up, keyboard, pointer;
-    uint16_t last_used, avail_idx;
-    uint32_t posted;                             /* bitmask of buffers currently owned by the device */
+    struct vq vq;                                /* shared ring bookkeeping: which buffers the device owns, used-ring validation */
     uintptr_t page;
     struct desc *desc;
     volatile uint16_t *avail, *used;
@@ -59,11 +59,7 @@ static void post(struct dev *d, uint32_t i)
     d->desc[i].addr = (uint64_t)(uintptr_t)(d->evt + i * EVT_SIZE);
     d->desc[i].len = EVT_SIZE; d->desc[i].flags = DESC_WRITE; d->desc[i].next = 0;
     for (uint32_t k = 0; k < EVT_SIZE; k++) d->evt[i * EVT_SIZE + k] = 0;
-    d->avail[2 + (d->avail_idx % QN)] = (uint16_t)i;
-    mb();
-    d->avail_idx++;
-    d->avail[1] = d->avail_idx;
-    d->posted |= 1u << i;
+    (void)vq_submit(&d->vq, (uint16_t)i, EVT_SIZE);   /* cannot fail: the buffer was just consumed (or is new) and the ring holds QN */
 }
 
 static void kill_dev(struct dev *d)
@@ -108,7 +104,7 @@ static int bring_up(struct dev *d, struct input_state *s)
     d->avail = (volatile uint16_t *)(p + 256);   /* 4 + 2*16 + 2 */
     d->used = (volatile uint16_t *)(p + 512);    /* 4 + 8*16 + 2 */
     d->evt = p + 1024;                           /* 16 * 8 bytes */
-    d->last_used = 0; d->avail_idx = 0; d->posted = 0;
+    if (vq_init(&d->vq, QN, d->avail, d->used, mb) != VQ_OK) { wr(d, VIO_R_STATUS, VIO_ST_FAILED); return -1; }
     for (uint32_t i = 0; i < QN; i++) post(d, i);
     wr(d, VIO_R_QNUM, QN);
     wr(d, VIO_R_QDESCLO, (uint32_t)d->page); wr(d, VIO_R_QDESCHI, (uint32_t)(d->page >> 32));
@@ -151,23 +147,21 @@ int vinput_poll(struct input_state *s)
         struct dev *d = &DEV[di];
         if (!d->up) continue;
         mb();
-        for (uint32_t budget = QN; budget && d->used[1] != d->last_used; budget--) {
-            uint32_t slot = d->last_used % QN;
-            volatile uint8_t *ue = (volatile uint8_t *)d->used + 4 + slot * 8;
-            uint32_t id = *(volatile uint32_t *)ue, len = *(volatile uint32_t *)(ue + 4);
-            d->last_used++;
-            if (id >= QN || !(d->posted & (1u << id))) {   /* not a buffer we handed out: the device broke the protocol */
+        for (uint32_t budget = QN; budget; budget--) {
+            uint16_t id; uint32_t len;
+            int r = vq_complete(&d->vq, &id, &len);
+            if (r == VQ_EEMPTY) break;
+            if (r != VQ_OK) {                              /* bad id, repeated id, length over one event, or an impossible used index: the device broke the protocol */
                 INFO.bad_used++; INFO.failed++; kill_dev(d); input_reset(s);
                 break;
             }
-            d->posted &= ~(1u << id);
             if (len == EVT_SIZE) {
                 volatile uint8_t *e = d->evt + id * EVT_SIZE;
                 uint16_t type = (uint16_t)(e[0] | e[1] << 8), code = (uint16_t)(e[2] | e[3] << 8);
                 input_feed(s, type, code, le32(e[4], e[5], e[6], e[7]));
                 done++; INFO.polled_events++;
             } else {
-                s->st.ignored++;                           /* wrong length: discard, but still recycle the buffer */
+                s->st.ignored++;                           /* shorter than one event: discard, but still recycle the buffer */
             }
             post(d, id);
             wr(d, VIO_R_QNOTIFY, 0);
