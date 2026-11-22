@@ -226,7 +226,7 @@ jobs:
         run: |
           chmod +x tests/qemu/pkg-tests.sh scripts/package-qemu.sh
           ./tests/qemu/pkg-tests.sh
-      - name: Run recovery tests (the packaged production kernel on fresh, blank, corrupt, truncated, wrong-version, foreign, read-only and missing disks and after SIGKILL mid-boot: it boots, says so, never modifies a disk it cannot mount; persistence across restart; bundle verifier accepts the package and rejects tampering)
+      - name: Run recovery tests (the packaged production kernel on fresh, blank, corrupt, truncated, wrong-version, foreign, read-only and missing disks and after SIGKILL mid-boot, each must boot, say so and never modify a disk it cannot mount; persistence across restart; bundle verifier accepts the package and rejects tampering)
         run: |
           chmod +x tests/qemu/recovery-tests.sh scripts/package-qemu.sh
           ./tests/qemu/recovery-tests.sh
