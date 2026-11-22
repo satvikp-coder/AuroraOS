@@ -58,7 +58,15 @@ static void reprogram_in_handler(void)
 static volatile uint32_t probe_calls, probe_unmasked;
 static void critical_probe(void) { probe_calls++; if (irq_cpu_enabled()) probe_unmasked++; }
 
+/* Wait (bounded, up to 100 ms) until the timer line is pending at the GIC. The deadline is exact in the counter, but QEMU raises the line from its own
+ * main-loop thread, so on a loaded host a fixed 5 or 8 ms spin can end before the line goes up (seen on unmodified main under load). */
 static void spin_counter(uint64_t ticks) { uint64_t end = timer_count() + ticks; while (!timer_reached(timer_count(), end)) { } }
+static int wait_pending(void)
+{
+    uint64_t lim = timer_count() + timer_freq() / 10;
+    while (!(timer_ctl_istatus() && gicv2_is_pending(timer_intid()))) if (timer_reached(timer_count(), lim)) return 0;
+    return 1;
+}
 
 /* Wait with IRQs enabled until `cond` returns true or 2 s of counter time pass. */
 static int wait_ticks_at_least(uint64_t target)
@@ -134,6 +142,7 @@ void irqtest_run(const struct fdt_platform *plat)
     uint32_t calls0 = h_calls;
     timer_oneshot(f / 1000);
     spin_counter(f / 200);                                   /* 5 ms: well past the 1 ms deadline */
+    (void)wait_pending();                                    /* then wait (bounded) for QEMU to raise the line; IRQs stay masked throughout */
     check("masking: with IRQs masked the compare condition is met and the line is pending at the GIC, yet the handler has NOT run",
           !irq_cpu_enabled() && timer_ctl_istatus() && gicv2_is_pending(timer_intid()) && timer_ticks() == ticks0 && h_calls == calls0);
     irq_cpu_enable();
@@ -154,11 +163,13 @@ void irqtest_run(const struct fdt_platform *plat)
     uint64_t t1 = timer_ticks();
     timer_start_periodic(1000);
     spin_counter(f / 125);                                   /* 8 ms with IRQs masked: ~8 deadlines pass */
-    int quiet = timer_ticks() == t1 && gicv2_is_pending(timer_intid());
+    int pend = wait_pending();                               /* bounded wait for the line, still masked */
+    int quiet = timer_ticks() == t1 && pend && gicv2_is_pending(timer_intid());
     irq_cpu_enable();
     int resumed = wait_ticks_at_least(t1 + 3);
     timer_stop(); irq_cpu_disable();
     check("masking: a running periodic timer produces no ticks while masked, and resumes after unmasking", quiet && resumed);
+    if (!(quiet && resumed)) { console_puts("[irq-test] masking detail: quiet="); console_dec(quiet); console_puts(" resumed="); console_dec(resumed); console_puts("\n"); }
     check("timer: time arithmetic is wraparound-safe", timer_reached(5, 0xFFFFFFFFFFFFFFF0ULL) && !timer_reached(0xFFFFFFFFFFFFFFF0ULL, 5) && timer_reached(7, 7));
 
     /* ---- software-generated interrupts: registered handler ---- */
