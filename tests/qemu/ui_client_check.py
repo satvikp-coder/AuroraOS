@@ -42,8 +42,23 @@ def main():
     check("the real kernel reached the interactive shell", wait_serial(a.serial, "shell: ready keyboards=1 pointers=1", dl))
     check("no panic or failed self-test", "KERNEL PANIC" not in log() and "SELFTEST FAILED" not in log())
     path = os.path.join(a.tmp, a.scenario + ".ppm")
-    def shot():
+    stable_state = {"stable": None, "tries": 0}
+    def raw_shot():
         q.cmd("screendump", filename=path, format="ppm"); return read_ppm(path)
+    def shot(tries=15):
+        """The compositor draws a frame in LAYERS (page, then each client's surface, then the chrome), so one screendump can catch a half-drawn frame: CI evidence
+        (the colour map printed by diagnose) showed the first client's chrome drawn and the second's still the page edge. A frame is only judged once two screendumps
+        taken one poll apart are identical below the 64-pixel header strip (the clock lives there). If it never settles, the last frame is returned and the
+        evidence says so; it is never silently trusted."""
+        img = raw_shot()
+        for n in range(tries):
+            time.sleep(0.2)
+            img2 = raw_shot()
+            if img[2][64 * 1024 * 3:] == img2[2][64 * 1024 * 3:]:
+                stable_state["stable"], stable_state["tries"] = True, n + 1; return img2
+            img = img2
+        stable_state["stable"], stable_state["tries"] = False, tries
+        return img
     def px(img, x, y):
         w, h, d = img; o = (y * w + x) * 3; return tuple(d[o:o + 3])
     def region(img, x0, y0, x1, y1):
@@ -51,7 +66,7 @@ def main():
         return b"".join(bytes(d[(y * w + x0) * 3:(y * w + x1) * 3]) for y in range(y0, y1))
     def diagnose(name, why):
         # Evidence for a failed check, printed into the log so a one-off failure in CI can be explained afterwards instead of guessed at.
-        print("    DIAG: t=%.1fs since start, scenario=%s" % (time.time() - (dl - a.timeout), a.scenario))
+        print("    DIAG: t=%.1fs since start, scenario=%s, last frame stable=%s after %d polls" % (time.time() - (dl - a.timeout), a.scenario, stable_state["stable"], stable_state["tries"]))
         if why is not None:
             try: print("    DIAG: " + why())
             except Exception as e: print("    DIAG: (diagnostic itself failed: %r)" % (e,))
