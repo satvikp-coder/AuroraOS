@@ -226,6 +226,10 @@ jobs:
         run: |
           chmod +x tests/qemu/pkg-tests.sh scripts/package-qemu.sh
           ./tests/qemu/pkg-tests.sh
+      - name: Run recovery tests (the packaged production kernel on fresh, blank, corrupt, truncated, wrong-version, foreign, read-only and missing disks and after SIGKILL mid-boot, each must boot, say so and never modify a disk it cannot mount; persistence across restart; bundle verifier accepts the package and rejects tampering)
+        run: |
+          chmod +x tests/qemu/recovery-tests.sh scripts/package-qemu.sh
+          ./tests/qemu/recovery-tests.sh
       - name: Run native Notes tests (EL0 app from the packaged disk; type, save, read back, restart the emulator and reopen the exact text; read-only, missing, corrupt, newer-version and foreign-owned files refuse or hide honestly)
         run: |
           chmod +x tests/qemu/notes-tests.sh
