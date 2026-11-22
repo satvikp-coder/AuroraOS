@@ -55,7 +55,7 @@ def main():
         if why is not None:
             try: print("    DIAG: " + why())
             except Exception as e: print("    DIAG: (diagnostic itself failed: %r)" % (e,))
-        if name.startswith("SCREEN"):
+        if name.startswith("SCREEN") or os.path.exists(path):          # any check can have judged a frame; the dump says which frame it is (the last one captured)
             try:
                 img = read_ppm(path)                                    # the last frame this scenario captured, which is the one the failed check judged
                 w, h, d = img
@@ -139,7 +139,9 @@ def main():
         check("the hostile client owns at most 4 surfaces on screen", len([s for s in surfaces() if s[1] == ub]) <= 4)
         # ---- focus and input ----
         img = shot()
-        check("with the hostile client flooding focus requests, nothing has focus: no chrome is focus-coloured", px(img, x1 + 3, y1 - 14) == MUTED and px(img, x2 + 3, y2 - 14) == MUTED)
+        check("with the hostile client flooding focus requests, nothing has focus: no chrome is focus-coloured", px(img, x1 + 3, y1 - 14) == MUTED and px(img, x2 + 3, y2 - 14) == MUTED,
+              lambda: "chrome probes: surface1 (%d,%d)=%s surface2 (%d,%d)=%s, want %s each (FOCUS is %s); surfaces %s; guest focus lines %s" % (
+                  x1 + 3, y1 - 14, px(img, x1 + 3, y1 - 14), x2 + 3, y2 - 14, px(img, x2 + 3, y2 - 14), MUTED, FOCUS, surfaces(), re.findall(r"shell: focus=\w+", log())[-5:]))
         n1, n2, nb = len(events_of(u1)), len(events_of(u2)), len(events_of(ub))
         click(x1 + 120, y1 + 120)
         img = shot_until(lambda i: px(i, x1 + 3, y1 - 14) == FOCUS)
