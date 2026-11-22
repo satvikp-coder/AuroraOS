@@ -5,7 +5,7 @@ compositor logs when it accepts a surface, and QMP screendump PIXELS plus real i
   ui     two demo clients, a hostile client (the attacks in uiclient.c, then a flood), a client without the capability: surfaces appear, input reaches
          only the focused client, the hostile client is refused everywhere, a modal withholds input, the dock and Glass Corner stay untouched
   fault  a demo client plus a client that faults after drawing: its surface disappears, the other survives, the shell stays usable"""
-import argparse, math, os, re, sys, time, statistics
+import argparse, math, os, re, shutil, sys, time, statistics
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gfx_check import Qmp, read_ppm, wait_serial
 
@@ -21,10 +21,12 @@ def main():
     passed = failed = 0
     dl = time.time() + a.timeout
     tag = "[%s] " % a.scenario
-    def check(name, ok):
+    def check(name, ok, why=None):
         nonlocal passed, failed
         if ok: passed += 1; print("  PASS: " + tag + name)
-        else: failed += 1; print("  FAIL: " + tag + name)
+        else:
+            failed += 1; print("  FAIL: " + tag + name)
+            diagnose(name, why)
     def log():
         with open(a.serial, "rb") as f: return f.read().decode("latin-1")
     def after_ready():
@@ -47,6 +49,26 @@ def main():
     def region(img, x0, y0, x1, y1):
         w, h, d = img
         return b"".join(bytes(d[(y * w + x0) * 3:(y * w + x1) * 3]) for y in range(y0, y1))
+    def diagnose(name, why):
+        # Evidence for a failed check, printed into the log so a one-off failure in CI can be explained afterwards instead of guessed at.
+        print("    DIAG: t=%.1fs since start, scenario=%s" % (time.time() - (dl - a.timeout), a.scenario))
+        if why is not None:
+            try: print("    DIAG: " + why())
+            except Exception as e: print("    DIAG: (diagnostic itself failed: %r)" % (e,))
+        if name.startswith("SCREEN"):
+            try:
+                img = read_ppm(path)                                    # the last frame this scenario captured, which is the one the failed check judged
+                w, h, d = img
+                cols = {}
+                for y in range(0, h, 16):
+                    for x in range(0, w, 16): cols[px(img, x, y)] = cols.get(px(img, x, y), 0) + 1
+                legend = sorted(cols.items(), key=lambda kv: -kv[1])[:10]
+                sym = {c: "0123456789"[i] for i, (c, n) in enumerate(legend)}
+                print("    DIAG: frame %dx%d, one char per 16x16 px, legend %s ('.' = any other colour)" % (w, h, ", ".join("%s=%s x%d" % (sym[c], c, n) for c, n in legend)))
+                for y in range(0, h, 16): print("    DIAG| " + "".join(sym.get(px(img, x, y), ".") for x in range(0, w, 16)))
+                keep = os.path.join(a.tmp, "%s.fail%d.ppm" % (a.scenario, failed))
+                shutil.copyfile(path, keep); print("    DIAG: full frame kept at " + keep)
+            except Exception as e: print("    DIAG: (frame dump failed: %r)" % (e,))
     def count_col(img, x0, y0, x1, y1, col): return sum(1 for y in range(y0, y1) for x in range(x0, x1) if px(img, x, y) == col)
     def key(k, d): return {"type": "key", "data": {"down": d, "key": {"type": "qcode", "data": k}}}
     def tap(k): q.cmd("input-send-event", events=[key(k, True), key(k, False)])
@@ -173,7 +195,10 @@ def main():
         check("the compositor dropped the faulted client's surface when it was reaped (guest log)", wait_for(lambda: ("ui: client gone pid=%d surfaces dropped=1" % uf) in after_ready(), 30))
         img = shot_until(lambda i: px(i, sf[2] + 3, sf[3] - 14) != MUTED and region(i, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]) != region(img0, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]), 30)
         check("SCREEN: the faulted client's surface is gone: its chrome strip is no longer drawn and the area no longer matches what it showed (the Home page is visible again)", px(img, sf[2] + 3, sf[3] - 14) != MUTED and region(img, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]) != region(img0, sf[2], sf[3] - 28, sf[2] + sf[4], sf[3] + sf[5]))
-        check("SCREEN: the other client's surface survived", px(img, s1[2] + 3, s1[3] - 14) == MUTED and px(img, s1[2] + s1[4] // 2, s1[3] + s1[5] - 6) == WHITE)
+        check("SCREEN: the other client's surface survived", px(img, s1[2] + 3, s1[3] - 14) == MUTED and px(img, s1[2] + s1[4] // 2, s1[3] + s1[5] - 6) == WHITE,
+              lambda: "survivor surface x,y,w,h=%s: chrome probe (%d,%d)=%s want %s; body probe (%d,%d)=%s want %s; faulted surface was %s; this frame still has the faulted chrome: %s" % (
+                  s1[2:6], s1[2] + 3, s1[3] - 14, px(img, s1[2] + 3, s1[3] - 14), MUTED, s1[2] + s1[4] // 2, s1[3] + s1[5] - 6, px(img, s1[2] + s1[4] // 2, s1[3] + s1[5] - 6), WHITE, sf[2:6],
+                  px(img, sf[2] + 3, sf[3] - 14) == MUTED))
         click(s1[2] + 100, s1[3] + 100)
         check("the survivor still gets input after the other client's fault", wait_for(lambda: any("ev ptr" in l for l in lines_of(u1)), 30))
         lat = latency(4)
