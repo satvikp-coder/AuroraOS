@@ -6,6 +6,7 @@
 #   apps/*.elf        the validated application executables
 #   manifest.txt      SHA-256 of every artifact, installed file sizes/CRCs, tool versions
 #   fresh-install.sh  creates data/aurora.img from the template; refuses to overwrite an existing disk unless --force
+#   verify-bundle.sh  re-checks every file against manifest.txt (integrity only: the manifest is not signed, so this is not authentication)
 #   run.sh            boots the kernel on data/aurora.img (NEVER creates or resets it, so saved data survives restarts); extra args go to QEMU
 # Requires: aarch64-linux-gnu-gcc/binutils, a host cc, sha256sum, qemu-system-aarch64 (only to RUN the package).
 set -e
@@ -38,15 +39,6 @@ cc -std=c11 -Wall -Wextra -O1 -I tests/tools/shim -I kernel/include -o "$PKG/obj
 # shellcheck disable=SC2086
 "$PKG/obj/mkdisk" "$PKG/aurora-fresh.img" "$SECTORS" $ARGS > "$PKG/obj/installed.txt"
 
-{
-    echo "AuroraOS local QEMU development package (not a release)"
-    echo "source commit: $(git rev-parse HEAD 2>/dev/null || echo unknown)"
-    echo "disk sectors: $SECTORS (512 bytes each)"
-    echo "tools: $("${CROSS}gcc" --version | head -1); $(cc --version | head -1); $(qemu-system-aarch64 --version 2>/dev/null | head -1 || true)"
-    echo; echo "sha256:"
-    (cd "$PKG" && sha256sum kernel.bin aurora-fresh.img $(for n in $NAMES; do echo "apps/$n"; done))
-    echo; echo "installed (installer-owned, read-only for everyone; name size crc32):"; cat "$PKG/obj/installed.txt"
-} > "$PKG/manifest.txt"
 
 cat > "$PKG/fresh-install.sh" <<'EOS'
 #!/bin/sh
@@ -65,6 +57,32 @@ exec qemu-system-aarch64 -machine virt,highmem=off -cpu cortex-a53 -smp 1 -m 256
     -global virtio-mmio.force-legacy=false -device ramfb -device virtio-keyboard-device -device virtio-tablet-device \
     -drive file="$D/data/aurora.img",if=none,format=raw,id=d0 -device virtio-blk-device,drive=d0 -serial "${AURORA_SERIAL:-stdio}" "$@"
 EOS
-chmod +x "$PKG/fresh-install.sh" "$PKG/run.sh"
+cat > "$PKG/verify-bundle.sh" <<'EOS'
+#!/bin/sh
+# Checks this bundle against its manifest.txt: every listed file exists and has the listed SHA-256, and nothing unlisted sits in apps/.
+# Exit 0 only if everything matches. NOTE the limit: a manifest of digests is an integrity check, NOT authentication. Someone who can change a file AND
+# the manifest together makes a bundle that verifies; proving who built it needs a signature checked against a key you obtained separately.
+D="$(cd "$(dirname "$0")" && pwd)"; cd "$D" || exit 2
+fail() { echo "verify-bundle: FAIL: $1" >&2; exit 1; }
+[ -f manifest.txt ] || fail "manifest.txt is missing"
+awk '/^sha256:/ { f = 1; next } f && /^$/ { exit } f { print }' manifest.txt > "${TMPDIR:-/tmp}/aurora-manifest.$$" || fail "cannot read the manifest"
+L="${TMPDIR:-/tmp}/aurora-manifest.$$"; trap 'rm -f "$L"' EXIT
+[ -s "$L" ] || fail "the manifest lists no files"
+for must in kernel.bin aurora-fresh.img; do grep -q "  $must\$" "$L" || fail "the manifest does not list $must"; done
+sha256sum -c --quiet "$L" || fail "a listed file is missing or does not match its SHA-256"
+for f in apps/*; do [ -e "$f" ] || continue; grep -q "  $f\$" "$L" || fail "$f is in the bundle but not in the manifest"; done
+echo "verify-bundle: OK: $(wc -l < "$L" | tr -d ' ') files match manifest.txt"
+echo "verify-bundle: this is an integrity check, not authentication: the manifest itself is not signed"
+EOS
+chmod +x "$PKG/fresh-install.sh" "$PKG/run.sh" "$PKG/verify-bundle.sh"
+{
+    echo "AuroraOS local QEMU development package (not a release)"
+    echo "source commit: $(git rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "disk sectors: $SECTORS (512 bytes each)"
+    echo "tools: $("${CROSS}gcc" --version | head -1); $(cc --version | head -1); $(qemu-system-aarch64 --version 2>/dev/null | head -1 || true)"
+    echo; echo "sha256:"
+    (cd "$PKG" && sha256sum kernel.bin aurora-fresh.img $(for n in $NAMES; do echo "apps/$n"; done) fresh-install.sh run.sh verify-bundle.sh)
+    echo; echo "installed (installer-owned, read-only for everyone; name size crc32):"; cat "$PKG/obj/installed.txt"
+} > "$PKG/manifest.txt"
 rm -rf "$PKG/obj"
 echo "package: OK -> $PKG"; cat "$PKG/manifest.txt"
