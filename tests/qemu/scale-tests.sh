@@ -1,6 +1,6 @@
 #!/bin/sh
-# tests/qemu/scale-tests.sh - native text scaling and high contrast on the REAL shell under QEMU. Four boots (sequential, one QEMU at a time):
-# 200 percent, 200 percent high contrast, 75 percent and 150 percent high contrast. Each is driven by real QMP key and pointer events and checked on
+# tests/qemu/scale-tests.sh - native text scaling and high contrast on the REAL shell under QEMU. Seven boots (sequential, one QEMU at a time):
+# 200, 200 high contrast, 75, 150 high contrast, 125, 175 high contrast and 100 high contrast (all six scales, both contrast modes where listed). Each is driven by real QMP key and pointer events and checked on
 # screendump pixels (scale_check.py). The appearance is selected by the test-only build flags AURORA_SHELL_TEXT_PCT / AURORA_SHELL_CONTRAST because
 # no screen changes it yet; the shipped kernel starts at 100 percent, standard contrast. TCG only: no claim about real hardware.
 # Usage: ./tests/qemu/scale-tests.sh
@@ -34,5 +34,8 @@ run_variant 200 0
 run_variant 200 1
 run_variant 75 0
 run_variant 150 1
+run_variant 125 0
+run_variant 175 1
+run_variant 100 1
 echo "scale-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]
