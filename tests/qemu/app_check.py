@@ -9,7 +9,7 @@ SID_DOCK_INDEX = 4
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--qmp", required=True); ap.add_argument("--serial", required=True); ap.add_argument("--tmp", required=True)
-    ap.add_argument("--scenario", required=True); ap.add_argument("--timeout", type=float, default=400)
+    ap.add_argument("--scenario", required=True); ap.add_argument("--expect", default=""); ap.add_argument("--timeout", type=float, default=400)
     a = ap.parse_args()
     passed = failed = 0
     dl = time.time() + a.timeout
@@ -102,6 +102,20 @@ def main():
             return [l for l in t2[marks[1]:].split(chr(10)) if l.startswith("[user p%d] " % pid2)] if len(marks) > 1 else []
         check("the new instance starts at 0: no stale display or state from the old one", wait_for(lambda: any("calc display=0" in l for l in since_relaunch()), 30) and not any("calc display=20" in l or "Divide" in l for l in since_relaunch()))
         check("exactly one new surface was created for it (the old one is gone)", len([s for s in surfaces() if s[1] == pid2]) == 2 and "ui: client gone pid=%d surfaces dropped=1" % pid in log())
+    elif sc == "refused":
+        # An installed Calculator that is damaged: the kernel must refuse it with a specific reason, create no process, and leave the other applications usable.
+        check("boot registered the Calculator", "apps: calculator registered" in log())
+        check("Index opens", open_index())
+        typ("calc")
+        tap("ret")
+        check("the launcher refused with the expected reason (%s)" % a.expect, wait_for(lambda: re.search(r"apps: launch failed: (%s)" % a.expect, log()) is not None, 30))
+        check("no Calculator process was created and nothing was launched", not launched() and "apps: launched" not in log())
+        check("no surface was created by the refused launch", not surfaces())
+        check("the shell stayed on Index and is still interactive", screen_now() == "Index")
+        for _ in range(8): tap("backspace")
+        typ("notes")
+        tap("ret")
+        check("another installed application (Notes) still launches", wait_for(lambda: "apps: launched notes" in log(), 30))
     else:
         check("boot registered the Calculator", "apps: calculator registered" in log())
         check("Index opens", open_index())
