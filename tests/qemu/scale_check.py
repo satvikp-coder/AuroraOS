@@ -7,7 +7,7 @@ can be clicked), but every pass/fail rule below is stated here from the Aurora G
   * no text spills out of any control (a 2 px band around each control is background-only),
   * focus rings, active indicators, scrim and sheets have the colours of the mode,
   * the dock, Spaces, Index (type, Down, open), the About modal and the Glass Corner sheet work with real clicks and keys."""
-import argparse, math, os, sys, time
+import shutil, argparse, math, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gfx_check import Qmp, read_ppm, wait_serial
 
@@ -32,10 +32,28 @@ def main():
     passed = failed = 0
     dl = time.time() + a.timeout
     tag = "[%d%%%s] " % (a.pct, " HC" if a.contrast else "")
-    def check(name, ok):
+    last_frame = [None]                                    # path of the most recent screendump, kept for the evidence printed when a check fails
+    def check(name, ok, why=None):
         nonlocal passed, failed
         if ok: passed += 1; print("  PASS: " + tag + name)
-        else: failed += 1; print("  FAIL: " + tag + name)
+        else:
+            failed += 1; print("  FAIL: " + tag + name)
+            print("    DIAG: t=%.1fs since start, text=%d%% contrast=%d" % (time.time() - (dl - a.timeout), a.pct, a.contrast))
+            if why is not None:
+                try: print("    DIAG: " + why())
+                except Exception as e: print("    DIAG: (diagnostic itself failed: %r)" % (e,))
+            try:
+                print("    DIAG: last guest lines: " + " | ".join(l.strip() for l in log().split(chr(10))[-6:] if l.strip())[:500])
+                if last_frame[0] and os.path.exists(last_frame[0]):
+                    w, h, d = read_ppm(last_frame[0]); cols = {}
+                    cp = lambda x, y: tuple(d[(y * w + x) * 3:(y * w + x) * 3 + 3])
+                    for y in range(0, h, 16):
+                        for x in range(0, w, 16): cols[cp(x, y)] = cols.get(cp(x, y), 0) + 1
+                    legend = sorted(cols.items(), key=lambda kv: -kv[1])[:10]; sym = {c: "0123456789"[i] for i, (c, n) in enumerate(legend)}
+                    print("    DIAG: frame %s %dx%d, one char per 16x16 px, legend %s ('.' = other)" % (os.path.basename(last_frame[0]), w, h, ", ".join("%s=%s x%d" % (sym[c], c, n) for c, n in legend)))
+                    for y in range(0, h, 16): print("    DIAG| " + "".join(sym.get(cp(x, y), ".") for x in range(0, w, 16)))
+                    keep = os.path.join(a.tmp, "fail%d_%s" % (failed, os.path.basename(last_frame[0]))); shutil.copyfile(last_frame[0], keep); print("    DIAG: kept " + keep)
+            except Exception as e: print("    DIAG: (frame dump failed: %r)" % (e,))
     def log():
         with open(a.serial, "rb") as f: return f.read().decode("latin-1")
     def count(s): return log().count(s)
@@ -79,7 +97,7 @@ def main():
     check("no panic or failed self-test", "KERNEL PANIC" not in log() and "SELFTEST FAILED" not in log())
 
     def shot(name):
-        path = os.path.join(a.tmp, "%d_%d_%s.ppm" % (a.pct, a.contrast, name)); q.cmd("screendump", filename=path, format="ppm"); return read_ppm(path)
+        path = os.path.join(a.tmp, "%d_%d_%s.ppm" % (a.pct, a.contrast, name)); q.cmd("screendump", filename=path, format="ppm"); last_frame[0] = path; return read_ppm(path)
     def px(img, x, y):
         w, h, d = img; o = (y * w + x) * 3; return tuple(d[o:o + 3])
     def shot_until(name, pred, secs=15):
@@ -176,14 +194,19 @@ def main():
     check("Index with a query: palette only, nothing spills out of any row", palette_ok(i1) and not band_clean(i1, layout()))
     tap("backspace"); tap("backspace"); tap("backspace"); time.sleep(0.5)
     check("Backspace clears the field", wait_last("shell: query=", "[] results=8 sel=home") or (last("shell: query=") or "").startswith("[]"))
-    for _ in range(3): tap("down"); time.sleep(0.35)
+    nq = count("shell: query=")
+    for _ in range(3): tap("down")
+    wait_count("shell: query=", nq + 3)                                   # the guest logs each move; wait for all three instead of sleeping
     L = layout()
     rows = sorted(c for c in L if 100 <= c < 108)
-    i2 = shot("index_rows")
+    def accent_rows(img, L_): return [c for c in sorted(c for c in L_ if 100 <= c < 108) if px(img, L_[c][0] + 14, L_[c][1] + 4) == rgb(T["accent"])]
+    i2 = shot_until("index_rows", lambda i: len(accent_rows(i, layout())) == 1)
+    L = layout(); rows = sorted(c for c in L if 100 <= c < 108)
     check("Index empty query: at least two result rows fit at this scale (%d shown)" % len(rows), len(rows) >= 2)
     selk = (last("shell: query=") or "").split("sel=")[-1]
-    active = [c for c in rows if px(i2, L[c][0] + 14, L[c][1] + 4) == rgb(T["accent"])]
-    check("Index: exactly one visible row is drawn selected (accent) and it is on screen after moving down 3 times (sel=%s)" % selk, len(active) == 1)
+    active = accent_rows(i2, L)
+    check("Index: exactly one visible row is drawn selected (accent) and it is on screen after moving down 3 times (sel=%s)" % selk, len(active) == 1,
+          lambda: "rows %s, accent rows %s, probe pixels %s, accent is %s" % (rows, active, [(c, px(i2, L[c][0] + 14, L[c][1] + 4)) for c in rows], rgb(T["accent"])))
     check("Index: rows never overlap the dock", all(L[c][1] + L[c][3] <= L[2][1] for c in rows))
     tap("ret")
     check("Enter opens the selected result", wait_count("shell: opened=", 1))
