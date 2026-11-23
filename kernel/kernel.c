@@ -211,6 +211,8 @@ void kernel_main(uint64_t dtb)
         if (settingstest_summary()) { console_puts("SETTINGS SELFTEST FAILED\n"); halt_forever(); }
         modeltest_run();
         if (modeltest_summary()) { console_puts("MODEL SELFTEST FAILED\n"); halt_forever(); }
+        infertest_run();
+        if (infertest_summary()) { console_puts("INFER SELFTEST FAILED\n"); halt_forever(); }
         init_run();
     } else {
         console_puts("Interrupt tests skipped: no device tree (dev mode)\n");

@@ -41,4 +41,6 @@ struct proc;
 int64_t model_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4);
 void modeltest_run(void);        /* AURORA_MODEL_TEST kernels only (kernel/modeltest.c) */
 int  modeltest_summary(void);
+void infertest_run(void);        /* AURORA_INFER_TEST kernels only (kernel/infertest.c): the EL0 int8 matvec over a model-volume tensor */
+int  infertest_summary(void);
 #endif

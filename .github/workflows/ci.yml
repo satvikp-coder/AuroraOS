@@ -132,6 +132,10 @@ jobs:
         run: |
           chmod +x tests/qemu/model-tests.sh
           ./tests/qemu/model-tests.sh
+      - name: Run int8 matvec primitive tests (EL0 reads verified tensor objects via SYS_MODEL, compares with a host reference, hostile tensors; not a model)
+        run: |
+          chmod +x tests/qemu/infer-tests.sh
+          ./tests/qemu/infer-tests.sh
       - name: Run sound tests (virtio-sound device bring-up only, wav backend, simulated hostile answers; no playback)
         run: |
           chmod +x tests/qemu/sound-tests.sh
