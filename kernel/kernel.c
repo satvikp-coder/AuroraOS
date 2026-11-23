@@ -25,6 +25,7 @@
 #include <proctest.h>
 #include <timer.h>
 #include <mm.h>
+#include <modelvol.h>
 #include <selftest.h>
 
 #define QEMU_VIRT_RAM_BASE 0x40000000UL   /* used only by the explicit AURORA_FIXED_RAM dev mode */
@@ -170,6 +171,7 @@ void kernel_main(uint64_t dtb)
         else if (br == BLK_ENODEV) console_puts("[blk] no block device attached\n");
         else { console_puts("[blk] block device present but unusable: "); console_puts(blk_strerror(br)); console_puts("\n"); }
         if (blkm_present()) { console_puts("[blk] model volume (read-only, AURMODEL magic): "); console_dec(blkm_sectors()); console_puts(" sectors\n"); }
+        modelvol_check();                                            /* integrity (not authenticity) of the optional model volume: one [model] line */
         /* 4c. Input: virtio keyboard/tablet are optional. No input device is a normal boot. */
         {
 #if defined(AURORA_UI_DEMO)
