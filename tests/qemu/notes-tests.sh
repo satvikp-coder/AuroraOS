@@ -34,6 +34,11 @@ mk short.img 602 3 note.a "$OUT/short.bin"
 mk full.img 701 7 f0 "$OUT/corrupt.bin" 701 7 f1 "$OUT/corrupt.bin" 701 7 f2 "$OUT/corrupt.bin" 701 7 f3 "$OUT/corrupt.bin" 701 7 f4 "$OUT/corrupt.bin" 701 7 f5 "$OUT/corrupt.bin" 701 7 f6 "$OUT/corrupt.bin" 701 7 f7 "$OUT/corrupt.bin" 702 7 f8 "$OUT/corrupt.bin" 702 7 f9 "$OUT/corrupt.bin" 702 7 f10 "$OUT/corrupt.bin" 702 7 f11 "$OUT/corrupt.bin" 702 7 f12 "$OUT/corrupt.bin" 702 7 f13 "$OUT/corrupt.bin" 702 7 f14 "$OUT/corrupt.bin" 702 7 f15 "$OUT/corrupt.bin" 703 7 f16 "$OUT/corrupt.bin" 703 7 f17 "$OUT/corrupt.bin" 703 7 f18 "$OUT/corrupt.bin" 703 7 f19 "$OUT/corrupt.bin" 703 7 f20 "$OUT/corrupt.bin" 703 7 f21 "$OUT/corrupt.bin" 703 7 f22 "$OUT/corrupt.bin" 703 7 f23 "$OUT/corrupt.bin" 704 7 f24 "$OUT/corrupt.bin" 704 7 f25 "$OUT/corrupt.bin" 704 7 f26 "$OUT/corrupt.bin" 704 7 f27 "$OUT/corrupt.bin" 704 7 f28 "$OUT/corrupt.bin" 704 7 f29 "$OUT/corrupt.bin"      # 30 small files from four other principals + calc.elf + notes.elf = all 32 file slots used
 mk ro.img
 cp "$OUT/pkg/aurora-fresh.img" "$OUT/persist.img"
+python3 -c "
+import struct, zlib, sys
+body = b'kept'; mid = struct.pack('<BBHI', 1, 0, len(body), 1)
+open(sys.argv[1], 'wb').write(b'ANTE' + mid + struct.pack('<I', zlib.crc32(body, zlib.crc32(mid))) + body)" "$OUT/kept.bin"
+python3 "$SCRIPT_DIR/fill_image.py" "$OUT/mkafs" "$OUT/spacefull.img" 256 4 installer 0x7 calc.elf "$A/calc.elf" installer 0x7 notes.elf "$A/notes.elf" 602 3 note.a "$OUT/kept.bin" > "$OUT/spacefull.mkafs.log" 2>&1 && ok "$(tail -1 "$OUT/spacefull.mkafs.log")" || { bad "could not build the full-disk image"; cat "$OUT/spacefull.mkafs.log"; }
 
 boot() {   # scenario image|none [extra drive options]
     sc="$1"; img="$2"; ro="$3"; log="$4"
@@ -61,5 +66,12 @@ boot foreign foreign.img "" foreign
 boot truncated truncated.img "" truncated
 boot short short.img "" short
 boot full full.img "" full
+NOTE_BEFORE=$(sha256sum "$OUT/spacefull.img" | cut -d' ' -f1)
+boot spacefull spacefull.img "" spacefull
+boot spacefull2 spacefull.img "" spacefull2
+python3 -c "
+import sys
+img = open(sys.argv[1], 'rb').read(); pat = open(sys.argv[2], 'rb').read()
+sys.exit(0 if img.count(pat) == 1 else 1)" "$OUT/spacefull.img" "$OUT/kept.bin" && ok "spacefull: the previously saved note is still on the disk, byte for byte, exactly once" || bad "spacefull: the saved note changed or was duplicated"
 echo "notes-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]

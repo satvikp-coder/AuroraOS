@@ -19,6 +19,7 @@
 #include <mm.h>
 #include <timer.h>
 #include <virtio_mmio.h>
+#include <virtqueue.h>
 
 #define R_MAGIC 0x000
 #define R_VERSION 0x004
@@ -75,7 +76,7 @@ static struct {
     uint64_t sectors;
     int readonly, has_flush;
     uint32_t timeout_ms;
-    uint16_t last_used, avail_idx;
+    struct vq vq;                    /* shared ring bookkeeping (index arithmetic, completion validation) */
     struct desc *desc;
     volatile uint16_t *avail;        /* flags, idx, ring[QN] */
     volatile uint16_t *used;         /* flags, idx, then {u32 id,u32 len}[QN] */
@@ -142,7 +143,7 @@ static int device_setup(void)
     D.desc = (struct desc *)rp;                                  /* 128 bytes */
     D.avail = (volatile uint16_t *)(rp + 128);                   /* 4 + 2*QN + 2 = 22 bytes */
     D.used = (volatile uint16_t *)(rp + 256);                    /* 4 + 8*QN + 2 = 70 bytes, 4-aligned */
-    D.last_used = 0; D.avail_idx = 0;
+    if (vq_init(&D.vq, QN, D.avail, D.used, mb) != VQ_OK) { wr(R_STATUS, ST_FAILED); return BLK_EPROTO; }   /* also drops any request abandoned by a timeout */
     wr(R_QNUM, QN);
     wr(R_QDESCLO, (uint32_t)D.ring_page); wr(R_QDESCHI, (uint32_t)(D.ring_page >> 32));
     wr(R_QDRVLO, (uint32_t)(D.ring_page + 128)); wr(R_QDRVHI, (uint32_t)((D.ring_page + 128) >> 32));
@@ -238,19 +239,18 @@ static int submit(uint32_t type, uint64_t sector, uint32_t data_len, int device_
     }
     D.desc[n].addr = (uint64_t)(uintptr_t)D.status; D.desc[n].len = 1; D.desc[n].flags = DESC_WRITE; D.desc[n].next = 0;
 
-    D.avail[2 + (D.avail_idx % QN)] = 0;                         /* head descriptor index */
-    mb();                                                        /* descriptors and ring entry visible before the index */
-    D.avail_idx++;
-    D.avail[1] = D.avail_idx;
-    mb();
+    /* head descriptor 0; the device may write the data buffer (reads) plus the one status byte, nothing more */
+    if (vq_submit(&D.vq, 0, (device_writes_data ? data_len : 0) + 1u) != VQ_OK) { D.failed = 1; return BLK_EPROTO; }   /* cannot happen: one request in flight */
     D.requests++;
     if (D.stall_next) D.stall_next = 0;                          /* tests only: never ring the doorbell */
     else wr(R_QNOTIFY, 0);
 
     uint64_t t0 = timer_count(), limit = ms_to_ticks(D.timeout_ms);
+    uint16_t id; uint32_t used_len;
     for (;;) {
-        mb();
-        if (D.used[1] != D.last_used) break;
+        int r = vq_complete(&D.vq, &id, &used_len);
+        if (r == VQ_OK) break;
+        if (r != VQ_EEMPTY) { D.failed = 1; return BLK_EPROTO; }   /* bad id, repeated id, length over what we allowed, or an impossible used index */
         if (rd(R_STATUS) & (ST_NEEDS_RESET | ST_FAILED)) { D.failed = 1; return BLK_EIO; }
         if (timer_count() - t0 > limit) {
             D.timeouts++;
@@ -258,12 +258,8 @@ static int submit(uint32_t type, uint64_t sector, uint32_t data_len, int device_
             return BLK_ETIMEOUT;
         }
     }
-    uint32_t idx = D.last_used % QN;
-    uint32_t id = *(volatile uint32_t *)((volatile uint8_t *)D.used + 4 + idx * 8);
-    D.last_used++;
     uint32_t isr = rd(R_INTSTATUS);
     if (isr) wr(R_INTACK, isr);                                  /* keep the line quiet; we poll */
-    if (id != 0) { D.failed = 1; return BLK_EPROTO; }            /* the only chain ever submitted starts at descriptor 0 */
     return *D.status == 0 ? BLK_OK : BLK_EIO;
 }
 
