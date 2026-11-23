@@ -238,6 +238,34 @@ def main():
     check("Corner: the Close button is inside the screen, above the dock, and spills nothing", 41 in L and L[41][1] + L[41][3] <= 640 and not band_clean(c1, {41: L[41]}))
     tap("esc")
     check("Escape closes the sheet and focus returns to the handle (40)", wait_count("shell: corner closed", 1) and wait_last("shell: focus=", "40"))
+    # ---------------- every other native screen, opened through the real Index ----------------
+    def current_screen(): return last("shell: screen=") or ""
+    def visit(query, name):
+        """open `name` by typing `query` into the real Index search and pressing Enter; then audit the settled frame with the same rules as Home"""
+        if not (click_ctrl(4) and wait_count("shell: query=", 1)): pass
+        end = time.time() + 15
+        while time.time() < end and not current_screen().startswith("Index"): time.sleep(0.2)
+        for _ in range(14): tap("backspace")
+        time.sleep(0.4)
+        for ch in query: tap(ch); time.sleep(0.25)
+        time.sleep(0.5); tap("ret")
+        end = time.time() + 20
+        while time.time() < end and not current_screen().startswith(name): time.sleep(0.2)
+        opened = current_screen().startswith(name)
+        check("%s: opened from Index by typing '%s' and pressing Enter" % (name, query), opened)
+        if not opened: return
+        time.sleep(0.8)
+        img = shot_until("screen_" + name.lower(), palette_ok, 6)
+        Lx = layout()
+        check("%s: every pixel is in the palette of this mode (stray: %s)" % (name, stray(img)), palette_ok(img))
+        bcx = band_clean(img, Lx)
+        check("%s: no text spills outside any control (%s)" % (name, bcx[:2]), not bcx)
+        check("%s: every control is on screen and above the dock" % name, all(0 <= x and 0 <= y and x + w <= 1024 and y + h <= 768 for (x, y, w, h) in Lx.values()) and 2 in Lx and
+              all(y + h <= Lx[2][1] for cid, (x, y, w, h) in Lx.items() if cid not in (2, 3, 4, 40) and y < Lx[2][1]))
+        check("%s: touch targets are at least 48 px wide and 40 px high" % name, all(w >= 48 and h >= 40 for (x, y, w, h) in Lx.values()))
+        check("%s: the dock is still reachable and drawn (controls 2, 3, 4 present)" % name, all(i in Lx for i in (2, 3, 4)))
+    for q_, n_ in (("pages", "Pages"), ("aura", "Aura"), ("settings", "Settings"), ("clock", "Clock"), ("trail", "Trail"), ("hold", "Hold")):
+        visit(q_, n_)
     check("no panic or failed self-test after the whole run", "KERNEL PANIC" not in log() and "SELFTEST FAILED" not in log())
     print("scale_check %s: %d passed, %d failed" % (tag.strip(), passed, failed))
     return 1 if failed else 0
