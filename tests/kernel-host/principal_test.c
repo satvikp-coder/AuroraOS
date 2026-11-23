@@ -15,6 +15,15 @@ int main(void)
     CHECK("installer 0x7F000001, settings 0x7F000002 and shell 0x7F000003 are reserved", principal_is_reserved(0x7F000001u) && principal_is_reserved(0x7F000002u) && principal_is_reserved(PRINCIPAL_SHELL));
     CHECK("Passport and Trail are reserved, distinct, and not assignable", PRINCIPAL_PASSPORT == 0x7F000004u && PRINCIPAL_TRAIL == 0x7F000005u && PRINCIPAL_PASSPORT != PRINCIPAL_TRAIL
           && principal_is_reserved(PRINCIPAL_PASSPORT) && principal_is_reserved(PRINCIPAL_TRAIL) && !principal_assignable(PRINCIPAL_PASSPORT) && !principal_assignable(PRINCIPAL_TRAIL));
+    CHECK("inference 0x7F000006 is reserved, distinct from every other service identity, and not assignable", PRINCIPAL_INFER == 0x7F000006u && principal_is_reserved(PRINCIPAL_INFER)
+          && !principal_assignable(PRINCIPAL_INFER) && PRINCIPAL_INFER != PRINCIPAL_SHELL && PRINCIPAL_INFER != PRINCIPAL_PASSPORT && PRINCIPAL_INFER != PRINCIPAL_TRAIL);
+    { /* the service exception is exactly one identity: no other reserved value, no ordinary identity, not 0 and not none */
+        int bad = 0;
+        for (uint32_t low = 0; low < 0x10000u; low++) if (principal_service_holdable(0x7F000000u | low) != (low == 6)) bad++;
+        uint32_t s = 7; for (int i = 0; i < 1000000; i++) { s = s * 1664525u + 1013904223u; if (principal_service_holdable(s) != (s == PRINCIPAL_INFER)) bad++; }
+        CHECK("only PRINCIPAL_INFER is service-holdable (0x7F000000..0x7F00FFFF swept, 1,000,000 random values, 0 and none)", bad == 0 && principal_service_holdable(PRINCIPAL_INFER)
+              && !principal_service_holdable(0) && !principal_service_holdable(0xFFFFFFFFu) && !principal_service_holdable(PRINCIPAL_PASSPORT) && !principal_service_holdable(101));
+    }
     CHECK("the whole 0x7F000000..0x7FFFFFFF range is reserved (first, last, middle)", !principal_assignable(0x7F000000u) && !principal_assignable(0x7FFFFFFFu) && !principal_assignable(0x7F123456u));
     CHECK("the neighbours of the range are assignable", principal_assignable(0x7EFFFFFFu) && principal_assignable(0x80000000u) && principal_assignable(0x80000001u) && principal_assignable(0xFFFFFFFEu));
     CHECK("ordinary application identities are assignable", principal_assignable(1) && principal_assignable(101) && principal_assignable(0x1001u) && principal_assignable(0x00FFFFFFu) && principal_assignable(0x01000000u));

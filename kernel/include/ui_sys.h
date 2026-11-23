@@ -19,7 +19,7 @@
 #include <proc.h>
 #include <ui_proto.h>
 
-#define SYS_UI 41                     /* numbers 10..40 are deliberately still -ENOSYS (a process test asserts it) */
+#define SYS_UI 41                     /* numbers 12..40 are deliberately still -ENOSYS (a process test asserts it; 10 is SYS_MEM, 11 SYS_MODEL) */
 #define SYS_UI_SEND 1
 #define SYS_UI_POLL 2
 /* (operation 3, SYS_UI_AURA, is declared in broker_kernel.h: a command for the Action Broker; the policy decides and only the shell executes) */

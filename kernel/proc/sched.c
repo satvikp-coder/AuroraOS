@@ -16,6 +16,7 @@
 #include <proc.h>
 #include <timer.h>
 #include <timersys.h>
+#include <modelsys.h>
 #include <ui_sys.h>
 
 #define SVC_ENTER_SCHED 0x5c4e
@@ -221,6 +222,9 @@ static void do_syscall(struct exc_frame *f, struct proc *p)
         return;
     case SYS_SETTINGS:
         f->x[0] = (uint64_t)settings_syscall(p, f->x[0], f->x[1], f->x[2]);
+        return;
+    case SYS_MODEL:
+        f->x[0] = (uint64_t)model_syscall(p, f->x[0], f->x[1], f->x[2], f->x[3], f->x[4]);
         return;
     case SYS_TIMER:
         f->x[0] = (uint64_t)timersys_syscall(p, f->x[0], f->x[1], f->x[2]);

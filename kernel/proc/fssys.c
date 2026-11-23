@@ -5,7 +5,7 @@
  * process is created; no system call can read, change or choose it, and EL0 never passes one. It is a durable APPLICATION identity (the
  * number stored in file owner fields on disk), deliberately NOT the pid, the ASID or the process generation: those are reused or restart
  * from 1 on every boot, so a file owner derived from them would pass to the next occupant of a pid or to a different program after a
- * reboot. A process that has no principal (PRINCIPAL_NONE) or the reserved kernel value 0 gets AE_EPERM for every file operation.
+ * reboot. A process that has no principal (PRINCIPAL_NONE) or the reserved kernel value 0 (or a reserved service identity such as PRINCIPAL_INFER) gets AE_EPERM for every file operation.
  * Whoever creates a process decides its principal; milestone D's loader will take it from the owner of the executable's file.
  *
  * ABI. x8 = SYS_FS, x0 = operation, x1..x4 = arguments, result in x0. Results >= 0 are values; negative results are AE_* codes for generic
@@ -49,7 +49,7 @@ static void to_user_stat(struct user_fs_stat *u, const struct fs_stat *s)
 int64_t fs_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4)
 {
     uint32_t who = p->principal;
-    if (who == 0 || who == PRINCIPAL_NONE) return AE_EPERM;
+    if (who == 0 || who == PRINCIPAL_NONE || principal_is_reserved(who)) return AE_EPERM;   /* a reserved service identity (PRINCIPAL_INFER) has no file authority */
     if (op < FSOP_CREATE || op > FSOP_SET_PERM) return AE_EINVAL;
     if (!fs_mounted()) return AE_FS_BASE + FS_EMOUNT;
 

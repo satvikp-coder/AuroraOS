@@ -596,12 +596,19 @@ role_recv_flags:
     sys     SYS_EXIT
     b       .
 
-/* role 67: try every unknown system call number 10..40 (all must be -ENOSYS; 8 is the file system call, 9 the settings call: there is no way to grant oneself authority),
- * then send to the pid in x1 which this process was never authorised to message. [0x20] = number of -ENOSYS, [0x28] = send result. */
+/* role 67: try every unknown system call number 12..40 (all must be -ENOSYS; 8 is the file system call, 9 the settings call: there is no way to grant oneself authority),
+ * then send to the pid in x1 which this process was never authorised to message. [0x20] = number of -ENOSYS, [0x28] = send result,
+ * [0x30] = SYS_MODEL (11) INFO-count from this identity-less process (must be -EPERM: only PRINCIPAL_INFER may use it). */
 role_tryall:
     ldr     x20, =DATA_VA
     mov     x19, x1
-    mov     x21, #11                    /* 10 is SYS_MEM (it only manages the caller's own heap); 11..40 must be unimplemented */
+    mov     x0, #1                      /* MODELOP_INFO */
+    mov     x1, #0xFFFFFFFF             /* the count sentinel */
+    mov     x2, #0
+    mov     x8, #11
+    svc     #0
+    str     x0, [x20, #0x30]
+    mov     x21, #12                    /* 10 is SYS_MEM (it only manages the caller's own heap), 11 SYS_MODEL (PRINCIPAL_INFER only); 12..40 must be unimplemented */
     mov     x22, #0
 ta_loop:
     mov     x0, #2
