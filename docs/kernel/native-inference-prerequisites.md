@@ -21,9 +21,9 @@ Add the key/value cache (grows with context length) and activation buffers. What
 | Largest file in AuroraFS | 24 KiB (`FS_MAX_FILE` = 48 blocks x 512 B) | `kernel/include/fs.h` |
 | Files in the whole filesystem | 32 (`FS_MAX_FILES`) | `kernel/include/fs.h` |
 | Executable size | 12 pages of image, file at most 24 KiB | `kernel/include/elf.h` |
-| Pages one process may own (tables included) | 24 (`ASPACE_MAX_PAGES`) = 96 KiB | `kernel/include/proc.h` |
+| Pages one process may own (tables included) | 24 fixed + `USER_HEAP_MAX_PAGES` (32) = 56 (`ASPACE_MAX_PAGES`) | `kernel/include/proc.h` |
 | Concurrent processes | 8 (`PROC_MAX`) | `kernel/include/proc.h` |
-| User address space | one 1 GiB slot per process, but only the fixed code/data/stack pages are mapped; no system call maps more memory | `kernel/include/proc.h` |
+| User address space | one 1 GiB slot per process; fixed code/data/stack plus a `SYS_MEM` heap of at most 32 pages (128 KiB) per process and 64 pages (256 KiB) per principal, with a 256-page kernel reserve; guards are never mapped; nothing larger or shared can be mapped | `kernel/include/proc.h` |
 | RAM in the QEMU run scripts | 256 MB, one Cortex-A53 CPU (`-smp 1`), TCG emulation | `run-qemu.sh`, `scripts/package-qemu.sh` |
 | FP/SIMD in EL0 | available and context-switched per process (Cycle 22) | `docs/kernel/userspace.md` |
 | Kernel numeric code | none: the kernel is built `-mgeneral-regs-only` | `build.sh` |
@@ -31,7 +31,7 @@ Add the key/value cache (grows with context length) and activation buffers. What
 ## 3. The gaps, in dependency order
 
 1. **Weights cannot be stored.** A 24 KiB file limit and 32 files cannot hold even one quantised layer of the model. Needs either a large-object store (extent-based files or a separate read-only model volume with its own bounded format and integrity check) or a streaming reader over a raw disk region. Whichever is chosen must keep the per-principal quota and permission model.
-2. **Processes cannot hold the weights.** A process owns 96 KiB. Needs a bounded, quota-checked way to map many more pages (an explicit map/unmap call with a per-principal page budget, W^X preserved, guard pages, no access to physical memory or the framebuffer, clean reclamation on exit or fault). Alternatively map the weights read-only and shared; that needs an explicit sharing design and must not weaken isolation.
+2. **Processes cannot hold the weights.** The `SYS_MEM` heap (Cycle 22) gives a process at most 128 KiB, enough for a small tensor kernel and test vectors but not for model weights; raising that ceiling would not solve this, because the weights are hundreds of megabytes. What is missing is a read-only, kernel-validated mapping of a verified model volume (see gap 1). Earlier text: a process owned 96 KiB. Needs a bounded, quota-checked way to map many more pages (an explicit map/unmap call with a per-principal page budget, W^X preserved, guard pages, no access to physical memory or the framebuffer, clean reclamation on exit or fault). Alternatively map the weights read-only and shared; that needs an explicit sharing design and must not weaken isolation.
 3. **RAM.** At 256 MB the weights do not fit next to the kernel in any usable format. The VM needs a larger `-m` (and the `highmem` setting checked), which also changes what "works under QEMU" means for a phone with limited RAM.
 4. **Disk throughput.** The virtio block path was built for correctness tests, not for streaming hundreds of megabytes. Needs measurement before any claim.
 5. **Compute.** FP/SIMD state is now saved per process, but nothing uses NEON yet. The first native workload would be a small, hand-written matrix-vector kernel with a bit-exact test against a reference, run under QEMU TCG. TCG timing says nothing about real hardware and must never be reported as performance.
