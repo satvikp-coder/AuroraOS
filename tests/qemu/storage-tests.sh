@@ -10,6 +10,8 @@
 #   4. a read-only disk: reads work, writes are refused, the image is unchanged.
 #   5. a legacy-transport device is reported and refused (no guessing), boot continues, image unchanged.
 #   6. a tiny and a larger disk report their true capacity.
+#   7. an optional read-only model volume (second virtio-blk) is found by its AURMODEL magic, whatever the bus order.
+#   8. the model volume's integrity check at boot: valid, damaged object, damaged header, wrong magic, truncated; image never changed.
 # Silent boots, timeouts, wrong counts or an unexpected panic are FAILURES.
 #
 # Usage: ./tests/qemu/storage-tests.sh      Requires the aarch64 toolchain and qemu-system-aarch64.
@@ -143,6 +145,51 @@ log="$OUT/model-none.log"; run_qemu "$NORMAL" "$log" $(two sysfirst "$plain"); f
 expect_not "$log" "model volume" "a second disk WITHOUT the magic is never exposed as a model volume"
 expect "$log" "Block device ready" "model-none: the system disk still comes up"
 if [ "$(sum "$plain")" = "$pb" ]; then ok "model-none: the plain image is unchanged"; else bad "model-none: the plain image changed"; fi
+
+echo "== 8. model volume integrity check at boot (SHA-256: integrity only, not authenticity) =="
+# model_line log: every "[model]" line of the serial log, CRs stripped. Asserting it EQUALS one expected line proves there is exactly one such line.
+model_line() { tr -d '\r' < "$1" | grep '^\[model\]'; }
+expect_model() { # log expected-line description
+    got="$(model_line "$1")"
+    if [ "$got" = "$2" ]; then ok "$3"; else bad "$3 (want '$2', got '$(echo "$got" | tr '\n' '|')')"; fi
+}
+cc -std=c11 -Wall -Wextra -O1 -I kernel/include -o "$OUT/mkmodel" tests/tools/mkmodel.c kernel/fs/modelstore.c kernel/crypto/sha256.c && ok "mkmodel compiled" || { bad "mkmodel failed to compile"; echo "storage-tests: $PASSES passed, $FAILS failed"; exit 1; }
+seq 1 15000 > "$OUT/weights.bin"; seq 1 200 > "$OUT/tok.json"; head -c 512 "$OUT/weights.bin" > "$OUT/cfg.bin"      # multi-sector, partial-sector and exactly-one-sector objects
+objs="weights.bin=$OUT/weights.bin tokenizer.json=$OUT/tok.json config=$OUT/cfg.bin"
+"$OUT/mkmodel" "$OUT/m8-valid.img" $objs > "$OUT/mkmodel.log" 2>&1 && ok "valid 3-object image built" || bad "mkmodel (valid) failed"
+"$OUT/mkmodel" --corrupt-object 1 "$OUT/m8-obj.img" $objs >> "$OUT/mkmodel.log" 2>&1 && ok "image with a damaged object built" || bad "mkmodel (--corrupt-object) failed"
+"$OUT/mkmodel" --corrupt-header "$OUT/m8-hdr.img" $objs >> "$OUT/mkmodel.log" 2>&1 && ok "image with a damaged header built" || bad "mkmodel (--corrupt-header) failed"
+cp "$OUT/m8-valid.img" "$OUT/m8-magic.img"; printf 'X' | dd of="$OUT/m8-magic.img" bs=1 seek=3 conv=notrunc 2>/dev/null
+vsec=$(( $(wc -c < "$OUT/m8-valid.img") / 512 ))
+head -c $(( (vsec - 1) * 512 )) "$OUT/m8-valid.img" > "$OUT/m8-trunc.img"
+if cmp -s "$OUT/m8-valid.img" "$OUT/m8-obj.img" || cmp -s "$OUT/m8-valid.img" "$OUT/m8-hdr.img"; then bad "the corrupted images differ from the valid one"; else ok "the corrupted images differ from the valid one"; fi
+# boot8 name image order: boot the normal kernel with the model image attached; the image must be byte-for-byte unchanged afterwards
+boot8() {
+    b8=$(sum "$2"); log="$OUT/m8-$1.log"; run_qemu "$NORMAL" "$log" $(two "$3" "$2"); finished "m8-$1" "$log"
+    expect "$log" "Block device ready" "m8-$1: the system disk still comes up"
+    expect "$log" "AURORA-PROC-SELFTEST: $EXPECTED_PROC_TESTS passed, 0 failed" "m8-$1: the rest of the system boots and passes"
+    if [ "$(sum "$2")" = "$b8" ]; then ok "m8-$1: the model image is byte-for-byte unchanged"; else bad "m8-$1: the model image changed"; fi
+}
+for order in sysfirst modelfirst; do
+    boot8 "valid-$order" "$OUT/m8-valid.img" $order
+    expect "$log" "\[blk\] model volume \(read-only, AURMODEL magic\): $vsec sectors" "m8-valid-$order: the volume is exposed with its true size"
+    expect_model "$log" "[model] volume valid: 3 objects" "m8-valid-$order: exactly one line: volume valid: 3 objects"
+done
+boot8 obj "$OUT/m8-obj.img" sysfirst
+expect_model "$log" "[model] volume INVALID: object digest mismatch" "m8-obj: a flipped byte inside an object is rejected"
+boot8 hdr "$OUT/m8-hdr.img" sysfirst
+expect "$log" "\[blk\] model volume \(read-only, AURMODEL magic\)" "m8-hdr: magic intact, so the device is still exposed as a model volume"
+expect_model "$log" "[model] volume INVALID: header digest mismatch" "m8-hdr: a flipped header byte is rejected"
+boot8 magic "$OUT/m8-magic.img" sysfirst
+expect_not "$log" "model volume" "m8-magic: a flipped magic byte means the device is not exposed at all"
+expect_model "$log" "" "m8-magic: no [model] line when there is no model volume"
+boot8 trunc "$OUT/m8-trunc.img" sysfirst
+expect "$log" "\[blk\] model volume \(read-only, AURMODEL magic\): $((vsec - 1)) sectors" "m8-trunc: the truncated device reports its real size"
+expect_model "$log" "[model] volume INVALID: volume shorter than header claims" "m8-trunc: an image shorter than its header claims is rejected"
+# earlier boots: a bare-magic image (section 7) is exposed but invalid; no model volume means no [model] line
+expect_model "$OUT/model-sysfirst.log" "[model] volume INVALID: unsupported version" "section 7 bare-magic image: exposed, but reported INVALID"
+expect_model "$OUT/nodisk.log" "" "nodisk: no [model] line"
+expect_model "$OUT/model-none.log" "" "model-none: no [model] line"
 
 echo "storage-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]
