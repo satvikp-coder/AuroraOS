@@ -170,6 +170,16 @@ def main():
         check("saving fails HONESTLY: the status says the disk is full and nothing is reported saved", wait_for(lambda: last_status(1) == "Disk or quota is full", 25) and not has(1, "notes save ok"))
         check("the text stays in the editor, still unsaved", last_text(1) == "abc|")
         check("exit", quit_notes(1))
+    elif sc == "spacefull":
+        check("Notes launches on a disk with ZERO free data blocks and loads the note that was already saved", launch(1) and wait_for(lambda: has(1, "notes load ok slot=0"), 20) and last_text(1) == "kept|")
+        focus_surface(1); type_note("abc"); ctrl("s")
+        check("saving fails HONESTLY: the status says the disk is full and nothing is reported saved", wait_for(lambda: last_status(1) == "Disk or quota is full", 25) and not has(1, "notes save ok"))
+        check("the unsaved edit stays in the editor (nothing is silently dropped)", last_text(1) == "keptabc|")
+        check("exit", quit_notes(1))
+    elif sc == "spacefull2":
+        check("after the failed save and a restart the PREVIOUS valid note is still there, unchanged", launch(1) and wait_for(lambda: has(1, "notes load ok slot=0"), 20) and last_text(1) == "kept|")
+        focus_surface(1)
+        check("exit", quit_notes(1))
     elif sc == "newer":
         check("Notes launches", launch(1))
         check("a note from a NEWER version is not opened and not overwritten", wait_for(lambda: has(1, "notes load newer version locked"), 20))
