@@ -10,6 +10,7 @@
 #   AURORA_BLK_TEST=1 BUILD_DIR=... ./build.sh      build the DESTRUCTIVE block-device tests (disposable QEMU disk only)
 #   AURORA_FS_TEST=1 BUILD_DIR=... ./build.sh       build the DESTRUCTIVE filesystem tests (disposable QEMU disk only)
 #   AURORA_GFX_SHAPES=1 BUILD_DIR=... ./build.sh     build a kernel that draws the G3 rounded-rectangle test image (tests/qemu/gfx-tests.sh)
+#   AURORA_SND_FAULT=n BUILD_DIR=... ./build.sh     sound driver simulates hostile device answer n (tests/qemu/sound-tests.sh)
 #   AURORA_FAULT_TEST=1 BUILD_DIR=... ./build.sh    build a deliberate-fault test kernel
 #                                                   (see tests/qemu/mm-tests.sh)
 
@@ -94,6 +95,9 @@ fi
 if [ -n "$AURORA_GFX_TEXT" ]; then
     CFLAGS="$CFLAGS -DAURORA_GFX_TEXT=1"        # draw the G4 text diagnostic image (needs a ramfb display)
 fi
+if [ -n "$AURORA_SND_FAULT" ]; then
+    CFLAGS="$CFLAGS -DAURORA_SND_FAULT=$AURORA_SND_FAULT"   # test kernel: the sound driver SIMULATES a hostile device answer (tests/qemu/sound-tests.sh)
+fi
 if [ -n "$AURORA_FAULT_TEST" ]; then
     CFLAGS="$CFLAGS -DAURORA_FAULT_TEST=$AURORA_FAULT_TEST"
 fi
@@ -125,7 +129,7 @@ if [ -n "$AURORA_FS_TEST" ]; then      # EL0 file-access boundary programs: test
 fi
 
 echo "[build] Compiling kernel..."
-for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/memsys.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proc/elf.c kernel/proc/launch.c kernel/proc/apps.c kernel/proc/procsnap.c kernel/proc/procsnap_k.c kernel/settings.c kernel/settingstest.c kernel/loadtest.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/drivers/fwcfg.c kernel/drivers/fwcfg_proto.c kernel/drivers/virtio_mmio.c kernel/drivers/virtio_input.c kernel/drivers/virtqueue.c kernel/input/input_core.c kernel/input/ui_focus.c kernel/ui/ui_scene.c kernel/ui/ui_demo.c kernel/ui/gfx_bench.c kernel/ui/index_model.c kernel/ui/shell.c kernel/ui/hold.c kernel/ui/shell_run.c kernel/ui/ui_proto.c kernel/ui/ui_sys.c kernel/ui/aura_cmd.c kernel/ui/passport.c kernel/ui/trail.c kernel/ui/timersvc.c kernel/proc/timersys.c kernel/ui/ledger_store.c kernel/ui/ledger_kernel.c kernel/ui/review.c kernel/ui/broker_policy.c kernel/ui/aura_exec.c kernel/ui/broker_kernel.c kernel/input/input_demo.c kernel/gfx/gfx.c kernel/gfx/gfx_draw.c kernel/gfx/gfx_region.c kernel/gfx/gfx_shape.c kernel/gfx/gfx_text.c kernel/gfx/font_noto_mono.c kernel/blktest.c kernel/fs/afs.c kernel/fs/modelstore.c kernel/fs/modelvol.c kernel/crypto/sha256.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
+for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel/mm/vmm.c kernel/mm/mmpolicy.c kernel/lib.c kernel/proc/aspace.c kernel/proc/proc.c kernel/proc/sched.c kernel/proc/memsys.c kernel/proc/ipc.c kernel/proc/fssys.c kernel/proc/elf.c kernel/proc/launch.c kernel/proc/apps.c kernel/proc/procsnap.c kernel/proc/procsnap_k.c kernel/settings.c kernel/settingstest.c kernel/loadtest.c kernel/proctest.c kernel/drivers/virtio_blk.c kernel/drivers/fwcfg.c kernel/drivers/fwcfg_proto.c kernel/drivers/virtio_mmio.c kernel/drivers/virtio_input.c kernel/drivers/virtqueue.c kernel/drivers/virtio_snd.c kernel/input/input_core.c kernel/input/ui_focus.c kernel/ui/ui_scene.c kernel/ui/ui_demo.c kernel/ui/gfx_bench.c kernel/ui/index_model.c kernel/ui/shell.c kernel/ui/hold.c kernel/ui/shell_run.c kernel/ui/ui_proto.c kernel/ui/ui_sys.c kernel/ui/aura_cmd.c kernel/ui/passport.c kernel/ui/trail.c kernel/ui/timersvc.c kernel/proc/timersys.c kernel/ui/ledger_store.c kernel/ui/ledger_kernel.c kernel/ui/review.c kernel/ui/broker_policy.c kernel/ui/aura_exec.c kernel/ui/broker_kernel.c kernel/input/input_demo.c kernel/gfx/gfx.c kernel/gfx/gfx_draw.c kernel/gfx/gfx_region.c kernel/gfx/gfx_shape.c kernel/gfx/gfx_text.c kernel/gfx/font_noto_mono.c kernel/blktest.c kernel/fs/afs.c kernel/fs/modelstore.c kernel/fs/modelvol.c kernel/crypto/sha256.c kernel/fstest.c kernel/fsproctest.c kernel/irq.c kernel/irqtest.c kernel/arch/aarch64/gicv2.c kernel/arch/aarch64/timer.c \
          kernel/mm/selftest.c kernel/arch/aarch64/exceptions.c; do
     o="$BUILD_DIR/$(basename "$c" .c).o"
     $CC $CFLAGS -c "$c" -o "$o"
