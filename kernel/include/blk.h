@@ -18,6 +18,11 @@ int      blk_readonly(void);
 int      blk_read(uint64_t sector, void *buf, uint32_t nsect);
 int      blk_write(uint64_t sector, const void *buf, uint32_t nsect);
 int      blk_flush(void);                                     /* BLK_OK also when the device has no volatile cache to flush */
+/* The optional READ-ONLY model volume: a second virtio-blk device whose sector 0 begins "AURMODEL" (identified by content, not bus order). There is
+ * deliberately no write or flush entry point for it. Kernel use only; EL0 never receives device access. */
+int      blkm_present(void);
+uint64_t blkm_sectors(void);
+int      blkm_read(uint64_t sector, void *buf, uint32_t nsect);
 const char *blk_strerror(int rc);
 /* 1 if rc proves the request had NO effect on the device (rejected before submission); 0 if the outcome is unknown
  * (I/O error, timeout, protocol error: the write may or may not have reached stable storage). BLK_OK is not an error. */

@@ -117,5 +117,32 @@ for sectors in 512 16384; do
     expect "$log" "AURORA-BLK-SELFTEST: $EXPECTED_BLK_TESTS passed, 0 failed" "cap-$sectors: block checks pass"
 done
 
+echo "== 7. optional read-only model volume (second virtio-blk, identified by its AURMODEL magic) =="
+sysimg="$OUT/sys7.img"; mdl="$OUT/model7.img"; plain="$OUT/plain7.img"
+mkimg "$sysimg" 2048; mkimg "$mdl" 4096; mkimg "$plain" 1024
+printf 'AURMODEL' | dd of="$mdl" bs=1 conv=notrunc 2>/dev/null
+two() { # sysfirst|modelfirst second-image
+    if [ "$1" = sysfirst ]; then
+        echo "-global virtio-mmio.force-legacy=false -drive file=$sysimg,if=none,format=raw,id=s0 -device virtio-blk-device,drive=s0 -drive file=$2,if=none,format=raw,id=m0 -device virtio-blk-device,drive=m0"
+    else
+        echo "-global virtio-mmio.force-legacy=false -drive file=$2,if=none,format=raw,id=m0 -device virtio-blk-device,drive=m0 -drive file=$sysimg,if=none,format=raw,id=s0 -device virtio-blk-device,drive=s0"
+    fi
+}
+for order in sysfirst modelfirst; do
+    mb=$(sum "$mdl")
+    log="$OUT/model-$order.log"; run_qemu "$NORMAL" "$log" $(two $order "$mdl"); finished "model-$order" "$log"
+    expect "$log" "\[blk\] model volume \(read-only, AURMODEL magic\): 4096 sectors" "model-$order: the AURMODEL device is found by content, whatever the bus order"
+    expect "$log" "Block device ready" "model-$order: the system disk still comes up"
+    expect "$log" "AURORA-PROC-SELFTEST: $EXPECTED_PROC_TESTS passed, 0 failed" "model-$order: the rest of the system boots and passes"
+    log="$OUT/model-$order-destructive.log"; run_qemu "$TESTK" "$log" $(two $order "$mdl"); finished "model-$order-t" "$log"
+    expect "$log" "AURORA-BLK-SELFTEST: $EXPECTED_BLK_TESTS passed, 0 failed" "model-$order: the destructive driver tests ran against the SYSTEM disk only"
+    if [ "$(sum "$mdl")" = "$mb" ]; then ok "model-$order: the model image is byte-for-byte unchanged"; else bad "model-$order: the model image changed"; fi
+done
+pb=$(sum "$plain")
+log="$OUT/model-none.log"; run_qemu "$NORMAL" "$log" $(two sysfirst "$plain"); finished model-none "$log"
+expect_not "$log" "model volume" "a second disk WITHOUT the magic is never exposed as a model volume"
+expect "$log" "Block device ready" "model-none: the system disk still comes up"
+if [ "$(sum "$plain")" = "$pb" ]; then ok "model-none: the plain image is unchanged"; else bad "model-none: the plain image changed"; fi
+
 echo "storage-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]
