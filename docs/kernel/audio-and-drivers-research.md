@@ -35,6 +35,6 @@ Nothing in this plan claims audio quality, latency or real-hardware behaviour.
 
 ## 7. Order of work
 1. **Step 1a done:** `kernel/include/virtqueue.h` + `kernel/drivers/virtqueue.c` (index arithmetic and hostile used-ring checks: id range, id in flight, repeated id, length over the cap, used index ahead, 16-bit wrap) with `tests/kernel-host/virtqueue_test.c` (57 checks, 8 of 9 mutants killed, the 9th is an equivalent redundant bound). Not linked into the kernel yet. **Step 1b not done:** migrate block + input onto it. Original step: Shared virtqueue module with host tests and migration of block + input (no behaviour change; existing suites must pass byte-for-byte).
-2. Read the virtio-snd section of the spec; write the message layouts into a header with a host test of the encoders/decoders.
+2. (Spec extract now in `docs/kernel/virtio-sound-spec-notes.md`; still to do: header + host test.) Read the virtio-snd section of the spec; write the message layouts into a header with a host test of the encoders/decoders.
 3. Sound driver: playback only, `wav` backend test (section 5, items 1-3).
 4. Capability and indicator design review; only then capture.
