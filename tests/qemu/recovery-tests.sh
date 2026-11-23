@@ -100,6 +100,39 @@ done
 boot crashrecover "$OUT/crash.img"
 has "$L" "\[fs\] mount: AuroraFS v1 mounted" && ok "crash: after the killed boots the same disk mounts normally" || bad "crash: the disk no longer mounts after killed boots"
 
+# 5b. a damaged INSTALLED executable: the kernel must refuse it for a specific reason, run nothing, leave every other file and application alone, and never "repair" it.
+# The filesystem layer protects file data with a CRC, so a flipped data byte is caught there; an executable that was WRITTEN damaged (valid CRC, invalid ELF) must be caught by
+# the ELF validator. mkafs (host fixture tool) installs without validating so we can build such a disk; the packaged mkdisk would refuse to.
+cc -std=c11 -Wall -Wextra -O1 -I tests/tools/shim -I kernel/include -o "$OUT/mkafs" tests/tools/mkafs.c kernel/fs/afs.c && ok "mkafs (fixture builder) compiled" || bad "mkafs failed to compile"
+refuse() {       # $1 name, $2 description, $3 expected refusal reason (regex), $4 how the calc.elf copy is damaged: corrupt_elf.py MODE, or "data" (flip a byte AFTER install)
+    N="$1"; cp "$PKG/apps/calc.elf" "$OUT/$N.calc.elf"
+    [ "$4" != data ] && python3 "$SCRIPT_DIR/corrupt_elf.py" "$4" "$PKG/apps/calc.elf" "$OUT/$N.calc.elf"
+    "$OUT/mkafs" "$OUT/$N.img" 2048 installer 0x7 calc.elf "$OUT/$N.calc.elf" installer 0x7 notes.elf "$PKG/apps/notes.elf" installer 0x7 files.elf "$PKG/apps/files.elf" > "$OUT/$N.mkafs.log" 2>&1 || { bad "$N: could not build the image"; return; }
+    if [ "$4" = data ]; then   # flip one byte inside the installed calc.elf's data (found by its own first 64 bytes), leaving every checksum of the file system structure intact
+        python3 -c "
+import sys
+img = bytearray(open(sys.argv[1], 'rb').read()); pat = open(sys.argv[2], 'rb').read()[:64]
+i = img.find(pat); assert i >= 0 and img.find(pat, i + 1) < 0
+img[i + 300] ^= 0xFF; open(sys.argv[1], 'wb').write(bytes(img))" "$OUT/$N.img" "$OUT/$N.calc.elf" || { bad "$N: could not damage the installed data"; return; }
+    fi
+    B1=$(head -c 1280 "$OUT/$N.img" | sha256sum | cut -d' ' -f1)
+    L="$OUT/$N.log"; : > "$L"; rm -f "$OUT/$N.sock"
+    qemu-system-aarch64 $QEMU_COMMON -drive file="$OUT/$N.img",if=none,format=raw,id=d0 -device virtio-blk-device,drive=d0 -serial file:"$L" -qmp unix:"$OUT/$N.sock",server=on,wait=off &
+    QPID=$!
+    python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/$N.sock" --serial "$L" --tmp "$OUT" --scenario refused --expect "$3" --timeout 400 > "$OUT/$N.check.log" 2>&1
+    rc=$?; stop_qemu
+    if [ "$rc" -eq 0 ]; then ok "$N: $2: refused with /$3/, no process, other applications launch"; else bad "$N: checks failed (see $OUT/$N.check.log)"; tail -6 "$OUT/$N.check.log"; fi
+    has "$L" "KERNEL PANIC|SELFTEST FAILED" && bad "$N: the kernel panicked or a self-test failed" || ok "$N: no panic and no failed self-test"
+    [ "$B1" = "$(head -c 1280 "$OUT/$N.img" | sha256sum | cut -d' ' -f1)" ] && ok "$N: the superblock and inodes were not modified (the damaged file was not repaired or replaced)" || bad "$N: the kernel modified the file system structure"
+    has "$L" "apps: launched calculator" && bad "$N: the damaged Calculator RAN" || ok "$N: the damaged Calculator never ran"
+}
+refuse exe-data      "an installed executable with a damaged data byte"           "executable could not be read"   data
+refuse exe-magic     "an executable whose ELF magic is wrong"                     "not a supported executable"     magic
+refuse exe-truncated "an executable cut to 100 bytes"                             "not a supported executable"     truncated
+refuse exe-kernelva  "a segment placed in the kernel's address range"             "not a supported executable"     kernelva
+refuse exe-wx        "a segment that is both writable and executable"             "not a supported executable"     wx
+refuse exe-entry     "an entry point outside every loaded segment"                "not a supported executable"     entry
+
 # 6. the bundle verifier
 cp -r "$PKG" "$OUT/bundle"; rm -rf "$OUT/bundle/data"
 if (cd "$OUT/bundle" && ./verify-bundle.sh > "$OUT/verify-ok.log" 2>&1); then ok "verify: the untouched bundle verifies"; else bad "verify: the untouched bundle was rejected (see $OUT/verify-ok.log)"; fi
