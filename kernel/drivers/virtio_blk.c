@@ -70,7 +70,7 @@
 struct desc { uint64_t addr; uint32_t len; uint16_t flags, next; };
 struct reqhdr { uint32_t type, reserved; uint64_t sector; };
 
-static struct {
+struct blkdev {
     int present;
     volatile uint8_t *regs;
     uint64_t sectors;
@@ -91,7 +91,13 @@ static struct {
     uint64_t writes;
     uint64_t requests, timeouts;
     int failed;
-} D;
+};
+/* Two instances: DEVS[0] is the system disk and carries every existing blk_* entry point; DEVS[1] is an OPTIONAL read-only model volume (blkm_*, read only).
+ * Single CPU, no blk call is reentrant (polled, one request in flight), so `cur` simply selects the instance an internal routine works on; every public entry
+ * point restores it to the system disk before returning. */
+static struct blkdev DEVS[2];
+static struct blkdev *cur = &DEVS[0];
+#define D (*cur)
 static struct blk_info INFO;
 
 static uint32_t rd(uint32_t off) { return *(volatile uint32_t *)(D.regs + off); }
@@ -126,7 +132,7 @@ static int device_setup(void)
 
     wr(R_DEVFEATSEL, 0); uint32_t lo = rd(R_DEVFEAT);
     wr(R_DEVFEATSEL, 1); uint32_t hi = rd(R_DEVFEAT);
-    INFO.features_lo = lo; INFO.features_hi = hi;
+    if (cur == &DEVS[0]) { INFO.features_lo = lo; INFO.features_hi = hi; }
     if (!(hi & F_VERSION_1_HI)) { wr(R_STATUS, ST_FAILED); return BLK_EPROTO; }
     D.readonly = !!(lo & BLK_F_RO);
     D.has_flush = !!(lo & BLK_F_FLUSH);
@@ -171,6 +177,45 @@ static void release_pages(void)
     D.ring_page = D.req_page = D.bounce_page = 0;
 }
 
+/* bring up the device at `base` as the current instance; on failure nothing stays allocated and the device is reset */
+static int attach(uintptr_t base)
+{
+    D.regs = (volatile uint8_t *)base;
+    D.drop_after = -1; D.dropping = 0; D.inj_w = D.inj_f = -1;
+    release_pages();                                             /* nothing from an earlier failed attempt is kept or leaked */
+    D.ring_page = pmm_alloc_page(); D.req_page = pmm_alloc_page(); D.bounce_page = pmm_alloc_page();
+    if (!D.ring_page || !D.req_page || !D.bounce_page) { release_pages(); return BLK_EPROTO; }
+    D.hdr = (struct reqhdr *)D.req_page; D.status = (volatile uint8_t *)(D.req_page + 64); D.bounce = (uint8_t *)D.bounce_page;
+    D.timeout_ms = 1000;
+    int rc = device_setup();
+    if (rc) { wr(R_STATUS, 0); D.failed = 1; release_pages(); return rc; }   /* reset first so the device stops using the queue memory we free */
+    D.present = 1;
+    return BLK_OK;
+}
+
+/* Which device is which is decided by CONTENT, not by the order QEMU happens to place them on the bus: the volume whose sector 0 begins with the 8 bytes "AURMODEL"
+ * is the model volume. If the first node found carries it and the second does not, the two instances are swapped. A second device without the magic is not
+ * exposed at all (blkm_present() stays 0), so an arbitrary data disk is never mistaken for model assets. */
+static int has_model_magic(struct blkdev *dv)
+{
+    static const char M[8] = { 'A', 'U', 'R', 'M', 'O', 'D', 'E', 'L' };
+    uint8_t sec[512]; struct blkdev *save = cur; cur = dv;
+    int rc = D.present && !D.failed && D.sectors ? blk_read(0, sec, 1) : BLK_ENODEV;
+    cur = save;
+    if (rc != BLK_OK) return 0;
+    for (int i = 0; i < 8; i++) if (sec[i] != (uint8_t)M[i]) return 0;
+    return 1;
+}
+static int model_ok;
+static void identify_volumes(void)
+{
+    model_ok = 0;
+    if (!DEVS[1].present) return;
+    int m0 = has_model_magic(&DEVS[0]), m1 = has_model_magic(&DEVS[1]);
+    if (m0 && !m1) { struct blkdev t = DEVS[0]; DEVS[0] = DEVS[1]; DEVS[1] = t; INFO.base = (uint64_t)(uintptr_t)DEVS[0].regs; m0 = 0; m1 = 1; }
+    model_ok = m1 && !(m0 && m1);                                /* two model volumes is ambiguous: expose none */
+}
+
 int blk_init(const void *fdt)
 {
     static struct fdt_virtio nodes[32];
@@ -198,16 +243,20 @@ int blk_init(const void *fdt)
         }
         return BLK_ENODEV;
     }
-    D.regs = (volatile uint8_t *)(uintptr_t)nodes[found].base;
-    INFO.base = nodes[found].base; INFO.intid = nodes[found].intid; INFO.version = rd(R_VERSION);
-    release_pages();                                             /* nothing from an earlier failed attempt is kept or leaked */
-    D.ring_page = pmm_alloc_page(); D.req_page = pmm_alloc_page(); D.bounce_page = pmm_alloc_page();
-    if (!D.ring_page || !D.req_page || !D.bounce_page) { release_pages(); return BLK_EPROTO; }
-    D.hdr = (struct reqhdr *)D.req_page; D.status = (volatile uint8_t *)(D.req_page + 64); D.bounce = (uint8_t *)D.bounce_page;
-    D.timeout_ms = 1000;
-    int rc = device_setup();
-    if (rc) { wr(R_STATUS, 0); D.failed = 1; release_pages(); return rc; }   /* reset first so the device stops using the queue memory we free */
-    D.present = 1;
+    INFO.base = nodes[found].base; INFO.intid = nodes[found].intid;
+    int rc = attach(nodes[found].base);
+    if (rc) return rc;
+    INFO.version = 2;
+    /* an optional second modern block device = the read-only model volume; its absence or failure never affects the system disk */
+    for (int i = found + 1; i < n; i++) {
+        volatile uint32_t *r = (volatile uint32_t *)(uintptr_t)nodes[i].base;
+        if (r[R_MAGIC / 4] != VIRTIO_MAGIC || r[R_DEVID / 4] != DEV_BLOCK || r[R_VERSION / 4] != 2) continue;
+        cur = &DEVS[1];
+        if (!DEVS[1].present || DEVS[1].failed) { DEVS[1].present = 0; DEVS[1].failed = 0; (void)attach(nodes[i].base); }
+        cur = &DEVS[0];
+        break;
+    }
+    identify_volumes();
     return BLK_OK;
 }
 
@@ -329,4 +378,16 @@ int blk_flush(void)
     if (D.dropping) return BLK_OK;                              /* tests only: after the simulated power cut nothing reaches the device */
     if (D.readonly || !D.has_flush) return BLK_OK;               /* nothing cached to flush */
     return submit(T_FLUSH, 0, 0, 0);
+}
+
+/* ---- the optional read-only model volume (second virtio-blk device). READ ONLY by construction: there is no write or flush entry point for it. ---- */
+int blkm_present(void) { return model_ok && DEVS[1].present && !DEVS[1].failed; }
+uint64_t blkm_sectors(void) { return blkm_present() ? DEVS[1].sectors : 0; }
+int blkm_read(uint64_t sector, void *buf, uint32_t nsect)
+{
+    if (!blkm_present()) return BLK_ENODEV;
+    cur = &DEVS[1];
+    int rc = blk_read(sector, buf, nsect);
+    cur = &DEVS[0];
+    return rc;
 }
