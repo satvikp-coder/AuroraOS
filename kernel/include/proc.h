@@ -127,6 +127,7 @@ enum { MEMOP_GROW = 1, MEMOP_SHRINK, MEMOP_INFO };
 #define AE_ESRCH  (-6)   /* no such live process */
 #define AE_EPERM  (-7)   /* sender not authorised for that destination */
 #define AE_ENOMEM (-8)   /* out of memory, over the process's budget, or the kernel's reserve would be used */
+#define AE_EIO    (-9)   /* the device failed a read the kernel had already bounded (SYS_MODEL) */
 
 /* ---- file system call (kernel/proc/fssys.c) ---- */
 #include <principal.h>
@@ -137,6 +138,7 @@ enum { FSOP_CREATE = 1, FSOP_LOOKUP, FSOP_READ, FSOP_WRITE, FSOP_STAT, FSOP_LIST
 #define SYS_FS_LIST_MAX 16
 struct user_fs_stat { uint64_t id; uint32_t size, owner, perm, reserved; char name[32]; };   /* 56 bytes, written to user memory */
 int  proc_set_principal(int pid, uint32_t principal);   /* kernel-only; 0 (the kernel) and PRINCIPAL_NONE are refused */
+int  proc_set_service_principal(int pid, uint32_t principal);   /* kernel-only; accepts ONLY principal_service_holdable() (PRINCIPAL_INFER), else -1 */
 int64_t fs_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4);
 int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n);   /* SYS_MEM (kernel/proc/memsys.c) */
 int64_t settings_syscall(struct proc *p, uint64_t op, uint64_t id, uint64_t value);   /* kernel/settings.c */

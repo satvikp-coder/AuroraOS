@@ -73,3 +73,4 @@ void modelvol_check(void)
 int modelvol_state(void) { return g_state; }
 int modelvol_error(void) { return g_error; }
 uint32_t modelvol_objects(void) { return g_objects; }
+const struct ms_object *modelvol_object(uint32_t index) { return (g_state == MODELVOL_VALID && index < g_objects) ? &VOL.obj[index] : (const struct ms_object *)0; }

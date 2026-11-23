@@ -907,8 +907,8 @@ void proctest_run(void)
             int t = proc_create(67, 2, "tryall"), o = proc_create(64, 0, "other");
             r = sched_run(2000);
             struct proc *T = proc_get(t);
-            check("ipc authorisation: no system call lets a process grant itself permission (numbers 11-40 all -ENOSYS; number 8 is the file system call, 9 the settings call, which both refuse a process that has no identity, and 10 the memory call, which only ever manages the caller's own heap) and its send to an unauthorised pid is -EPERM",
-                  r == SCHED_DEADLOCK && o == 2 && ud(T, 0x20) == 30 && (int64_t)ud(T, 0x28) == AE_EPERM && T->state == PROC_TERMINATED && proc_get(o)->mbox.count == 0);
+            check("ipc authorisation: no system call lets a process grant itself permission (numbers 12-40 all -ENOSYS; number 8 is the file system call, 9 the settings call, which both refuse a process that has no identity, 10 the memory call, which only ever manages the caller's own heap, and 11 the model call, which is -EPERM for anyone but PRINCIPAL_INFER) and its send to an unauthorised pid is -EPERM",
+                  r == SCHED_DEADLOCK && o == 2 && ud(T, 0x20) == 29 && (int64_t)ud(T, 0x30) == AE_EPERM && (int64_t)ud(T, 0x28) == AE_EPERM && T->state == PROC_TERMINATED && proc_get(o)->mbox.count == 0);
             destroy_all();
             int f1 = proc_create(66, 2, "flags"), f2 = proc_create(66, 3, "flags"), f3 = proc_create(66, 1, "flags");
             sched_run(2000);

@@ -26,6 +26,7 @@
 #include <timer.h>
 #include <mm.h>
 #include <modelvol.h>
+#include <modelsys.h>
 #include <selftest.h>
 
 #define QEMU_VIRT_RAM_BASE 0x40000000UL   /* used only by the explicit AURORA_FIXED_RAM dev mode */
@@ -205,6 +206,8 @@ void kernel_main(uint64_t dtb)
         if (loadtest_summary()) { console_puts("LOADER SELFTEST FAILED\n"); halt_forever(); }
         settingstest_run();
         if (settingstest_summary()) { console_puts("SETTINGS SELFTEST FAILED\n"); halt_forever(); }
+        modeltest_run();
+        if (modeltest_summary()) { console_puts("MODEL SELFTEST FAILED\n"); halt_forever(); }
         init_run();
     } else {
         console_puts("Interrupt tests skipped: no device tree (dev mode)\n");

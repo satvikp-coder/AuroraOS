@@ -210,3 +210,11 @@ int proc_set_principal(int pid, uint32_t principal)
     p->principal = principal;
     return 0;
 }
+
+int proc_set_service_principal(int pid, uint32_t principal)
+{
+    struct proc *p = proc_get(pid);
+    if (!p || !principal_service_holdable(principal)) return -1;                  /* exactly PRINCIPAL_INFER; every other reserved identity stays unholdable */
+    p->principal = principal;
+    return 0;
+}
