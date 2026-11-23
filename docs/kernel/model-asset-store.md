@@ -40,7 +40,7 @@ A model reads and writes text. Its output is data: it is shown to the user, and 
 
 ## Build order (each step is its own PR with negative tests)
 1. Installer tool (host) that writes a volume from files and refuses what `ms_parse` refuses. Round-trip test against the kernel parser.
-2. Signature scheme and trusted-key placement (design review first; no home-made cryptography without a vetted implementation and test vectors).
+2. Signature scheme and trusted-key placement: designed in `model-trust-design.md` (not implemented; no home-made cryptography without a vetted implementation and test vectors).
 3. Block driver: second device, read-only, identified by serial; negative tests (missing, wrong serial, writable).
 4. Kernel object read path with hostile-argument tests: **done as `SYS_MODEL`** (a bounded read call, above). Still open: per-object quota and a separate memory class for a mapped (rather than copied) path.
 5. EL0 runtime against a tiny synthetic model (to prove plumbing and bounds), then a real one. Only then any speed or quality statement, measured.
