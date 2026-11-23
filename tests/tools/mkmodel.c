@@ -1,7 +1,9 @@
 /* tests/tools/mkmodel.c: host tool that writes an AURMODEL v1 model volume image (format: kernel/include/modelstore.h) for QEMU tests.
  *
- *   mkmodel [--corrupt-object N] [--corrupt-header] out.img name=file [name=file ...]
+ *   mkmodel [--corrupt-object N] [--corrupt-header] out.img name[:kind]=file [name[:kind]=file ...]
  *
+ * kind is the table entry's u32 kind (decimal or 0x hex); it defaults to 0, so a spec without ":kind" produces exactly the bytes it always did.
+ * (Names may not contain ':', so the suffix is unambiguous.) Kind 1 is the int8 matvec tensor of tests/programs/matvec_core.h.
  * Objects are laid out back to back after the table, each starting on a sector boundary, with zero tails. Digests are SHA-256 (kernel/crypto/sha256.c).
  * An uncorrupted image is re-checked with ms_parse() before it is written. The corruption options exist only so tests can build bad images:
  *   --corrupt-object N   flip one bit in the middle of object N's data (header and table stay valid: only the object digest fails)
@@ -17,7 +19,7 @@
 static void p32(uint8_t *p, uint32_t v) { for (int i = 0; i < 4; i++) p[i] = (uint8_t)(v >> (8 * i)); }
 static void p64(uint8_t *p, uint64_t v) { for (int i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (8 * i)); }
 static void digest(const void *d, size_t n, uint8_t out[32]) { struct sha256 c; sha256_init(&c); sha256_update(&c, d, n); sha256_final(&c, out); }
-static int usage(void) { fprintf(stderr, "usage: mkmodel [--corrupt-object N] [--corrupt-header] out.img name=file [name=file ...]\n"); return 2; }
+static int usage(void) { fprintf(stderr, "usage: mkmodel [--corrupt-object N] [--corrupt-header] out.img name[:kind]=file [name[:kind]=file ...]\n"); return 2; }
 
 int main(int argc, char **argv)
 {
@@ -34,12 +36,20 @@ int main(int argc, char **argv)
     if (corrupt_obj >= (long)n) { fprintf(stderr, "mkmodel: --corrupt-object %ld: no such object\n", corrupt_obj); return 1; }
 
     char names[MS_MAX_OBJECTS][MS_NAME_MAX + 1]; uint8_t *data[MS_MAX_OBJECTS]; uint64_t size[MS_MAX_OBJECTS], first[MS_MAX_OBJECTS], secs[MS_MAX_OBJECTS];
+    uint32_t kinds[MS_MAX_OBJECTS];
     uint32_t tn = (n * MS_ENTRY + MS_SECTOR - 1) / MS_SECTOR;
     uint64_t next = 1 + tn;
     for (uint32_t i = 0; i < n; i++) {
         const char *arg = argv[a + i], *eq = strchr(arg, '=');
-        if (!eq || eq == arg || (size_t)(eq - arg) > MS_NAME_MAX) { fprintf(stderr, "mkmodel: bad object spec '%s' (want name=file, name 1..%u chars)\n", arg, MS_NAME_MAX); return 1; }
-        memset(names[i], 0, sizeof names[i]); memcpy(names[i], arg, (size_t)(eq - arg));
+        const char *colon = eq ? memchr(arg, ':', (size_t)(eq - arg)) : NULL, *nend = colon ? colon : eq;
+        if (!eq || nend == arg || (size_t)(nend - arg) > MS_NAME_MAX) { fprintf(stderr, "mkmodel: bad object spec '%s' (want name[:kind]=file, name 1..%u chars)\n", arg, MS_NAME_MAX); return 1; }
+        kinds[i] = 0;
+        if (colon) {
+            char *end = NULL; unsigned long k = strtoul(colon + 1, &end, 0);
+            if (end == colon + 1 || end != eq || k > 0xFFFFFFFFul) { fprintf(stderr, "mkmodel: bad kind in '%s'\n", arg); return 1; }
+            kinds[i] = (uint32_t)k;
+        }
+        memset(names[i], 0, sizeof names[i]); memcpy(names[i], arg, (size_t)(nend - arg));
         FILE *f = fopen(eq + 1, "rb");
         if (!f) { perror(eq + 1); return 1; }
         fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
@@ -56,7 +66,7 @@ int main(int argc, char **argv)
     for (uint32_t i = 0; i < n; i++) {
         uint8_t *e = t + (size_t)i * MS_ENTRY;
         memcpy(e, names[i], MS_NAME_MAX + 1);
-        p64(e + 32, size[i]); p64(e + 40, first[i]); p64(e + 48, secs[i]); p32(e + 56, 0); p32(e + 60, 0);
+        p64(e + 32, size[i]); p64(e + 40, first[i]); p64(e + 48, secs[i]); p32(e + 56, kinds[i]); p32(e + 60, 0);
         digest(data[i], (size_t)size[i], e + 64);
         memcpy(img + first[i] * MS_SECTOR, data[i], (size_t)size[i]);
     }
