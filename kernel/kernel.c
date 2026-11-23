@@ -28,6 +28,7 @@
 #include <modelvol.h>
 #include <modelsys.h>
 #include <selftest.h>
+#include <vsnd.h>
 
 #define QEMU_VIRT_RAM_BASE 0x40000000UL   /* used only by the explicit AURORA_FIXED_RAM dev mode */
 
@@ -191,6 +192,8 @@ void kernel_main(uint64_t dtb)
             console_puts(" pointers="); console_dec((uint64_t)vi->pointers); console_puts("\n");
 #endif
         }
+        /* 4d. Sound: virtio-sound is optional and only brought up (no playback). Exactly one [snd] line; a failing device never stops boot. */
+        (void)vsnd_init((const void *)(uintptr_t)dtb);
         blktest_run();
         if (blktest_summary()) { console_puts("BLOCK SELFTEST FAILED\n"); halt_forever(); }
         fstest_run();

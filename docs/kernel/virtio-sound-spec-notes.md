@@ -346,5 +346,5 @@ Requires a machine with a virtio-mmio bus (e.g. aarch64/riscv `-M virt`, or x86 
 - Spec defines no virtqueue sizes; 64 is QEMU-specific.
 - Exact semantics of "MUST NOT place device-writable buffers into the tx queue" vs the writable status trailer (interpretation only).
 - Sound-specific reset behaviour (spec has none; QEMU reset internals not audited).
-- Any QEMU mmio command line, wav file output, force-legacy behaviour, and machine-type mmio availability (not run, per instructions).
+- ~~Any QEMU mmio command line, force-legacy behaviour, and machine-type mmio availability~~: now VERIFIED by running QEMU 11.1.0 (see audio-and-drivers-research.md section 1). WAV output with real frames is still not run.
 - Enum numeric values beyond the explicit "=" anchors are computed from C enum ordering.
