@@ -222,7 +222,7 @@ int vmm_init(void)
     if (map_ident((uintptr_t)__data_start, (uintptr_t)__data_end, VMM_ATTR_NORMAL_RW)) return -7;
     /* Kernel stack and exception stack; both guard pages (below each) stay unmapped. */
     if (map_ident((uintptr_t)__stack_bottom, (uintptr_t)__stack_top, VMM_ATTR_NORMAL_RW)) return -8;
-    if (map_ident((uintptr_t)__exc_stack_bottom, (uintptr_t)__kernel_end, VMM_ATTR_NORMAL_RW)) return -8;
+    if (map_ident((uintptr_t)__exc_stack_bottom, (uintptr_t)__kernel_end, VMM_ATTR_NORMAL_RW)) return -9;
 
     /* The rest of RAM, skipping device-tree no-map holes (kept unmapped so nothing can touch them). */
     uintptr_t cur = (uintptr_t)__kernel_end;

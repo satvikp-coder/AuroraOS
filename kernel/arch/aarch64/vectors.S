@@ -10,11 +10,13 @@
  * 12-15 lower EL A32; within each group: sync, irq, fiq, serror.
  *
  * Stack pointer rule: kernel code runs with SPSel=0 (sp == SP_EL0, the
- * kernel stack). Every exception taken at EL1 preserves SPSel on entry,
- * so sp still refers to SP_EL0. We explicitly switch to SP_EL1 before
- * saving the exception frame, so the frame lives on the dedicated
- * exception stack (set up by start.S at __exc_stack_top). ERET restores
- * the original SPSel from SPSR_EL1, so sp is back to SP_EL0 on return.
+ * kernel stack). Exceptions from EL0 switch to SP_EL1 on entry (hardware
+ * selects SP_ELx for the target EL). Exceptions from EL1 (same EL) preserve
+ * SPSel, so sp still refers to SP_EL0. We explicitly switch to SP_EL1 before
+ * saving the exception frame, so the frame lives on the dedicated exception
+ * stack (set up by start.S at __exc_stack_top) regardless of the entry EL.
+ * ERET restores the original SPSel from SPSR_EL1, so sp is back to SP_EL0
+ * on return to kernel code.
  */
 .section .text
 .macro ventry kind
