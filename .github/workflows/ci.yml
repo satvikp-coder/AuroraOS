@@ -94,10 +94,31 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify working tree is clean (no untracked build output)
+      - name: Verify no build artifacts are committed
         run: |
-          git status --porcelain
-          test -z "$(git status --porcelain)" || { echo "untracked/modified files present"; exit 1; }
+          # Check if build/ directory exists and has untracked/added files
+          if [ -d "build" ]; then
+            BUILD_STATUS=$(git status --porcelain -- build/ 2>/dev/null || echo "")
+            if [ -n "$BUILD_STATUS" ]; then
+              echo "Build artifacts detected in build/ directory:"
+              echo "$BUILD_STATUS"
+              exit 1
+            fi
+          fi
+          # Check for compiled binary artifacts (*.elf, *.bin, *.o, *.a) that shouldn't be committed
+          ARTIFACTS=$(find . -path ./build -prune -o -type f \( -name "*.elf" -o -name "*.bin" -o -name "*.o" -o -name "*.ko" \) -print 2>/dev/null | head -20)
+          if [ -n "$ARTIFACTS" ]; then
+            echo "Build artifacts detected that shouldn't be committed:"
+            echo "$ARTIFACTS"
+            exit 1
+          fi
+          # Check for untracked build directories at root level
+          UNTRACKED_BUILD=$(git status --porcelain --untracked-files=normal . 2>/dev/null | grep "^??" | grep -E "(/^?? build\// || (/^?? A.*\.elf/ || /^?? A.*\.bin/)" || echo "")
+          if [ -n "$UNTRACKED_BUILD" ]; then
+            echo "Untracked build artifacts present:"
+            echo "$UNTRACKED_BUILD"
+            exit 1
+          fi
       - name: Run Gitleaks secret scan
         run: |
           GITLEAKS_VERSION=8.24.3

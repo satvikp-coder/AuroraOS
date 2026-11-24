@@ -44,6 +44,9 @@ SECTIONS
         __bss_end = .;
     }
 
+    /* Kernel end symbol — first byte after all kernel data */
+    __kernel_end = ALIGN(0x1000);
+
     /DISCARD/ : {
         *(.comment)
         *(.note.gnu.build-id)

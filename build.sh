@@ -22,14 +22,38 @@ mkdir -p build
 echo "[build] Assembling boot entry..."
 $AS -march=armv8-a -I boot/aarch64 -o build/start.o boot/aarch64/start.S
 
+echo "[build] Assembling MMU code..."
+$AS -march=armv8-a -I kernel/include -o build/mmu.o kernel/arch/aarch64/mmu.S
+
+echo "[build] Assembling exception vectors..."
+$AS -march=armv8-a -I kernel/arch/aarch64 -o build/exceptions.o kernel/arch/aarch64/exceptions.S
+
 echo "[build] Compiling kernel..."
 $CC -march=armv8-a -ffreestanding -nostdlib -fno-builtin \
-    -Wall -Wextra -O2 -I kernel -c kernel/kernel.c -o build/kernel.o
+    -Wall -Wextra -O2 -I kernel -I kernel/include -c kernel/kernel.c -o build/kernel.o
+
+echo "[build] Compiling page allocator..."
+$CC -march=armv8-a -ffreestanding -nostdlib -fno-builtin \
+    -Wall -Wextra -O2 -I kernel -I kernel/include -c kernel/mm/page_alloc.c -o build/page_alloc.o
+
+echo "[build] Compiling page table manager..."
+$CC -march=armv8-a -ffreestanding -nostdlib -fno-builtin \
+    -Wall -Wextra -O2 -I kernel -I kernel/include -c kernel/mm/page_table.c -o build/page_table.o
+
+echo "[build] Compiling MMU init..."
+$CC -march=armv8-a -ffreestanding -nostdlib -fno-builtin \
+    -Wall -Wextra -O2 -I kernel -I kernel/include -c kernel/mm/mmu_init.c -o build/mmu_init.o
+
+echo "[build] Compiling fault handler..."
+$CC -march=armv8-a -ffreestanding -nostdlib -fno-builtin \
+    -Wall -Wextra -O2 -I kernel -I kernel/include -c kernel/arch/aarch64/fault.c -o build/fault.o
 
 echo "[build] Linking kernel..."
 $LD -T kernel/linker.ld \
     -o "$KERNEL_ELF" \
     build/start.o build/kernel.o \
+    build/mmu.o build/exceptions.o \
+    build/page_alloc.o build/page_table.o build/mmu_init.o build/fault.o \
     -Map "$MAP_FILE"
 
 echo "[build] Creating raw binary..."
