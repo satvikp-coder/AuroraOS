@@ -1,0 +1,393 @@
+/*
+ * kernel/drivers/virtio_blk.c — virtio block device over the virtio-mmio transport (original code, written from the
+ * OASIS VIRTIO 1.x specification: 2.1 device status, 2.7 split virtqueues, 3.1 initialisation, 4.2 MMIO transport,
+ * 5.2 block device).
+ *
+ * Scope and choices (verified against the QEMU "virt" device tree and register reads at run time):
+ *  - Only the MODERN transport (MMIO Version 2, requires VIRTIO_F_VERSION_1). A legacy (Version 1) device is reported
+ *    and refused, never driven with guessed behaviour. QEMU needs  -global virtio-mmio.force-legacy=false.
+ *  - Polled completion with a hard time bound (no interrupts): one request in flight, so no state is shared with
+ *    interrupt handlers. A timeout resets and re-initialises the device; the failed request returns BLK_ETIMEOUT.
+ *  - Negotiated features: VIRTIO_F_VERSION_1, plus VIRTIO_BLK_F_RO / VIRTIO_BLK_F_FLUSH when offered. Nothing else
+ *    (no indirect descriptors, no event idx, no multi-queue): the smallest surface that is still correct.
+ *  - Transfers go through a kernel-owned bounce page, so a caller buffer is never handed to the device.
+ *  - The MMIO window is declared to the MMU policy and mapped as Device memory, only for pages the device tree names.
+ */
+#include <arch.h>
+#include <blk.h>
+#include <console.h>
+#include <mm.h>
+#include <timer.h>
+#include <virtio_mmio.h>
+#include <virtqueue.h>
+
+#define R_MAGIC 0x000
+#define R_VERSION 0x004
+#define R_DEVID 0x008
+#define R_DEVFEAT 0x010
+#define R_DEVFEATSEL 0x014
+#define R_DRVFEAT 0x020
+#define R_DRVFEATSEL 0x024
+#define R_QSEL 0x030
+#define R_QNUMMAX 0x034
+#define R_QNUM 0x038
+#define R_QREADY 0x044
+#define R_QNOTIFY 0x050
+#define R_INTSTATUS 0x060
+#define R_INTACK 0x064
+#define R_STATUS 0x070
+#define R_QDESCLO 0x080
+#define R_QDESCHI 0x084
+#define R_QDRVLO 0x090
+#define R_QDRVHI 0x094
+#define R_QDEVLO 0x0a0
+#define R_QDEVHI 0x0a4
+#define R_CFGGEN 0x0fc
+#define R_CONFIG 0x100
+
+#define ST_ACK 1u
+#define ST_DRIVER 2u
+#define ST_DRIVER_OK 4u
+#define ST_FEATURES_OK 8u
+#define ST_NEEDS_RESET 0x40u
+#define ST_FAILED 0x80u
+
+#define F_VERSION_1_HI 1u            /* feature bit 32 = bit 0 of the high word */
+#define BLK_F_RO (1u << 5)
+#define BLK_F_FLUSH (1u << 9)
+
+#define VIRTIO_MAGIC 0x74726976u     /* "virt" */
+#define DEV_BLOCK 2u
+
+#define QN 8u                        /* queue size: power of two, <= QueueNumMax */
+#define T_IN 0u
+#define T_OUT 1u
+#define T_FLUSH 4u
+#define DESC_NEXT 1u
+#define DESC_WRITE 2u
+#define CHUNK_SECTORS 8u             /* one bounce page = 8 sectors per request */
+
+struct desc { uint64_t addr; uint32_t len; uint16_t flags, next; };
+struct reqhdr { uint32_t type, reserved; uint64_t sector; };
+
+struct blkdev {
+    int present;
+    volatile uint8_t *regs;
+    uint64_t sectors;
+    int readonly, has_flush;
+    uint32_t timeout_ms;
+    struct vq vq;                    /* shared ring bookkeeping (index arithmetic, completion validation) */
+    struct desc *desc;
+    volatile uint16_t *avail;        /* flags, idx, ring[QN] */
+    volatile uint16_t *used;         /* flags, idx, then {u32 id,u32 len}[QN] */
+    struct reqhdr *hdr;
+    volatile uint8_t *status;
+    uint8_t *bounce;
+    uintptr_t ring_page, req_page, bounce_page;
+    int stall_next;
+    int dropping;
+    int inj_w_kind, inj_w, inj_f_kind, inj_f;   /* tests only: countdowns, -1 = off */
+    int drop_after;                  /* tests only: >= 0 => remaining writes before the simulated power cut */
+    uint64_t writes;
+    uint64_t requests, timeouts;
+    int failed;
+};
+/* Two instances: DEVS[0] is the system disk and carries every existing blk_* entry point; DEVS[1] is an OPTIONAL read-only model volume (blkm_*, read only).
+ * Single CPU, no blk call is reentrant (polled, one request in flight), so `cur` simply selects the instance an internal routine works on; every public entry
+ * point restores it to the system disk before returning. */
+static struct blkdev DEVS[2];
+static struct blkdev *cur = &DEVS[0];
+#define D (*cur)
+static struct blk_info INFO;
+
+static uint32_t rd(uint32_t off) { return *(volatile uint32_t *)(D.regs + off); }
+static void wr(uint32_t off, uint32_t v) { *(volatile uint32_t *)(D.regs + off) = v; }
+static void mb(void) { __asm__ volatile ("dsb sy" ::: "memory"); }
+
+const char *blk_strerror(int rc)
+{
+    switch (rc) {
+    case BLK_OK: return "ok";
+    case BLK_EARG: return "invalid argument";
+    case BLK_ERANGE: return "out of range";
+    case BLK_ENODEV: return "no device";
+    case BLK_ERO: return "read-only device";
+    case BLK_EIO: return "I/O error";
+    case BLK_ETIMEOUT: return "timeout";
+    case BLK_EPROTO: return "protocol/negotiation failure";
+    default: return "unknown error";
+    }
+}
+
+static uint64_t ms_to_ticks(uint32_t ms) { return timer_freq() / 1000u * ms; }
+
+/* Bring the device at D.regs from reset to DRIVER_OK with an empty queue. */
+static int device_setup(void)
+{
+    wr(R_STATUS, 0);                                            /* reset */
+    for (uint64_t t0 = timer_count(); rd(R_STATUS) != 0;)
+        if (timer_count() - t0 > ms_to_ticks(100)) return BLK_ETIMEOUT;
+    wr(R_STATUS, ST_ACK);
+    wr(R_STATUS, ST_ACK | ST_DRIVER);
+
+    wr(R_DEVFEATSEL, 0); uint32_t lo = rd(R_DEVFEAT);
+    wr(R_DEVFEATSEL, 1); uint32_t hi = rd(R_DEVFEAT);
+    if (cur == &DEVS[0]) { INFO.features_lo = lo; INFO.features_hi = hi; }
+    if (!(hi & F_VERSION_1_HI)) { wr(R_STATUS, ST_FAILED); return BLK_EPROTO; }
+    D.readonly = !!(lo & BLK_F_RO);
+    D.has_flush = !!(lo & BLK_F_FLUSH);
+    wr(R_DRVFEATSEL, 0); wr(R_DRVFEAT, lo & (BLK_F_RO | BLK_F_FLUSH));   /* accept only what this driver understands */
+    wr(R_DRVFEATSEL, 1); wr(R_DRVFEAT, F_VERSION_1_HI);
+    wr(R_STATUS, ST_ACK | ST_DRIVER | ST_FEATURES_OK);
+    if (!(rd(R_STATUS) & ST_FEATURES_OK)) { wr(R_STATUS, ST_FAILED); return BLK_EPROTO; }   /* device refused our subset */
+
+    wr(R_QSEL, 0);
+    if (rd(R_QREADY) != 0) { wr(R_STATUS, ST_FAILED); return BLK_EPROTO; }
+    if (rd(R_QNUMMAX) < QN) { wr(R_STATUS, ST_FAILED); return BLK_EPROTO; }
+    uint8_t *rp = (uint8_t *)D.ring_page;
+    for (uint32_t i = 0; i < PAGE_SIZE; i++) rp[i] = 0;          /* clean idx, no stale used entries */
+    D.desc = (struct desc *)rp;                                  /* 128 bytes */
+    D.avail = (volatile uint16_t *)(rp + 128);                   /* 4 + 2*QN + 2 = 22 bytes */
+    D.used = (volatile uint16_t *)(rp + 256);                    /* 4 + 8*QN + 2 = 70 bytes, 4-aligned */
+    if (vq_init(&D.vq, QN, D.avail, D.used, mb) != VQ_OK) { wr(R_STATUS, ST_FAILED); return BLK_EPROTO; }   /* also drops any request abandoned by a timeout */
+    wr(R_QNUM, QN);
+    wr(R_QDESCLO, (uint32_t)D.ring_page); wr(R_QDESCHI, (uint32_t)(D.ring_page >> 32));
+    wr(R_QDRVLO, (uint32_t)(D.ring_page + 128)); wr(R_QDRVHI, (uint32_t)((D.ring_page + 128) >> 32));
+    wr(R_QDEVLO, (uint32_t)(D.ring_page + 256)); wr(R_QDEVHI, (uint32_t)((D.ring_page + 256) >> 32));
+    mb();
+    wr(R_QREADY, 1);
+    wr(R_STATUS, ST_ACK | ST_DRIVER | ST_FEATURES_OK | ST_DRIVER_OK);
+    if (rd(R_STATUS) & (ST_NEEDS_RESET | ST_FAILED)) return BLK_EPROTO;
+
+    uint32_t g1, g2; uint64_t cap;                               /* capacity: 64-bit config field, consistent read */
+    do {
+        g1 = rd(R_CFGGEN);
+        cap = (uint64_t)rd(R_CONFIG) | ((uint64_t)rd(R_CONFIG + 4) << 32);
+        g2 = rd(R_CFGGEN);
+    } while (g1 != g2);
+    D.sectors = cap;
+    return BLK_OK;
+}
+
+static void release_pages(void)
+{
+    if (D.ring_page) pmm_free_page(D.ring_page);
+    if (D.req_page) pmm_free_page(D.req_page);
+    if (D.bounce_page) pmm_free_page(D.bounce_page);
+    D.ring_page = D.req_page = D.bounce_page = 0;
+}
+
+/* bring up the device at `base` as the current instance; on failure nothing stays allocated and the device is reset */
+static int attach(uintptr_t base)
+{
+    D.regs = (volatile uint8_t *)base;
+    D.drop_after = -1; D.dropping = 0; D.inj_w = D.inj_f = -1;
+    release_pages();                                             /* nothing from an earlier failed attempt is kept or leaked */
+    D.ring_page = pmm_alloc_page(); D.req_page = pmm_alloc_page(); D.bounce_page = pmm_alloc_page();
+    if (!D.ring_page || !D.req_page || !D.bounce_page) { release_pages(); return BLK_EPROTO; }
+    D.hdr = (struct reqhdr *)D.req_page; D.status = (volatile uint8_t *)(D.req_page + 64); D.bounce = (uint8_t *)D.bounce_page;
+    D.timeout_ms = 1000;
+    int rc = device_setup();
+    if (rc) { wr(R_STATUS, 0); D.failed = 1; release_pages(); return rc; }   /* reset first so the device stops using the queue memory we free */
+    D.present = 1;
+    return BLK_OK;
+}
+
+/* Which device is which is decided by CONTENT, not by the order QEMU happens to place them on the bus: the volume whose sector 0 begins with the 8 bytes "AURMODEL"
+ * is the model volume. If the first node found carries it and the second does not, the two instances are swapped. A second device without the magic is not
+ * exposed at all (blkm_present() stays 0), so an arbitrary data disk is never mistaken for model assets. */
+static int has_model_magic(struct blkdev *dv)
+{
+    static const char M[8] = { 'A', 'U', 'R', 'M', 'O', 'D', 'E', 'L' };
+    uint8_t sec[512]; struct blkdev *save = cur; cur = dv;
+    int rc = D.present && !D.failed && D.sectors ? blk_read(0, sec, 1) : BLK_ENODEV;
+    cur = save;
+    if (rc != BLK_OK) return 0;
+    for (int i = 0; i < 8; i++) if (sec[i] != (uint8_t)M[i]) return 0;
+    return 1;
+}
+static int model_ok;
+static void identify_volumes(void)
+{
+    model_ok = 0;
+    if (!DEVS[1].present) return;
+    int m0 = has_model_magic(&DEVS[0]), m1 = has_model_magic(&DEVS[1]);
+    if (m0 && !m1) { struct blkdev t = DEVS[0]; DEVS[0] = DEVS[1]; DEVS[1] = t; INFO.base = (uint64_t)(uintptr_t)DEVS[0].regs; m0 = 0; m1 = 1; }
+    model_ok = m1 && !(m0 && m1);                                /* two model volumes is ambiguous: expose none */
+}
+
+int blk_init(const void *fdt)
+{
+    static struct fdt_virtio nodes[32];
+    if (D.present && !D.failed) return BLK_OK;                   /* idempotent: a second call neither remaps nor allocates */
+    D.present = 0; D.failed = 0; D.drop_after = -1; D.dropping = 0; D.inj_w = D.inj_f = -1;
+    if (!fdt) return BLK_ENODEV;
+    int n = virtio_map_window(fdt, nodes, 32);                   /* maps exactly the pages the device tree names, once, as Device memory */
+    if (n < 0) return BLK_EPROTO;
+    if (n == 0) return BLK_ENODEV;
+    INFO.nodes_seen = n;
+
+    int found = -1, legacy = 0;
+    for (int i = 0; i < n; i++) {
+        volatile uint32_t *r = (volatile uint32_t *)(uintptr_t)nodes[i].base;
+        if (r[R_MAGIC / 4] != VIRTIO_MAGIC) continue;
+        if (r[R_DEVID / 4] != DEV_BLOCK) continue;
+        INFO.nodes_blk++;
+        if (r[R_VERSION / 4] != 2) { legacy = 1; continue; }
+        if (found < 0) found = i;
+    }
+    if (found < 0) {
+        if (legacy) {
+            console_puts("[blk] a virtio block device uses the LEGACY transport; only modern (version 2) is supported: add -global virtio-mmio.force-legacy=false\n");
+            return BLK_EPROTO;
+        }
+        return BLK_ENODEV;
+    }
+    INFO.base = nodes[found].base; INFO.intid = nodes[found].intid;
+    int rc = attach(nodes[found].base);
+    if (rc) return rc;
+    INFO.version = 2;
+    /* an optional second modern block device = the read-only model volume; its absence or failure never affects the system disk */
+    for (int i = found + 1; i < n; i++) {
+        volatile uint32_t *r = (volatile uint32_t *)(uintptr_t)nodes[i].base;
+        if (r[R_MAGIC / 4] != VIRTIO_MAGIC || r[R_DEVID / 4] != DEV_BLOCK || r[R_VERSION / 4] != 2) continue;
+        cur = &DEVS[1];
+        if (!DEVS[1].present || DEVS[1].failed) { DEVS[1].present = 0; DEVS[1].failed = 0; (void)attach(nodes[i].base); }
+        cur = &DEVS[0];
+        break;
+    }
+    identify_volumes();
+    return BLK_OK;
+}
+
+int blk_present(void) { return D.present && !D.failed; }
+uint64_t blk_sectors(void) { return D.present ? D.sectors : 0; }
+int blk_readonly(void) { return D.readonly; }
+const struct blk_info *blk_get_info(void) { return &INFO; }
+uint64_t blk_requests(void) { return D.requests; }
+uint64_t blk_timeouts(void) { return D.timeouts; }
+void blk_test_stall_next(int on) { D.stall_next = on; }
+void blk_test_inject_write(int kind, int nth) { D.inj_w_kind = kind; D.inj_w = nth; }
+void blk_test_inject_flush(int kind, int nth) { D.inj_f_kind = kind; D.inj_f = nth; }
+void blk_test_inject_clear(void) { D.inj_w = D.inj_f = -1; }
+int blk_error_definite(int rc) { return rc == BLK_EARG || rc == BLK_ERANGE || rc == BLK_ENODEV || rc == BLK_ERO; }
+void blk_test_drop_writes_after(int n) { D.drop_after = n < 0 ? -1 : n; D.dropping = 0; }
+uint64_t blk_writes_done(void) { return D.writes; }
+void blk_test_set_timeout_ms(uint32_t ms) { D.timeout_ms = ms ? ms : 1000; }
+
+/* Submit one request chain (header [+ data] + status) and wait, bounded, for completion. */
+static int submit(uint32_t type, uint64_t sector, uint32_t data_len, int device_writes_data)
+{
+    D.hdr->type = type; D.hdr->reserved = 0; D.hdr->sector = sector;
+    *D.status = 0xff;                                            /* a value the device never writes: proves it completed */
+    uint32_t n = 0;
+    D.desc[n].addr = (uint64_t)(uintptr_t)D.hdr; D.desc[n].len = sizeof *D.hdr; D.desc[n].flags = DESC_NEXT; D.desc[n].next = (uint16_t)(n + 1); n++;
+    if (data_len) {
+        D.desc[n].addr = (uint64_t)(uintptr_t)D.bounce; D.desc[n].len = data_len;
+        D.desc[n].flags = (uint16_t)(DESC_NEXT | (device_writes_data ? DESC_WRITE : 0)); D.desc[n].next = (uint16_t)(n + 1); n++;
+    }
+    D.desc[n].addr = (uint64_t)(uintptr_t)D.status; D.desc[n].len = 1; D.desc[n].flags = DESC_WRITE; D.desc[n].next = 0;
+
+    /* head descriptor 0; the device may write the data buffer (reads) plus the one status byte, nothing more */
+    if (vq_submit(&D.vq, 0, (device_writes_data ? data_len : 0) + 1u) != VQ_OK) { D.failed = 1; return BLK_EPROTO; }   /* cannot happen: one request in flight */
+    D.requests++;
+    if (D.stall_next) D.stall_next = 0;                          /* tests only: never ring the doorbell */
+    else wr(R_QNOTIFY, 0);
+
+    uint64_t t0 = timer_count(), limit = ms_to_ticks(D.timeout_ms);
+    uint16_t id; uint32_t used_len;
+    for (;;) {
+        int r = vq_complete(&D.vq, &id, &used_len);
+        if (r == VQ_OK) break;
+        if (r != VQ_EEMPTY) { D.failed = 1; return BLK_EPROTO; }   /* bad id, repeated id, length over what we allowed, or an impossible used index */
+        if (rd(R_STATUS) & (ST_NEEDS_RESET | ST_FAILED)) { D.failed = 1; return BLK_EIO; }
+        if (timer_count() - t0 > limit) {
+            D.timeouts++;
+            if (device_setup() != BLK_OK) { D.failed = 1; D.present = 0; }   /* reset and re-initialise; request abandoned */
+            return BLK_ETIMEOUT;
+        }
+    }
+    uint32_t isr = rd(R_INTSTATUS);
+    if (isr) wr(R_INTACK, isr);                                  /* keep the line quiet; we poll */
+    return *D.status == 0 ? BLK_OK : BLK_EIO;
+}
+
+static int check_range(uint64_t sector, uint32_t nsect, const void *buf)
+{
+    if (!blk_present()) return BLK_ENODEV;
+    if (!buf || nsect == 0) return BLK_EARG;
+    if (sector > D.sectors || nsect > D.sectors - sector) return BLK_ERANGE;   /* overflow-safe */
+    return BLK_OK;
+}
+
+int blk_read(uint64_t sector, void *buf, uint32_t nsect)
+{
+    int rc = check_range(sector, nsect, buf);
+    if (rc) return rc;
+    uint8_t *out = (uint8_t *)buf;
+    while (nsect) {
+        uint32_t c = nsect > CHUNK_SECTORS ? CHUNK_SECTORS : nsect;
+        for (uint32_t i = 0; i < c * BLK_SECTOR; i++) D.bounce[i] = 0xA5;   /* a failed read never leaves old data looking valid */
+        rc = submit(T_IN, sector, c * BLK_SECTOR, 1);
+        if (rc) return rc;
+        mb();
+        for (uint32_t i = 0; i < c * BLK_SECTOR; i++) out[i] = D.bounce[i];
+        out += c * BLK_SECTOR; sector += c; nsect -= c;
+    }
+    return BLK_OK;
+}
+
+int blk_write(uint64_t sector, const void *buf, uint32_t nsect)
+{
+    int rc = check_range(sector, nsect, buf);
+    if (rc) return rc;
+    if (D.readonly) return BLK_ERO;
+    const uint8_t *in = (const uint8_t *)buf;
+    while (nsect) {
+        uint32_t c = nsect > CHUNK_SECTORS ? CHUNK_SECTORS : nsect;
+        if (D.inj_w >= 0) {
+            if (D.inj_w-- == 0) {
+                D.inj_w = -1;
+                if (D.inj_w_kind == BLK_INJ_REJECT) return BLK_EARG;
+                if (D.inj_w_kind == BLK_INJ_FAIL_UNSENT) return BLK_EIO;
+                for (uint32_t i = 0; i < c * BLK_SECTOR; i++) D.bounce[i] = in[i];     /* FAIL_SENT: the device really performs it ... */
+                D.writes++;
+                (void)submit(T_OUT, sector, c * BLK_SECTOR, 0);
+                return BLK_EIO;                                                         /* ... but the caller is told it failed */
+            }
+        }
+        if (D.drop_after >= 0 && (D.dropping || D.drop_after == 0)) { D.dropping = 1; in += c * BLK_SECTOR; sector += c; nsect -= c; continue; }   /* power cut: lost */
+        if (D.drop_after > 0) D.drop_after--;
+        for (uint32_t i = 0; i < c * BLK_SECTOR; i++) D.bounce[i] = in[i];
+        D.writes++;
+        rc = submit(T_OUT, sector, c * BLK_SECTOR, 0);
+        if (rc) return rc;
+        in += c * BLK_SECTOR; sector += c; nsect -= c;
+    }
+    return BLK_OK;
+}
+
+int blk_flush(void)
+{
+    if (!blk_present()) return BLK_ENODEV;
+    if (D.inj_f >= 0 && D.inj_f-- == 0) {
+        D.inj_f = -1;
+        if (D.inj_f_kind == BLK_INJ_FAIL_SENT && !D.readonly && D.has_flush) (void)submit(T_FLUSH, 0, 0, 0);
+        return BLK_EIO;
+    }
+    if (D.dropping) return BLK_OK;                              /* tests only: after the simulated power cut nothing reaches the device */
+    if (D.readonly || !D.has_flush) return BLK_OK;               /* nothing cached to flush */
+    return submit(T_FLUSH, 0, 0, 0);
+}
+
+/* ---- the optional read-only model volume (second virtio-blk device). READ ONLY by construction: there is no write or flush entry point for it. ---- */
+int blkm_present(void) { return model_ok && DEVS[1].present && !DEVS[1].failed; }
+uint64_t blkm_sectors(void) { return blkm_present() ? DEVS[1].sectors : 0; }
+int blkm_read(uint64_t sector, void *buf, uint32_t nsect)
+{
+    if (!blkm_present()) return BLK_ENODEV;
+    cur = &DEVS[1];
+    int rc = blk_read(sector, buf, nsect);
+    cur = &DEVS[0];
+    return rc;
+}

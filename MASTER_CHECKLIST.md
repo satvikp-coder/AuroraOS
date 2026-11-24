@@ -13,11 +13,23 @@
 | P0-1 | Create AGENTS.md (governance file — was missing) | — | fast-worker | [x] |
 | P0-2 | Create MASTER_CHECKLIST.md (this document) | — | coordinator | [x] |
 | P0-3 | Audit git status, local changes, untracked files | — | coordinator | [x] |
-| P0-4 | Review kernel memory-management code for correctness (static review; no cross-compiler on Windows) | P0-3 | kernel-worker | [~] |
-| P0-5 | Verify kernel build passes in CI (kernel-build job) | P0-4 | CI / kernel-worker | [ ] |
+| P0-4 | Review kernel memory-management code for correctness (static review; no cross-compiler on Windows) | P0-3 | kernel-worker | [x] |
+| P0-5 | Verify kernel build passes in CI (kernel-build job) | P0-4 | CI / kernel-worker | [B] |
 | P0-6 | Verify QEMU boot smoke test passes in CI (kernel-qemu-boot job) | P0-5 | CI / kernel-worker | [ ] |
 | P0-7 | Run Node.js UI unit tests locally (jsdom, 81 tests) | — | fast-worker | [ ] |
 | P0-8 | Fix repo-integrity CI job (fails when untracked files present) | P0-3 | fast-worker | [ ] |
+
+---
+
+## Ported Kernel Subsystems
+
+| ID | Task | Dependencies | Owner | Status |
+|----|------|--------------|-------|--------|
+| K-001 | Port boot/aarch64/start.S (Image header, EL2→EL1, dual stack) | P0-4 | kernel-worker | [x] |
+| K-002 | Port kernel/arch/aarch64/vectors.S + exceptions.c (EL1 VBAR, exc_frame, SP_EL1 fix) | K-001 | kernel-worker | [x] |
+| K-003 | Port kernel/mm/{pmm.c,vmm.c,mmpolicy.c,fdt.c} (W^X MMU, FDT parsing) | K-002 | kernel-worker | [x] |
+| K-004 | Port kernel/proc/ (EL0 processes, syscalls, scheduler, IPC) | K-003 | kernel-worker | [~] |
+| K-005 | Port kernel/drivers/ (virtio-blk, virtio-input, fwcfg, virtqueue) | K-004 | kernel-worker | [ ] |
 
 ---
 
