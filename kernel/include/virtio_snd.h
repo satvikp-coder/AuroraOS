@@ -20,6 +20,26 @@
 #define VSND_EBADMSG  -3                 /* device answered VIRTIO_SND_S_BAD_MSG */
 #define VSND_ENOTSUPP -4                 /* device answered VIRTIO_SND_S_NOT_SUPP */
 #define VSND_EIO      -5                 /* device answered VIRTIO_SND_S_IO_ERR */
+#define VSND_ETIMEOUT -6                 /* operation timed out */
+#define VSND_ENODEV   -7                 /* no device or device not live */
+#define VSND_ENOMEM   -8                 /* out of memory */
+#define VSND_ELEGACY  -9                 /* legacy transport not supported */
+#define VSND_EPERM    -10                /* caller lacks required audio capability */
+
+/* ---- audio capabilities ---- */
+#define AUDIO_CAP_PLAY   0x01u           /* permission to play audio (SET_PARAMS, START, play tone) */
+#define AUDIO_CAP_RECORD 0x02u           /* permission to record audio (future: RX queue) */
+
+/* ---- fault injection kinds (for vsnd_test_fault) ---- */
+#define VSND_FAULT_NONE                0   /* disable fault injection */
+#define VSND_FAULT_MISSING_DEVICE      1   /* device appears missing (vsnd_present returns 0) */
+#define VSND_FAULT_UNSUPPORTED_STREAM  2   /* stream_id rejected as unsupported */
+#define VSND_FAULT_INVALID_FORMAT      3   /* SET_PARAMS uses invalid format/rate/channels */
+#define VSND_FAULT_MALFORMED_RESPONSE  4   /* device response is malformed */
+#define VSND_FAULT_TIMEOUT             5   /* control/TX queue operation times out */
+#define VSND_FAULT_OVERSIZED_COMPLETION 6  /* device reports used length > capability */
+#define VSND_FAULT_QUEUE_CORRUPTION    7   /* virtqueue returns impossible id/len */
+#define VSND_FAULT_DEVICE_RESET        8   /* device signals NEEDS_RESET/FAILED mid-operation */
 
 /* ---- our bounds on device-supplied counts (policy, not spec) ---- */
 #ifndef VSND_MAX_JACKS
