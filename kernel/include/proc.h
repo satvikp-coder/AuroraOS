@@ -41,6 +41,7 @@ int      aspace_unmap_ro(struct aspace *as, uint64_t va);             /* unmap r
 int      aspace_map_at(struct aspace *as, uint64_t va, uint64_t pa, int perm); /* map a specific physical page at VA (permissions: UPERM_RW/RO), no data init, tracks table pages only */
 int      aspace_unmap_at(struct aspace *as, uint64_t va);             /* unmap a page mapped via aspace_map_at: clears PTE, flushes TLB, does NOT free the physical page */
 int      aspace_unmap(struct aspace *as, uint64_t va);                /* unmap and free one mapped user page: 0, or -2 (bad address) / -5 (not mapped); flushes its TLB entry */
+int      aspace_ro_asset_mapped(struct aspace *as, uint64_t va);
 int      aspace_is_mapped(struct aspace *as, uint64_t va);            /* check if VA is mapped: 1=mapped, 0=not, -1=error */
 void     aspace_destroy(struct aspace *as);     /* flushes the ASID's TLB entries, frees every owned page */
 uint64_t aspace_ttbr(const struct aspace *as);
@@ -129,8 +130,8 @@ void sched_trace_reset(void);
 #define SYS_FS     8   /* x0 = operation (FSOP_*), x1..x4 arguments: see kernel/proc/fssys.c */
 #define SYS_MEM    10  /* x0 = operation (MEMOP_*), x1 = page count: a bounded user heap; see kernel/proc/memsys.c */
 enum { MEMOP_GROW = 1, MEMOP_SHRINK, MEMOP_INFO,
-       MEMOP_BOUNDED_ALLOC = 10,  /* x1 = size in bytes, x2 = perm (VMM_ATTR_*), returns physical address or error */
-       MEMOP_BOUNDED_FREE = 11,   /* x1 = physical address, returns 0 or error */
+       MEMOP_BOUNDED_ALLOC = 10,  /* x1 = size | (perm << 48), returns virtual address or error */
+       MEMOP_BOUNDED_FREE = 11,   /* x1 = allocation base virtual address, returns 0 or error */
        MEMOP_BOUNDED_INFO = 12    /* returns (budget_pages << 32) | allocated_pages */
 };
 #define SYS_SETTINGS 9   /* x0 = operation (SETOP_*), x1 = setting id, x2 = value: see kernel/settings.c */

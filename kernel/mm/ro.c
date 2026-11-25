@@ -17,7 +17,7 @@ static uint32_t ro_asset_count = 0;
  * pa must be page-aligned, size > 0. Returns asset_id (1..RO_MAX_ASSETS) or 0 on failure. */
 int ro_register_asset(uintptr_t pa, uint32_t pages, uint32_t flags)
 {
-    if (!pa || pages == 0 || pages > RO_MAX_PAGES) return 0;
+    if (!pa || (pa & (PAGE_SIZE - 1)) || pages == 0 || pages > RO_MAX_PAGES) return 0;
     if (ro_asset_count >= RO_MAX_ASSETS) return 0;
 
     /* Verify the physical pages are reserved (in rsv_bm). */
@@ -72,7 +72,7 @@ uint64_t ro_map_asset(struct aspace *as, int asset_id, uint64_t requested_va)
         /* Check all pages are mappable and unmapped. */
         for (uint32_t p = 0; p < asset.pages; p++) {
             uint64_t page_va = requested_va + p * PAGE_SIZE;
-            if (!uv_mappable(page_va)) return 0;
+            if (page_va >= USER_VA_LIMIT || !uv_mappable(page_va)) return 0;
             if (aspace_is_mapped(as, page_va)) return 0;
         }
         va = requested_va;
@@ -99,7 +99,7 @@ uint64_t ro_map_asset(struct aspace *as, int asset_id, uint64_t requested_va)
         if (rc != 0) {
             /* Rollback on failure. */
             for (uint32_t q = 0; q < p; q++)
-                (void)aspace_unmap(as, va + q * PAGE_SIZE);
+                (void)aspace_unmap_ro(as, va + q * PAGE_SIZE);
             return 0;
         }
     }
@@ -110,9 +110,12 @@ uint64_t ro_map_asset(struct aspace *as, int asset_id, uint64_t requested_va)
 int ro_unmap_asset(struct aspace *as, uint64_t va, uint32_t pages)
 {
     if (!as || !as->live) return -1;
-    if ((va & (PAGE_SIZE - 1)) || pages == 0) return -2;
-    if (va < USER_VA_BASE || va >= USER_VA_LIMIT) return -2;
+    if ((va & (PAGE_SIZE - 1)) || pages == 0 || pages > RO_MAX_PAGES) return -2;
+    if (va < USER_VA_BASE || va >= USER_VA_LIMIT || (USER_VA_LIMIT - va) / PAGE_SIZE < pages) return -2;
     if ((va >> 30) != (USER_VA_BASE >> 30)) return -2;
+
+    for (uint32_t p = 0; p < pages; p++)
+        if (!aspace_ro_asset_mapped(as, va + p * PAGE_SIZE)) return -5;
 
     for (uint32_t p = 0; p < pages; p++) {
         int rc = aspace_unmap_ro(as, va + p * PAGE_SIZE);

@@ -8,12 +8,8 @@
  * misuse is reported rather than silently corrupting accounting.
  * Single core, interrupts masked: no locking yet (add one with SMP/IRQ use).
  *
- * Scalable ownership: bitmaps are dynamically allocated in pmm_init() based on
- * actual RAM size (npages), not the compile-time PMM_MAX_PAGES cap. This keeps
- * memory overhead proportional to physical RAM (2 bits per page = 1 KiB per GiB).
- *
- * The bitmap arrays are statically allocated in .bss (linker.ld) sized for
- * PMM_MAX_PAGES; pmm_init() uses only the first bm_words entries.
+ * Linker-reserved bitmaps have capacity for PMM_MAX_PAGES. Initialization uses
+ * only the words needed for the detected managed RAM.
  */
 #include <mm.h>
 #include <proc.h>
@@ -276,6 +272,14 @@ uintptr_t pmm_alloc_bounded(uint64_t size, uint32_t principal, uint32_t pid, int
     }
 
     /* Find a free slot. */
+    uint32_t process_regions = 0, principal_regions = 0;
+    for (uint32_t i = 0; i < BOUNDED_MAX_REGIONS; i++) {
+        if (!bounded_regions[i].in_use) continue;
+        if (bounded_regions[i].pid == pid) process_regions++;
+        if (bounded_regions[i].principal == principal) principal_regions++;
+    }
+    if (process_regions >= 4 || principal_regions >= 4) { bounded_alloc_fail++; return 0; }
+
     uint32_t slot = bounded_find_free_slot();
     if (slot >= BOUNDED_MAX_REGIONS) {
         bounded_alloc_fail++;
@@ -350,21 +354,21 @@ int pmm_bounded_lookup(uintptr_t addr, struct bounded_region *out)
 }
 
 /* Find a bounded region by virtual address. Returns index or BOUNDED_MAX_REGIONS if not found. */
-static uint32_t bounded_find_by_va(uint64_t va)
+static uint32_t bounded_find_by_va(uint64_t va, uint32_t pid)
 {
     for (uint32_t i = 0; i < BOUNDED_MAX_REGIONS; i++) {
-        if (bounded_regions[i].in_use && bounded_regions[i].va == va) {
+        if (bounded_regions[i].in_use && bounded_regions[i].va == va && bounded_regions[i].pid == pid) {
             return i;
         }
     }
     return BOUNDED_MAX_REGIONS;
 }
 
-int pmm_bounded_lookup_by_va(uint64_t va, struct bounded_region *out)
+int pmm_bounded_lookup_by_va(uint64_t va, uint32_t pid, struct bounded_region *out)
 {
     if (!base || !out) return 0;
 
-    uint32_t slot = bounded_find_by_va(va);
+    uint32_t slot = bounded_find_by_va(va, pid);
     if (slot >= BOUNDED_MAX_REGIONS) return 0;
 
     *out = bounded_regions[slot];

@@ -18,7 +18,7 @@
  *   - Maximum single allocation: 64 KiB (16 pages)
  *   - Per-process budget: 4 allocations (256 KiB total)
  *   - Per-principal budget: 4 allocations (256 KiB total)
- *   - Kernel reserve: 16 pages (64 KiB)
+ *   - Kernel reserve: 256 pages (1 MiB)
  *   - Permissions: VMM_ATTR_NORMAL_RW or VMM_ATTR_NORMAL_RO (execute-never enforced via PXN/UXN)
  *   - Mapped into process address space at a kernel-chosen VA (outside heap/ELF/stack regions)
  *   - Cleaned up on process exit, fault, or explicit free
@@ -36,10 +36,10 @@ int mem_test_fail_page = -1;                     /* test kernels only: make the 
  * Returns a page-aligned VA or 0 if no space. */
 static uint64_t find_bounded_va(struct aspace *as, uint32_t pages)
 {
-    /* Search from USER_HEAP_END + guard upwards, within the 1 GiB user slot.
+    /* Use the first 64 pages beyond the regular process window.
      * We need a contiguous run of 'pages' unmapped pages. */
-    uint64_t start = USER_HEAP_END + USER_HEAP_GUARD_BYTES;
-    uint64_t limit = USER_VA_LIMIT;
+    uint64_t start = USER_VA_BASE + USER_WINDOW_BYTES;
+    uint64_t limit = start + BOUNDED_PROC_BUDGET_PAGES * PAGE_SIZE;
     uint64_t va = start;
 
     while (va + pages * PAGE_SIZE <= limit) {
@@ -156,7 +156,7 @@ int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n)
 
         /* Look up the region by VA to verify ownership. EL0 passes the VA it received. */
         struct bounded_region br;
-        if (!pmm_bounded_lookup_by_va(va, &br)) return AE_EFAULT;
+        if (!pmm_bounded_lookup_by_va(va, (uint32_t)p->pid, &br)) return AE_EFAULT;
         if (br.pid != (uint32_t)p->pid) return AE_EPERM;
 
         /* Unmap from process address space using stored VA.

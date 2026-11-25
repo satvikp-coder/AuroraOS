@@ -61,9 +61,9 @@ int64_t ro_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2)
     if (!p) return ro_err(AE_EFAULT);
 
     switch (op) {
-    case ROOP_MAP:    return ro_map(p, (int)a1, a2);
-    case ROOP_UNMAP:  return ro_unmap(p, a1, (uint32_t)a2);
-    case ROOP_INFO:   return ro_info((int)a1);
+    case ROOP_MAP:    return a1 > RO_MAX_ASSETS ? AE_EINVAL : ro_map(p, (int)a1, a2);
+    case ROOP_UNMAP:  return a2 > RO_MAX_PAGES ? AE_EINVAL : ro_unmap(p, a1, (uint32_t)a2);
+    case ROOP_INFO:   return a1 > RO_MAX_ASSETS ? AE_EINVAL : ro_info((int)a1);
     default:          return ro_err(AE_EINVAL);
     }
 }

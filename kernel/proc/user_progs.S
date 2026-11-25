@@ -608,7 +608,7 @@ role_tryall:
     mov     x8, #11
     svc     #0
     str     x0, [x20, #0x30]
-    mov     x21, #12                    /* 10 is SYS_MEM (it only manages the caller's own heap), 11 SYS_MODEL (PRINCIPAL_INFER only); 12..40 must be unimplemented */
+    mov     x21, #13                    /* 10 is SYS_MEM, 11 SYS_MODEL, 12 SYS_RO_MAP; 13..40 must be unimplemented */
     mov     x22, #0
 ta_loop:
     mov     x0, #2

@@ -81,7 +81,7 @@ struct pmm_stats {
 #define BOUNDED_PRINCIPAL_BUDGET_PAGES  (4u * BOUNDED_MAX_PAGES)
 
 /* Kernel reserve for bounded allocations: 16 pages = 64 KiB. */
-#define BOUNDED_RESERVE_PAGES  16u
+#define BOUNDED_RESERVE_PAGES  256u
 
 enum {
     BOUNDED_OK = 0,
@@ -126,7 +126,7 @@ uint64_t pmm_region_budget(uint32_t principal);
 int pmm_bounded_lookup(uintptr_t addr, struct bounded_region *out);
 
 /* Get bounded region info by virtual address. Returns 1 if found, 0 otherwise. */
-int pmm_bounded_lookup_by_va(uint64_t va, struct bounded_region *out);
+int pmm_bounded_lookup_by_va(uint64_t va, uint32_t pid, struct bounded_region *out);
 
 /* Initialize bounded allocator (called from pmm_init). */
 void pmm_bounded_init(void);

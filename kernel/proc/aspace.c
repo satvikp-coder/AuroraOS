@@ -76,7 +76,7 @@ int aspace_create(struct aspace *as, uint32_t asid)
     if (!as || asid == 0 || asid > 255) return -1;
     as->l1_pa = 0; as->asid = asid; as->npages = 0; as->capacity = 0; as->pages = 0; as->live = 0;
     uint64_t l1 = take_page(as);
-    if (!l1) return -2;
+    if (!l1) { aspace_destroy(as); return -2; }
     const uint64_t *k = vmm_kernel_l1();
     for (int i = 0; i < 2; i++) {                   /* the kernel's devices and RAM, shared by reference */
         if (!(k[i] & PTE_VALID) || !(k[i] & PTE_TABLE)) { aspace_destroy(as); return -3; }
@@ -225,29 +225,43 @@ int aspace_map_ro(struct aspace *as, uint64_t va, uint64_t pa)
  * The asset page itself is NOT freed (it's globally managed).
  * Only the page table entries are cleared and table pages are freed if they become empty.
  * Returns 0 on success, error code on failure. */
-int aspace_unmap_ro(struct aspace *as, uint64_t va)
+static uint64_t *ro_asset_pte(struct aspace *as, uint64_t va)
 {
-    if (!as || !as->live) return -1;
-    if ((va & (PAGE_SIZE - 1)) || va < USER_VA_BASE || va >= USER_VA_LIMIT) return -2;
-    if ((va >> 30) != (USER_VA_BASE >> 30)) return -2;
+    if (!as || !as->live) return 0;
+    if ((va & (PAGE_SIZE - 1)) || va < USER_VA_BASE || va >= USER_VA_LIMIT) return 0;
+    if ((va >> 30) != (USER_VA_BASE >> 30)) return 0;
 
     uint64_t *l1 = (uint64_t *)(uintptr_t)as->l1_pa;
     uint64_t e1 = l1[IDX1(va)];
-    if (!(e1 & PTE_VALID)) return -5;
+    if (!(e1 & PTE_VALID)) return 0;
     uint64_t *l2 = (uint64_t *)(uintptr_t)(e1 & ADDR_MASK);
     uint64_t e2 = l2[IDX2(va)];
-    if (!(e2 & PTE_VALID)) return -5;
+    if (!(e2 & PTE_VALID)) return 0;
     uint64_t *l3 = (uint64_t *)(uintptr_t)(e2 & ADDR_MASK);
     uint64_t e3 = l3[IDX3(va)];
-    if (!(e3 & PTE_VALID)) return -5;
+    if (!(e3 & PTE_VALID)) return 0;
 
+    /* An ordinary read-only mapping also has these permission bits. Require reserved backing. */
+    if (!pmm_is_reserved(e3 & ADDR_MASK)) return 0;
     /* Verify this is an RO asset mapping (EL0 read-only, PXN/UXN, nG). */
     uint64_t expected_attr = PTE_ATTRIDX(1) | PTE_SH_INNER | PTE_AF | PTE_NG | PTE_PXN | PTE_UXN | PTE_AP_EL0_RO;
     if ((e3 & (PTE_ATTRIDX(7) | PTE_SH_INNER | PTE_AF | PTE_NG | PTE_PXN | PTE_UXN | PTE_AP_EL0_RO)) != expected_attr) {
-        return -6;  /* not an RO asset mapping */
+        return 0;  /* not an RO asset mapping */
     }
 
-    l3[IDX3(va)] = 0;
+    return &l3[IDX3(va)];
+}
+
+int aspace_ro_asset_mapped(struct aspace *as, uint64_t va)
+{
+    return ro_asset_pte(as, va) != 0;
+}
+
+int aspace_unmap_ro(struct aspace *as, uint64_t va)
+{
+    uint64_t *pte = ro_asset_pte(as, va);
+    if (!pte) return -5;
+    *pte = 0;
     __asm__ volatile ("dsb ishst" ::: "memory");
     uint64_t arg = ((uint64_t)as->asid << 48) | (va >> 12);
     __asm__ volatile ("tlbi vae1is, %0\n dsb ish\n isb" :: "r"(arg) : "memory");
@@ -285,7 +299,7 @@ int aspace_map_at(struct aspace *as, uint64_t va, uint64_t pa, int perm)
     /* Atomicity: need missing table pages up front. */
     int need = !have_l2 + !have_l3;
     struct pmm_stats st; pmm_get_stats(&st);
-    if (as->npages + need > ASPACE_MAX_PAGES_CAP || st.free_pages < (uint64_t)need) return -4;
+    if (as->npages + need > ASPACE_MAX_PAGES_CAP || st.free_pages < (uint64_t)need + BOUNDED_RESERVE_PAGES) return -4;
 
     if (!have_l2) { uint64_t t = take_page(as); if (!t) return -4; *e1 = t | PTE_TABLE | PTE_VALID; l2 = (uint64_t *)(uintptr_t)t; }
     uint64_t *e2 = &l2[IDX2(va)];
