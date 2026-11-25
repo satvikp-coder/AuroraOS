@@ -167,12 +167,24 @@ static void draw_cell(const struct gfx_surface *s, const struct gfx_font *f, con
         }
         return;
     }
-    /* missing glyph: a hollow box standing on the baseline, one pixel in from each side of the cell */
+    /* missing glyph: a box with an X crossing it (common "missing character" symbol),
+     * standing on the baseline, one pixel in from each side of the cell.
+     * This is more visually distinct than a plain hollow box. */
     int64_t bh = (int64_t)f->ascent * mag * 3 / 4; if (bh < 5) bh = 5;
     int64_t left = pen + mag, right = pen + (int64_t)f->advance * mag - 2 * mag, bottom = baseline - mag, top = baseline - bh;
     if (right < left + 2) return;
+    /* Draw the box outline */
     for (int64_t x = left; x <= right; x++) { put(s, c, x, top, color); put(s, c, x, bottom, color); }
     for (int64_t y = top; y <= bottom; y++) { put(s, c, left, y, color); put(s, c, right, y, color); }
+    /* Draw an X inside the box: two diagonal lines from corner to corner */
+    int64_t w = right - left;
+    int64_t h = bottom - top;
+    if (w >= 2 && h >= 2) {
+        for (int64_t d = 0; d <= w && d <= h; d++) {
+            put(s, c, left + d, top + d, color);           /* top-left to bottom-right */
+            put(s, c, right - d, top + d, color);          /* top-right to bottom-left */
+        }
+    }
 }
 
 static void draw_line(const struct gfx_surface *s, const struct gfx_font *f, const struct clipbox *c, int64_t x, int64_t y, const char *str, size_t len, uint32_t color, int mag)

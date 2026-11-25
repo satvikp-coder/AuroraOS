@@ -53,7 +53,8 @@ int  gfx_draw_shapes_pattern(const struct gfx_surface *s);               /* the 
 
 /* ---- text (kernel/gfx/gfx_text.c, stage G4): printable ASCII only, monospaced bitmap font, 1-bit, opaque ---------------------------------
  * Layout model: one UTF-8 code point = one cell of `advance` pixels. U+0020..U+007E draw their glyph; EVERYTHING ELSE (controls, DEL,
- * non-ASCII such as Devanagari or Gujarati, invalid UTF-8: one cell per bad byte) draws a visible hollow missing-glyph box; there is no
+ * non-ASCII such as Devanagari or Gujarati, invalid UTF-8: one cell per bad byte) draws a visible missing-glyph box with an X crossing it
+ * (common "missing character" symbol); there is no
  * shaping, no bidirectional text and no combining marks. '
 ' ends a line; '' and '	' are ordinary controls (boxes). Lines are
  * `line_height` apart; a line's top is y, its baseline is y + ascent. Text input is bytes with an explicit length (no NUL needed). */

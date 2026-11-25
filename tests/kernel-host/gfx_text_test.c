@@ -215,9 +215,29 @@ int main(void)
       gfx_clear(&s, BG); gfx_draw_text(&s, f, 2, 2, "ab\ncd", 5, INK, 0);
       { long a = count(&s, INK); gfx_clear(&s, BG); gfx_draw_text(&s, f, 2, 2, "ab", 2, INK, 0); CHECK("drawing stops at the first newline", a == count(&s, INK) && a > 0); }
       gfx_clear(&s, BG); gfx_draw_text(&s, f, 0, 0, "\x01", 1, INK, 0);
-      { int64_t bh = f->ascent * 3 / 4; if (bh < 5) bh = 5; long expect = 2 * (f->advance - 2 - 1 + 1) + 2 * (bh - 2);
-        CHECK("a missing glyph is a hollow box of the documented size", count(&s, INK) == expect && px(&s, 1, f->ascent - bh) == INK && px(&s, f->advance - 2, f->ascent - 1) == INK && px(&s, 3, f->ascent - bh + 2) == BG); }
-      gfx_clear(&s, BG); gfx_draw_text(&s, f, 0, 0, "\xE0\xA4\xB9", 3, INK, 0); { long a = count(&s, INK); gfx_clear(&s, BG); gfx_draw_text(&s, f, 0, 0, "\x7F", 1, INK, 0); CHECK("Devanagari draws the same single box as DEL (no shaping, one cell)", a == count(&s, INK) && a > 0); }
+      { int64_t bh = f->ascent * 3 / 4; if (bh < 5) bh = 5;
+        int64_t left = 1, right = f->advance - 2, bottom = f->ascent - 1, top = f->ascent - bh;
+        long outline = 2 * (right - left + 1) + 2 * (bottom - top + 1) - 4;
+        int64_t w = right - left, h = bottom - top;
+        int64_t m = w < h ? w : h;
+        long x_extra = 0;
+        if (w >= 2 && h >= 2) {
+            /* two diagonals, each has m+1 pixels; they always hit 4 outline pixels (2 top corners + 2 side hits when non-square, or 4 corners when square); center shared only if square and odd */
+            int shared_with_outline = 4;
+            int center_shared = (w == h && (w & 1)) ? 1 : 0;
+            x_extra = 2 * (m + 1) - shared_with_outline - center_shared;
+        }
+        long expect = outline + x_extra;
+        long actual = count(&s, INK);
+        int has_top_left = px(&s, left, top) == INK;
+        int has_bottom_right = px(&s, right, bottom) == INK;
+        int has_top_right = px(&s, right, top) == INK;
+        int has_bottom_left = px(&s, left, bottom) == INK;
+        int has_diag1 = px(&s, left + 1, top + 1) == INK;  /* one step in on main diagonal */
+        int has_diag2 = px(&s, right - 1, top + 1) == INK; /* one step in on anti-diagonal */
+        int interior_bg = px(&s, left + 1, top + 2) == BG || w < 4 || h < 4; /* interior not all ink (off both diagonals) */
+        CHECK("a missing glyph is a box with an X crossing it", actual == expect && has_top_left && has_bottom_right && has_top_right && has_bottom_left && has_diag1 && has_diag2 && interior_bg); }
+      gfx_clear(&s, BG); gfx_draw_text(&s, f, 0, 0, "\xE0\xA4\xB9", 3, INK, 0); { long a = count(&s, INK); gfx_clear(&s, BG); gfx_draw_text(&s, f, 0, 0, "\x7F", 1, INK, 0); CHECK("Devanagari draws the same box-with-X as DEL (no shaping, one cell)", a == count(&s, INK) && a > 0); }
       free(b.base); }
 
     printf("drawing: clipping equals the crop of an unclipped rendering\n");
