@@ -10,10 +10,10 @@
  */
 #include <mm.h>
 
-static uint64_t used_bm[PMM_MAX_PAGES / 64];
-static uint64_t rsv_bm[PMM_MAX_PAGES / 64];
-static uintptr_t base;
-static uint64_t npages, nfree, nrsv, hint, alloc_fail, free_err;
+uint64_t used_bm[PMM_MAX_PAGES / 64];
+uint64_t rsv_bm[PMM_MAX_PAGES / 64];
+uintptr_t base;
+uint64_t npages, nfree, nrsv, hint, alloc_fail, free_err;
 
 #define TST(bm, i) (((bm)[(i) >> 6] >> ((i) & 63)) & 1ULL)
 #define SET(bm, i) ((bm)[(i) >> 6] |= 1ULL << ((i) & 63))

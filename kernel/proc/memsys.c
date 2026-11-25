@@ -12,6 +12,10 @@
  *     heap's own, computed here from the page count.
  * Limits (kernel/include/heapacct.h): per process 32 pages, per PRINCIPAL 64 pages across all its live processes (a derived sum, never a stored counter), and the
  * 256-page kernel reserve. Everything the heap owns is released with the address space when the process is destroyed.
+ *
+ * Bounded allocations (MEM-03): separate from the heap. A process can allocate up to BOUNDED_PROC_BUDGET
+ * regions of up to BOUNDED_MAX_PAGES pages each (max 64 KiB), with per-principal budget BOUNDED_PRINCIPAL_BUDGET.
+ * These are for read-only asset windows, model data staging, etc. EL0 receives only a virtual address.
  */
 #include <proc.h>
 #include <mm.h>
@@ -20,6 +24,44 @@
 #ifdef AURORA_SELFTEST_HOOKS
 int mem_test_fail_page = -1;                     /* test kernels only: make the Nth page of the next grow fail (to test the rollback), -1 = off */
 #endif
+
+/* Packed arguments for MEMOP_BOUNDED_ALLOC: x1 = npages, x2 = perm, x3 = principal (or PRINCIPAL_NONE).
+ * Returns (vbase << 32) | npages on success, or AE_* error. EL0 must never learn physical addresses. */
+static int64_t mem_bounded_alloc(struct proc *p, uint64_t npages, uint64_t perm, uint64_t principal)
+{
+    if (npages == 0 || npages > BOUNDED_MAX_PAGES) return AE_EINVAL;
+    if (perm != BOUNDED_PERM_RO && perm != BOUNDED_PERM_RX && perm != BOUNDED_PERM_RW) return AE_EINVAL;
+    if (principal != PRINCIPAL_NONE && !principal_assignable((uint32_t)principal)) return AE_EPERM;
+
+    uint64_t vbase, pbase;
+    int rc = pmm_bounded_alloc(p->pid, p->gen, (uint32_t)principal, (uint32_t)npages, (uint8_t)perm, &vbase, &pbase);
+    if (rc != BOUNDED_OK) {
+        switch (rc) {
+        case BOUNDED_ERR_BUDGET: return AE_ENOMEM;
+        case BOUNDED_ERR_NOMEM: return AE_ENOMEM;
+        case BOUNDED_ERR_GEN: return AE_EINVAL;
+        case BOUNDED_ERR_PERM: return AE_EPERM;
+        default: return AE_EINVAL;
+        }
+    }
+    /* Return vbase in upper 32 bits, npages in lower 32 bits. EL0 must never learn physical addresses. */
+    return (int64_t)((vbase << 32) | npages);
+}
+
+/* MEMOP_BOUNDED_FREE: x1 = vbase. Returns 0 on success, AE_* error. */
+static int64_t mem_bounded_free(struct proc *p, uint64_t vbase)
+{
+    int rc = pmm_bounded_free(p->pid, p->gen, vbase);
+    if (rc != BOUNDED_OK) {
+        switch (rc) {
+        case BOUNDED_ERR_NOT_FOUND: return AE_EFAULT;
+        case BOUNDED_ERR_GEN: return AE_EINVAL;
+        case BOUNDED_ERR_STATE: return AE_EINVAL;
+        default: return AE_EINVAL;
+        }
+    }
+    return 0;
+}
 
 int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n)
 {
@@ -60,6 +102,26 @@ int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n)
         }
         return (int64_t)p->heap_pages;
     }
+    case MEMOP_BOUNDED_ALLOC: {
+        /* n = npages, x2 = perm, x3 = principal (passed via registers in sched.c) */
+        return AE_ENOSYS;  /* Will be handled in sched.c with extended arguments */
+    }
+    case MEMOP_BOUNDED_FREE: {
+        return AE_ENOSYS;  /* Will be handled in sched.c with extended arguments */
+    }
     default: return AE_EINVAL;
+    }
+}
+
+/* Extended mem_syscall for bounded operations with full register access. */
+int64_t mem_syscall_extended(struct proc *p, uint64_t op, uint64_t n, uint64_t arg2, uint64_t arg3)
+{
+    switch (op) {
+    case MEMOP_BOUNDED_ALLOC:
+        return mem_bounded_alloc(p, n, arg2, arg3);
+    case MEMOP_BOUNDED_FREE:
+        return mem_bounded_free(p, n);
+    default:
+        return mem_syscall(p, op, n);
     }
 }

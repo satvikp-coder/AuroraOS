@@ -4,7 +4,9 @@
 # Builds the kernel, boots QEMU headlessly, captures serial output, and
 # checks for a genuine boot marker. Exits nonzero on failure or timeout.
 #
-# Usage: ./tests/qemu/boot-smoke-test.sh
+# Usage: ./tests/qemu/boot-smoke-test.sh [memory-size]
+#
+# Memory size examples: 256M, 512M, 1G
 
 set -e
 
@@ -13,6 +15,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 KERNEL="$PROJECT_ROOT/build/kernel.bin"
 LOG="$PROJECT_ROOT/build/qemu-boot.log"
 TIMEOUT_SECS=30
+MEMORY="${1:-256M}"
 
 cd "$PROJECT_ROOT"
 
@@ -24,7 +27,7 @@ if [ ! -f "$KERNEL" ]; then
     exit 1
 fi
 
-echo "[smoke-test] Booting QEMU (timeout: ${TIMEOUT_SECS}s)..."
+echo "[smoke-test] Booting QEMU with ${MEMORY} (timeout: ${TIMEOUT_SECS}s)..."
 
 # Launch QEMU in the background, capturing serial output to a log file.
 # -nographic -serial stdio sends UART to stdout; we redirect to $LOG.
@@ -32,7 +35,7 @@ qemu-system-aarch64 \
     -machine virt,highmem=off \
     -cpu cortex-a53 \
     -smp 1 \
-    -m 256M \
+    -m "$MEMORY" \
     -kernel "$KERNEL" \
     -nographic \
     -serial file:"$LOG" \
@@ -68,9 +71,9 @@ cat "$LOG" 2>/dev/null || true
 echo "========================="
 
 if [ "$BOOT_OK" -eq 1 ]; then
-    echo "PASS: AuroraOS booted successfully in QEMU ARM64 virt."
+    echo "PASS: AuroraOS booted successfully in QEMU ARM64 virt with ${MEMORY}."
     exit 0
 else
-    echo "FAIL: AuroraOS did not boot within ${TIMEOUT_SECS}s." >&2
+    echo "FAIL: AuroraOS did not boot within ${TIMEOUT_SECS}s with ${MEMORY}." >&2
     exit 1
 fi

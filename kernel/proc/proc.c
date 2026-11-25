@@ -137,6 +137,10 @@ int proc_destroy(int pid)
     struct proc *p = proc_get(pid);
     if (!p) return -1;
     if (!proc_transition_ok(p->state, PROC_UNUSED)) return -2;     /* e.g. RUNNING: refuse */
+
+    /* Clean up bounded allocations (MEM-03) - releases accounting exactly once */
+    pmm_bounded_cleanup_proc(p->pid, p->gen);
+
     ipc_cleanup(p);
     aspace_destroy(&p->as);
     kzero(p, sizeof *p);                                      /* state = UNUSED */

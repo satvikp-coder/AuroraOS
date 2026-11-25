@@ -24,6 +24,7 @@
 #include <mm.h>
 #include <mmpolicy.h>
 #include <pte.h>
+#include <proc.h>
 
 #define MAIR_VALUE   ((0x00ULL << 0) | (0xFFULL << 8))   /* idx0 Device-nGnRnE, idx1 Normal WB RA/WA */
 #define VA_BITS      39
@@ -282,4 +283,114 @@ int vmm_hw_translate(uint64_t va, int write, uint64_t *pa)
     if (par & 1) return -1;
     if (pa) *pa = (par & ADDR_MASK) | (va & (PAGE_SIZE - 1));
     return 0;
+}
+
+/* ---- Read-only asset windows (MEM-05) ---- */
+
+static struct ro_asset ro_assets[RO_ASSET_MAX];
+
+int ro_register_asset(uint64_t pbase, uint32_t npages)
+{
+    if (pbase & (PAGE_SIZE - 1)) return -1;
+    if (npages == 0) return -1;
+    if (!pmm_in_ram(pbase)) return -1;
+    uint64_t end = pbase + (uint64_t)npages * PAGE_SIZE;
+    if (end > pmm_ram_end()) return -1;
+
+    for (int i = 0; i < RO_ASSET_MAX; i++) {
+        if (!ro_assets[i].valid) {
+            ro_assets[i] = (struct ro_asset){
+                .pbase = pbase,
+                .npages = npages,
+                .refcount = 0,
+                .valid = 1,
+            };
+            return i;  /* asset ID */
+        }
+    }
+    return -2;  /* table full */
+}
+
+static int ro_asset_valid(int asset_id) {
+    return asset_id >= 0 && asset_id < RO_ASSET_MAX && ro_assets[asset_id].valid;
+}
+
+int ro_map_asset(int pid, uint64_t gen, int asset_id, uint64_t *vbase_out)
+{
+    if (!ro_asset_valid(asset_id)) return -1;
+    if (!vbase_out) return -1;
+    if (pid < 1 || pid > PROC_MAX) return -1;
+    if (gen == 0) return -1;
+
+    struct proc *p = proc_get(pid);
+    if (!p) return -1;
+    if (p->gen != gen) return -2;
+
+    struct ro_asset *a = &ro_assets[asset_id];
+
+    /* Assign virtual address: use the bounded region area */
+    uint64_t vbase = USER_BOUNDED_VA_BASE + (asset_id * BOUNDED_MAX_PAGES * PAGE_SIZE);
+
+    /* Map as read-only, never executable (PXN|UXN) */
+    if (aspace_map_contiguous(&p->as, vbase, UPERM_RO, 0, a->npages, 0) != 0) {
+        return -3;
+    }
+
+    a->refcount++;
+    *vbase_out = vbase;
+    return 0;
+}
+
+int ro_unmap_asset(int pid, uint64_t gen, uint64_t vbase)
+{
+    if (pid < 1 || pid > PROC_MAX) return -1;
+    if (gen == 0) return -1;
+    if (vbase & (PAGE_SIZE - 1)) return -1;
+
+    struct proc *p = proc_get(pid);
+    if (!p) return -1;
+    if (p->gen != gen) return -2;
+
+    /* Find which asset this vbase corresponds to */
+    int asset_id = -1;
+    for (int i = 0; i < RO_ASSET_MAX; i++) {
+        if (ro_assets[i].valid) {
+            uint64_t expected_vbase = USER_BOUNDED_VA_BASE + (i * BOUNDED_MAX_PAGES * PAGE_SIZE);
+            if (vbase == expected_vbase) {
+                asset_id = i;
+                break;
+            }
+        }
+    }
+    if (asset_id < 0) return -3;
+
+    struct ro_asset *a = &ro_assets[asset_id];
+
+    /* Unmap all pages of this asset */
+    for (uint32_t i = 0; i < a->npages; i++) {
+        (void)aspace_unmap(&p->as, vbase + i * PAGE_SIZE);
+    }
+
+    if (a->refcount > 0) a->refcount--;
+    return 0;
+}
+
+void ro_cleanup_proc(int pid, uint64_t gen)
+{
+    if (pid < 1 || pid > PROC_MAX) return;
+    if (gen == 0) return;
+
+    struct proc *p = proc_get(pid);
+    if (!p) return;
+    if (p->gen != gen) return;
+
+    for (int i = 0; i < RO_ASSET_MAX; i++) {
+        if (ro_assets[i].valid && ro_assets[i].refcount > 0) {
+            uint64_t vbase = USER_BOUNDED_VA_BASE + (i * BOUNDED_MAX_PAGES * PAGE_SIZE);
+            for (uint32_t j = 0; j < ro_assets[i].npages; j++) {
+                (void)aspace_unmap(&p->as, vbase + j * PAGE_SIZE);
+            }
+            ro_assets[i].refcount = 0;
+        }
+    }
 }

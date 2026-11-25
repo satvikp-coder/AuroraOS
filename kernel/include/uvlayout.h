@@ -36,12 +36,21 @@
 #define USER_HEAP_VA           (ELF_VA_MAX + USER_HEAP_GUARD_BYTES)
 #define USER_HEAP_END          (USER_HEAP_VA + (uint64_t)USER_HEAP_MAX_PAGES * USER_PAGE_BYTES)   /* first address past the heap's last possible page */
 
+/* Bounded allocations (MEM-03): placed above the heap guard, within the 2 MiB process window.
+ * Each slot gets BOUNDED_MAX_PAGES pages (max 16 pages = 64 KiB).
+ * Remaining space after heap guard: 2 MiB - 0x140000 = 0xC0000 = 768 KiB = 12 slots of 64 KiB.
+ * Let's place them at a fixed base above the heap guard. */
+#define BOUNDED_MAX_PAGES        16u  /* max pages per bounded allocation (64 KiB) */
+#define USER_BOUNDED_VA_BASE     (USER_HEAP_END + USER_HEAP_GUARD_BYTES)
+#define USER_BOUNDED_MAX_SLOTS   12  /* max slots that fit in remaining 2 MiB window */
+
 /* The layout is a proof obligation: if anybody moves a constant so that two regions touch, the build fails. */
 _Static_assert(USER_VA_BASE + 0x5000 + 0x1000 <= ELF_VA_MIN, "a guard must separate the stack from the ELF window");
 _Static_assert(ELF_VA_MIN >= USER_VA_BASE && ELF_VA_MAX > ELF_VA_MIN, "the ELF window is inside the user slot");
 _Static_assert(USER_HEAP_VA >= ELF_VA_MAX + USER_HEAP_GUARD_BYTES, "the heap starts a full guard above the ELF window");
 _Static_assert(USER_HEAP_VA % USER_PAGE_BYTES == 0 && USER_HEAP_END > USER_HEAP_VA, "the heap is page aligned and non-empty");
 _Static_assert(USER_HEAP_END + USER_HEAP_GUARD_BYTES <= USER_VA_BASE + USER_WINDOW_BYTES, "a full guard separates the heap from the end of the L3 table");
+_Static_assert(USER_BOUNDED_VA_BASE + USER_BOUNDED_MAX_SLOTS * BOUNDED_MAX_PAGES * USER_PAGE_BYTES <= USER_VA_BASE + USER_WINDOW_BYTES, "bounded allocations fit in the 2 MiB process window");
 
 /* May aspace_map() ever create a mapping at this page-aligned address?
  *   - inside the 2 MiB process window: ONLY the code, data, stack, ELF-window and heap pages above (so every guard stays unmapped);

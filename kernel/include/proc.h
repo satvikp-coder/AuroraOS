@@ -32,6 +32,8 @@ struct aspace {
 };
 int      aspace_create(struct aspace *as, uint32_t asid);
 int      aspace_map(struct aspace *as, uint64_t va, int perm, const void *init, size_t len, uint64_t *pa_out);
+int      aspace_map_contiguous(struct aspace *as, uint64_t va, int perm, const void *init,
+                               uint32_t npages, uint64_t *pa_out_first);
 int      aspace_unmap(struct aspace *as, uint64_t va);   /* unmap and free one mapped user page: 0, or -2 (bad address) / -5 (not mapped); flushes its TLB entry */
 void     aspace_destroy(struct aspace *as);     /* flushes the ASID's TLB entries, frees every owned page */
 uint64_t aspace_ttbr(const struct aspace *as);
@@ -54,6 +56,8 @@ struct proc {
     uint64_t entry;
     int exit_code;
     uint32_t heap_pages;                        /* pages currently mapped at USER_HEAP_VA (SYS_MEM), 0..USER_HEAP_MAX_PAGES */
+    uint32_t bounded_pages;                     /* pages currently owned via bounded allocations */
+    uint32_t bounded_count;                     /* number of active bounded allocations (0..BOUNDED_PROC_BUDGET) */
     uint64_t fault_esr, fault_far, fault_elr, fault_spsr;
     uint64_t code_pa, data_pa, stack_pa;
     uint64_t syscalls, ticks_run, switches_in, el0_exceptions, el0_confirmed;   /* el0_confirmed: SPSR said EL0t */
@@ -115,7 +119,8 @@ void sched_trace_reset(void);
 #define IPC_NONBLOCK 1
 #define SYS_FS     8   /* x0 = operation (FSOP_*), x1..x4 arguments: see kernel/proc/fssys.c */
 #define SYS_MEM    10  /* x0 = operation (MEMOP_*), x1 = page count: a bounded user heap; see kernel/proc/memsys.c */
-enum { MEMOP_GROW = 1, MEMOP_SHRINK, MEMOP_INFO };
+enum { MEMOP_GROW = 1, MEMOP_SHRINK, MEMOP_INFO,
+       MEMOP_BOUNDED_ALLOC = 10, MEMOP_BOUNDED_FREE = 11 };
 #define SYS_SETTINGS 9   /* x0 = operation (SETOP_*), x1 = setting id, x2 = value: see kernel/settings.c */
 #define SYS_WRITE_MAX 256
 #define AE_OK      0
@@ -141,6 +146,7 @@ int  proc_set_principal(int pid, uint32_t principal);   /* kernel-only; 0 (the k
 int  proc_set_service_principal(int pid, uint32_t principal);   /* kernel-only; accepts ONLY principal_service_holdable() (PRINCIPAL_INFER), else -1 */
 int64_t fs_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4);
 int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n);   /* SYS_MEM (kernel/proc/memsys.c) */
+int64_t mem_syscall_extended(struct proc *p, uint64_t op, uint64_t n, uint64_t arg2, uint64_t arg3);  /* SYS_MEM with extra args for bounded ops */
 int64_t settings_syscall(struct proc *p, uint64_t op, uint64_t id, uint64_t value);   /* kernel/settings.c */
 
 /* ---- safe user memory access ---- */

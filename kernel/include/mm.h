@@ -78,6 +78,70 @@ uintptr_t pmm_ram_base(void);
 uintptr_t pmm_ram_end(void);
 void      pmm_get_stats(struct pmm_stats *s);
 
+/* ---- Bounded allocations (MEM-03) ----------------------------------- */
+/* A bounded allocation is a tracked, quota-checked, page-granular region of
+ * physical memory with full ownership metadata. It is not a general-purpose
+ * allocator; it is for specific kernel-authorised use cases (e.g. read-only
+ * asset windows, model data staging). All metadata lives in the kernel;
+ * EL0 receives only a virtual address and length. */
+#define BOUNDED_MAX_REGIONS   256
+/* BOUNDED_MAX_PAGES is defined in uvlayout.h for host-test visibility */
+#define BOUNDED_PROC_BUDGET   4                   /* max allocations per process */
+#define BOUNDED_PRINCIPAL_BUDGET 4                /* max allocations per principal */
+#define BOUNDED_RESERVE_PAGES 256                 /* kernel reserve, same as SYS_MEM */
+
+/* Allocation permissions for the EL0 mapping. */
+enum {
+    BOUNDED_PERM_RO = 1,      /* read-only, no execute (PXN|UXN) */
+    BOUNDED_PERM_RX = 2,      /* read-only, executable (UXN only) */
+    BOUNDED_PERM_RW = 3,      /* read-write, no execute (PXN|UXN) - kernel use only */
+};
+
+/* Principal identifiers for ownership accounting. */
+#define PRINCIPAL_NONE        0xFFFFFFFFu
+#define PRINCIPAL_KERNEL      0
+
+struct bounded_region {
+    uint64_t pid;              /* owning process PID (1..PROC_MAX) */
+    uint64_t gen;              /* owning process generation (for stale-slot safety) */
+    uint32_t principal;        /* owning principal (filesystem identity) */
+    uint64_t vbase;            /* virtual base address in EL0 (page-aligned) */
+    uint32_t npages;           /* number of pages (1..BOUNDED_MAX_PAGES) */
+    uint64_t pbase;            /* physical base address (page-aligned, contiguous) */
+    uint8_t  perm;             /* BOUNDED_PERM_* */
+    uint8_t  active;           /* 1 = live, 0 = freed */
+    uint64_t alloc_tick;       /* scheduler tick at allocation time */
+    uint64_t free_tick;        /* scheduler tick at free time (0 if active) */
+};
+
+/* Bounded allocation error codes. */
+enum {
+    BOUNDED_OK = 0,
+    BOUNDED_ERR_ARG = -1,         /* bad argument (size, alignment, perm) */
+    BOUNDED_ERR_NOSLOT = -2,      /* region table full */
+    BOUNDED_ERR_NOMEM = -3,       /* out of physical pages or would breach reserve */
+    BOUNDED_ERR_BUDGET = -4,      /* per-process or per-principal budget exceeded */
+    BOUNDED_ERR_GEN = -5,         /* generation mismatch (stale slot) */
+    BOUNDED_ERR_NOT_FOUND = -6,   /* no matching region for free/lookup */
+    BOUNDED_ERR_STATE = -7,       /* region already freed or invalid state */
+    BOUNDED_ERR_PERM = -8,        /* permission not allowed for caller */
+};
+
+/* Bounded allocator API. */
+int       pmm_bounded_alloc(int pid, uint64_t gen, uint32_t principal,
+                            uint32_t npages, uint8_t perm,
+                            uint64_t *vbase_out, uint64_t *pbase_out);
+int       pmm_bounded_free(int pid, uint64_t gen, uint64_t vbase);
+int       pmm_bounded_lookup_by_va(int pid, uint64_t gen, uint64_t vbase,
+                                   struct bounded_region *out);
+int       pmm_bounded_lookup_by_generation(int pid, uint64_t gen,
+                                           struct bounded_region *out, int max,
+                                           int *count);
+int       pmm_bounded_cleanup_proc(int pid, uint64_t gen);
+uint32_t  pmm_bounded_count_proc(int pid, uint64_t gen);
+uint32_t  pmm_bounded_count_principal(uint32_t principal);
+void      pmm_bounded_get_stats(struct pmm_stats *s);  /* reuses pmm_stats */
+
 /* ---- Virtual memory (stage-1, identity map + extra mappings) -------- */
 #define VMM_ATTR_NORMAL_RW   1   /* normal WB, read/write, never execute */
 #define VMM_ATTR_NORMAL_RO   2   /* normal WB, read-only, never execute  */
@@ -103,6 +167,24 @@ const uint64_t *vmm_kernel_l1(void);
 int      vmm_hw_translate_el0(uint64_t va, int write, uint64_t *pa);   /* as EL0 would see it */
 /* Hardware translation via AT: returns 0 and *pa on success, -1 if it would fault. */
 int      vmm_hw_translate(uint64_t va, int write, uint64_t *pa);
+
+/* ---- Read-only asset windows (MEM-05) --------------------------------- */
+/* Kernel-internal read-only asset registry. Assets are registered with a physical
+ * base and length, then mapped into processes with PXN/UXN (never executable).
+ * The kernel controls which processes may map which assets. */
+#define RO_ASSET_MAX 32
+struct ro_asset {
+    uint64_t pbase;
+    uint32_t npages;
+    uint32_t refcount;
+    uint8_t  valid;
+};
+
+int      ro_register_asset(uint64_t pbase, uint32_t npages);    /* register a kernel-owned read-only asset */
+int      ro_map_asset(int pid, uint64_t gen, int asset_id,       /* map asset into process (RO, PXN|UXN) */
+                      uint64_t *vbase_out);
+int      ro_unmap_asset(int pid, uint64_t gen, uint64_t vbase);  /* unmap asset from process */
+void     ro_cleanup_proc(int pid, uint64_t gen);                 /* unmap all assets for a process */
 
 /* Linker-provided section boundaries */
 extern uint8_t __image_start[], __text_start[], __text_end[], __rodata_start[], __rodata_end[],

@@ -19,6 +19,7 @@
 #define IDX1(v) (((v) >> 30) & 0x1FF)
 #define IDX2(v) (((v) >> 21) & 0x1FF)
 #define IDX3(v) (((v) >> 12) & 0x1FF)
+#define BLOCK_2M 0x200000ULL
 
 static uint64_t user_attr(int perm)
 {
@@ -131,6 +132,121 @@ int aspace_unmap(struct aspace *as, uint64_t va)
 }
 
 uint64_t aspace_ttbr(const struct aspace *as) { return ((uint64_t)as->asid << 48) | as->l1_pa; }
+
+/* Map multiple contiguous pages with the same permissions. Returns 0 on success,
+ * negative error code on failure. All-or-nothing: if any page fails, nothing is mapped.
+ * `init` can be NULL (pages zeroed), or a buffer of size len >= npages * PAGE_SIZE. */
+int aspace_map_contiguous(struct aspace *as, uint64_t va, int perm, const void *init,
+                          uint32_t npages, uint64_t *pa_out_first)
+{
+    if (!as || !as->live) return -1;
+    uint64_t attr = user_attr(perm);
+    if (!attr || (va & (PAGE_SIZE - 1))) return -2;
+    if (va < USER_VA_BASE || va >= USER_VA_LIMIT) return -2;
+    if ((va >> 30) != (USER_VA_BASE >> 30)) return -2;
+    if (npages == 0) return -2;
+    uint64_t end_va = va + (uint64_t)npages * PAGE_SIZE;
+    if (end_va < va || end_va > USER_VA_LIMIT) return -2;
+    for (uint32_t i = 0; i < npages; i++) {
+        if (!uv_mappable(va + i * PAGE_SIZE)) return -7;
+    }
+
+    uint64_t *l1 = (uint64_t *)(uintptr_t)as->l1_pa;
+    uint64_t *e1 = &l1[IDX1(va)];
+    int have_l2 = (*e1 & PTE_VALID) != 0;
+    uint64_t *l2 = have_l2 ? (uint64_t *)(uintptr_t)(*e1 & ADDR_MASK) : 0;
+    int have_l3 = have_l2 && (l2[IDX2(va)] & PTE_VALID) != 0;
+    uint64_t *l3 = have_l3 ? (uint64_t *)(uintptr_t)(l2[IDX2(va)] & ADDR_MASK) : 0;
+
+    /* Pre-flight: check for conflicts and count needed table pages */
+    int need_tables = 0;
+    if (!have_l2) need_tables++;
+    if (!have_l3) need_tables++;
+    /* Check for conflicts in the range */
+    uint64_t v = va;
+    for (uint32_t i = 0; i < npages; i++, v += PAGE_SIZE) {
+        if (have_l3 && (l3[IDX3(v)] & PTE_VALID)) return -5;
+        /* Handle crossing L3 boundaries */
+        if ((v & (BLOCK_2M - 1)) == 0 && i + 1 < npages) {
+            /* At L2 boundary, may need new L3 table */
+            uint64_t *e2 = &l2[IDX2(v)];
+            if (!(*e2 & PTE_VALID)) { need_tables++; }
+            else if (!(*e2 & PTE_TABLE)) return -5;
+            l3 = (uint64_t *)(uintptr_t)(*e2 & ADDR_MASK);
+        }
+    }
+
+    struct pmm_stats st; pmm_get_stats(&st);
+    if (as->npages + need_tables + npages > ASPACE_MAX_PAGES || st.free_pages < (uint64_t)(need_tables + npages)) return -4;
+
+    /* Allocate missing tables */
+    if (!have_l2) { uint64_t t = take_page(as); if (!t) return -4; *e1 = t | PTE_TABLE | PTE_VALID; l2 = (uint64_t *)(uintptr_t)t; }
+    uint64_t l2_idx = IDX2(va);
+    if (!have_l3) { uint64_t t = take_page(as); if (!t) return -4; l2[l2_idx] = t | PTE_TABLE | PTE_VALID; l3 = (uint64_t *)(uintptr_t)t; }
+    else { l3 = (uint64_t *)(uintptr_t)(l2[l2_idx] & ADDR_MASK); }
+
+    /* Allocate and map all pages */
+    uint64_t first_pa = 0;
+    uint32_t mapped = 0;
+    v = va;
+    for (uint32_t i = 0; i < npages; i++, v += PAGE_SIZE) {
+        /* Handle L2/L3 boundary crossing */
+        if (i > 0 && (v & (BLOCK_2M - 1)) == 0) {
+            l2_idx = IDX2(v);
+            if (!(l2[l2_idx] & PTE_VALID)) {
+                uint64_t t = take_page(as); if (!t) { /* rollback */ break; }
+                l2[l2_idx] = t | PTE_TABLE | PTE_VALID;
+                l3 = (uint64_t *)(uintptr_t)t;
+            } else if (!(l2[l2_idx] & PTE_TABLE)) {
+                /* rollback */ break;
+            } else {
+                l3 = (uint64_t *)(uintptr_t)(l2[l2_idx] & ADDR_MASK);
+            }
+        }
+
+        uint64_t pa = take_page(as);
+        if (!pa) { /* rollback */ break; }
+        if (!pmm_is_allocated(pa) || pmm_is_reserved(pa)) { pmm_free_page(pa); break; }
+        if (mapped == 0) first_pa = pa;
+
+        const uint8_t *src = (const uint8_t *)init;
+        volatile uint8_t *d = (volatile uint8_t *)(uintptr_t)pa;
+        if (src) {
+            for (size_t k = 0; k < PAGE_SIZE; k++) d[k] = src[i * PAGE_SIZE + k];
+        }
+
+        l3[IDX3(v)] = pa | attr | PTE_TABLE | PTE_VALID;
+        mapped++;
+    }
+
+    if (mapped < npages) {
+        /* Rollback: unmap what we mapped */
+        uint64_t rv = va;
+        for (uint32_t i = 0; i < mapped; i++, rv += PAGE_SIZE) {
+            uint64_t *e1r = &l1[IDX1(rv)];
+            uint64_t *l2r = (uint64_t *)(uintptr_t)(*e1r & ADDR_MASK);
+            uint64_t *l3r = (uint64_t *)(uintptr_t)(l2r[IDX2(rv)] & ADDR_MASK);
+            uint64_t pa = l3r[IDX3(rv)] & ADDR_MASK;
+            l3r[IDX3(rv)] = 0;
+            /* Remove from as->pages and free */
+            for (int j = 0; j < as->npages; j++) {
+                if (as->pages[j] == pa) {
+                    as->pages[j] = as->pages[--as->npages];
+                    break;
+                }
+            }
+            pmm_free_page(pa);
+        }
+        return -4;
+    }
+
+    __asm__ volatile ("dsb ishst" ::: "memory");
+    if (vmm_mmu_enabled()) {
+        __asm__ volatile ("dsb ishst\n tlbi vmalle1is\n dsb ish\n isb" ::: "memory");
+    }
+    if (pa_out_first) *pa_out_first = first_pa;
+    return 0;
+}
 
 void aspace_destroy(struct aspace *as)
 {
