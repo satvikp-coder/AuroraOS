@@ -20,6 +20,9 @@
  * device-tree no-map memory, Normal attributes only on RAM, Device attributes only inside registered
  * MMIO windows. There is deliberately no bypass flag; a driver registers its window with
  * vmm_register_mmio() first.
+ *
+ * Read-only asset mappings (MEM-04): kernel-level RO mappings with PXN/UXN, for firmware blobs,
+ * fonts, and other immutable data shared with EL0 processes.
  */
 #include <mm.h>
 #include <mmpolicy.h>
@@ -32,6 +35,85 @@
 static uint64_t *l1;
 static struct mm_policy policy;
 static int last_denial;
+
+/* RO attribute bits: Normal WB, read-only at EL1, no EL0 access, PXN, UXN */
+#define RO_ATTR_BITS  (PTE_ATTRIDX(1) | PTE_SH_INNER | PTE_AF | PTE_PXN | PTE_UXN | PTE_AP_RO)
+
+/* Forward declarations for static helpers used by mmu_map_ro/mmu_unmap_ro */
+static int preflight(uint64_t va, uint64_t pa, uint64_t size, uint64_t *tables_needed);
+static uint64_t *next_table(uint64_t *e);
+
+int mmu_map_ro(uint64_t va, uint64_t pa, uint64_t size)
+{
+    if (!l1 || size == 0) return VMM_ERR_ARG;
+    if ((va | pa | size) & (PAGE_SIZE - 1)) return VMM_ERR_ALIGN;
+    if (va + size < va || va + size > (1ULL << VA_BITS)) return VMM_ERR_RANGE;
+    int pab = vmm_pa_bits();
+    if (pa + size < pa || (pab < 64 && pab > 0 && pa + size > (1ULL << pab))) return VMM_ERR_RANGE;
+
+    /* Physical-target policy: RO mappings allowed on RAM (no writable alias check for RO). */
+    int pr = mm_policy_check(&policy, pa, size, VMM_ATTR_NORMAL_RO);
+    if (pr) { last_denial = pr; return VMM_ERR_POLICY; }
+
+    /* Phase 1: validate everything; nothing is written yet. */
+    uint64_t tables = 0;
+    int rc = preflight(va, pa, size, &tables);
+    if (rc) return rc;
+    struct pmm_stats st; pmm_get_stats(&st);
+    if (st.free_pages < tables) return VMM_ERR_NOMEM;
+
+    /* Phase 2: install RO descriptors. */
+    uint64_t v = va, p = pa, left = size;
+    while (left) {
+        uint64_t *e1 = &l1[IDX1(v)];
+        uint64_t *l2 = next_table(e1);
+        if (!l2) return VMM_ERR_NOMEM;
+        uint64_t *e2 = &l2[IDX2(v)];
+        if (!(*e2 & PTE_VALID) && !((v | p) & (BLOCK_2M - 1)) && left >= BLOCK_2M) {
+            *e2 = p | RO_ATTR_BITS | PTE_VALID;      /* 2 MiB block */
+            v += BLOCK_2M; p += BLOCK_2M; left -= BLOCK_2M;
+            continue;
+        }
+        uint64_t *l3 = next_table(e2);
+        if (!l3) return VMM_ERR_NOMEM;
+        l3[IDX3(v)] = p | RO_ATTR_BITS | PTE_TABLE | PTE_VALID;  /* 4 KiB page */
+        v += PAGE_SIZE; p += PAGE_SIZE; left -= PAGE_SIZE;
+    }
+    if (vmm_mmu_enabled()) {
+        __asm__ volatile ("dsb ishst\n tlbi vmalle1is\n dsb ish\n isb" ::: "memory");
+    } else {
+        __asm__ volatile ("dsb sy" ::: "memory");
+    }
+    return VMM_OK;
+}
+
+int mmu_unmap_ro(uint64_t va, uint64_t size)
+{
+    if (!l1 || size == 0) return VMM_ERR_ARG;
+    if ((va | size) & (PAGE_SIZE - 1)) return VMM_ERR_ALIGN;
+    if (va + size < va || va + size > (1ULL << VA_BITS)) return VMM_ERR_RANGE;
+
+    uint64_t v = va, left = size;
+    while (left) {
+        uint64_t e1 = l1[IDX1(v)];
+        if (!(e1 & PTE_VALID)) return VMM_ERR_CONFLICT;
+        if (!(e1 & PTE_TABLE)) return VMM_ERR_CONFLICT;  /* cannot unmap L1 block */
+        uint64_t *l2 = (uint64_t *)(uintptr_t)(e1 & ADDR_MASK);
+        uint64_t e2 = l2[IDX2(v)];
+        if (!(e2 & PTE_VALID)) return VMM_ERR_CONFLICT;
+        if (!(e2 & PTE_TABLE)) return VMM_ERR_CONFLICT;  /* cannot unmap L2 block; must use page granularity */
+        uint64_t *l3 = (uint64_t *)(uintptr_t)(e2 & ADDR_MASK);
+        if (!(l3[IDX3(v)] & PTE_VALID)) return VMM_ERR_CONFLICT;
+        l3[IDX3(v)] = 0;
+        v += PAGE_SIZE; left -= PAGE_SIZE;
+    }
+    if (vmm_mmu_enabled()) {
+        __asm__ volatile ("dsb ishst\n tlbi vmalle1is\n dsb ish\n isb" ::: "memory");
+    } else {
+        __asm__ volatile ("dsb sy" ::: "memory");
+    }
+    return VMM_OK;
+}
 
 struct hole { uint64_t start, end; };
 static struct hole nomap[FDT_MAX_RESERVED];
@@ -56,10 +138,6 @@ int vmm_pa_bits(void)
     uint64_t r = v & 0xF;
     return r < 7 ? bits[r] : 0;
 }
-
-#define IDX1(v) (((v) >> 30) & 0x1FF)
-#define IDX2(v) (((v) >> 21) & 0x1FF)
-#define IDX3(v) (((v) >> 12) & 0x1FF)
 
 /*
  * Validate a mapping request without modifying anything. On success returns VMM_OK and an upper
