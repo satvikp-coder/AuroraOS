@@ -24,7 +24,7 @@ static void table_reset(void)
     T[2].live = 1; T[2].gen = 20; T[2].principal = 0x1002u; T[2].rights = BP_RIGHT_NAVIGATE;
     T[3].live = 1; T[3].gen = 30; T[3].principal = 0x1003u; T[3].rights = BP_RIGHT_SETTINGS;
 }
-static struct aura_caps CAPS = { 1, 0, 0, 0, 0 };
+static struct aura_caps CAPS = { 1, 0, 0, 0, 0, 0, 0 };
 static struct bp_env ENV;
 static struct bp_replay RP;
 static uint64_t nonce_ctr;

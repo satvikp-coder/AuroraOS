@@ -9,13 +9,12 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
     if (!sh || !in || !caps) return 0;
     if (!aura_validate(in, caps) || in->status != AS_ACTIONABLE || in->risk != 0) return 0;      /* only a validated S0 navigation */
     if (sh->about_open || sh->corner_open) return 0;                                            /* a modal owns the screen: never navigate behind it */
-    if (in->kind == AK_OPEN_NOTES) {
-        if (sh->review_open || !sh->launcher || !sh->launcher->available || !sh->launcher->launch ||
-            !sh->launcher->available(APP_NOTES)) return 0;
-        int rc = sh->launcher->launch(APP_NOTES);
-        if (rc != APPS_OK && rc != APPS_EBUSY) return 0;
-        shell_go(sh, SCR_PAGES);
-        return sh->screen == SCR_PAGES;
+    if (in->kind == AK_OPEN_APP) {
+        if (!sh->launcher || !sh->launcher->launch) return 0;
+        if (in->target < 1 || in->target > 3) return 0;  /* calculator=1, notes=2, files=3 */
+        if (!sh->launcher->available(in->target)) return 0;
+        int rc = sh->launcher->launch(in->target);
+        return rc == 0;  /* APPS_OK = 0 */
     }
     if (in->kind == AK_TIMER) {                                                                 /* success only if the REAL timer service now shows what was asked */
         if (in->target == ATM_START) return shell_clock_start(sh, (uint32_t)in->arg);
@@ -31,8 +30,15 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
     if (in->kind == AK_SELECT_SPACE) {
         if (in->target >= SHELL_SPACES) return 0;
         shell_select_space(sh, in->target);
-        shell_go(sh, SCR_HOME);                                                                 /* so Home shows the chosen Space */
+        shell_go(sh, SCR_HOME);
         return sh->space == in->target && sh->screen == SCR_HOME;
+    }
+    if (in->kind == AK_OPEN_APP) {
+        if (!sh->launcher || !sh->launcher->launch) return 0;
+        if (in->target < 1 || in->target > 3) return 0;  /* calculator=1, notes=2, files=3 */
+        if (!sh->launcher->available(in->target)) return 0;
+        int rc = sh->launcher->launch(in->target);
+        return rc == 0;  /* APPS_OK = 0 */
     }
     return 0;
 }
@@ -122,7 +128,7 @@ void aura_run_queued(struct shell *sh, const struct bp_env *env, uint32_t pid, u
     struct bp_result d; d.decision = BP_DENY; d.reason = BPR_BAD_REQUESTER; d.risk = 0; d.principal = 0;
     uint64_t g = 0; uint32_t pr = 0, rt = 0;
     if (env->lookup(pid, &g, &pr, &rt) && g != 0 && g == gen && (rt & BP_RIGHT_NAVIGATE) &&
-        in->kind != AK_TIMER && in->kind != AK_OPEN_NOTES && aura_validate(in, env->caps) && in->status == AS_ACTIONABLE) {
+        in->kind != AK_TIMER && in->kind != AK_OPEN_APP && aura_validate(in, env->caps) && in->status == AS_ACTIONABLE) {
         int ok = env->nav_service ? aura_execute_s0(sh, in, env->caps) : 0;
         d.decision = BP_ALLOW_NOW; d.reason = BPR_NONE; d.principal = pr;
         aura_outcome_from(out, &d, ok);
@@ -151,6 +157,18 @@ int aura_s1_resolve(const struct aura_intent *in, uint32_t cur, int32_t *next)
             if (!found) return -3;
         } else return -1;
     } else if (in->target == ASET_THEME) {
+        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 2) return -1;
+        *next = in->arg;
+    } else if (in->target == ASET_REDUCED_MOTION) {
+        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 1) return -1;
+        *next = in->arg;
+    } else if (in->target == ASET_FOCUS_MODE) {
+        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 3) return -1;
+        *next = in->arg;
+    } else if (in->target == ASET_AURA_MODE) {
+        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 2) return -1;
+        *next = in->arg;
+    } else if (in->target == ASET_NOTIFICATIONS) {
         if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 2) return -1;
         *next = in->arg;
     } else return -1;
@@ -265,6 +283,17 @@ int aura_s1_undo_text(struct shell *sh, char *out, size_t cap, char *why, size_t
         char d[8]; int k = 0; if (!v) d[k++] = '0'; while (v && k < 7) { d[k++] = (char)('0' + v % 10); v /= 10; } while (k) *w++ = d[--k];
     } else if (post.target == ASET_THEME && v <= 2) {
         const char *a = v == 0 ? "set theme to auto" : v == 1 ? "set theme to light" : "set theme to dark"; while (*a) *w++ = *a++;
+    } else if (post.target == ASET_REDUCED_MOTION && v <= 1) {
+        const char *a = v == 0 ? "set reduced motion off" : "set reduced motion on"; while (*a) *w++ = *a++;
+    } else if (post.target == ASET_FOCUS_MODE && v <= 3) {
+        static const char *const N[] = { "set focus mode to off", "set focus mode to work", "set focus mode to rest", "set focus mode to sleep" };
+        const char *a = N[v]; while (*a) *w++ = *a++;
+    } else if (post.target == ASET_AURA_MODE && v <= 2) {
+        static const char *const N[] = { "set aura mode to off", "set aura mode to suggest", "set aura mode to act with review" };
+        const char *a = N[v]; while (*a) *w++ = *a++;
+    } else if (post.target == ASET_NOTIFICATIONS && v <= 2) {
+        static const char *const N[] = { "set notifications to all", "set notifications to priority only", "set notifications to none" };
+        const char *a = N[v]; while (*a) *w++ = *a++;
     } else return 0;
     *w = 0; return 1;
 }

@@ -6,7 +6,7 @@
 
 static struct bp_env ENV;
 static struct bp_replay RP;
-static const struct aura_caps CAPS = { 1, 1, 0, 0, 0 };          /* Notes launch is advertised only in the trusted shell's local broker environment */
+static const struct aura_caps CAPS = { 1, 1, 0, 0, 0, 0, 0 };          /* Notes launch is advertised only in the trusted shell's local broker environment */
 static uint32_t denial_audited, denial_dropped;                    /* denials written to the Trail this boot / counted but not written (a flood must not thrash the disk) */
 #define BK_DENIAL_AUDIT_MAX 16
 

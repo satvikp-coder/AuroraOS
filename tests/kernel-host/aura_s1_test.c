@@ -31,7 +31,7 @@ static int e_nth(uint32_t n, struct trail_rec *o) { if (n >= (uint32_t)ntr) retu
 static const struct aura_s1_env ENVS = { e_ok, e_append, e_newest, e_last, e_now, e_nth };
 
 static struct shell sh;
-static const struct aura_caps CAPS = { 1, 1, 0, 0, 0 };
+static const struct aura_caps CAPS = { 1, 1, 0, 0, 0, 0, 0 };
 static int shell_settings_right, el0_settings_right, review_path;
 static int lookup(uint32_t pid, uint64_t *gen, uint32_t *principal, uint32_t *rights)
 {

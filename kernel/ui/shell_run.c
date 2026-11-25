@@ -153,6 +153,8 @@ static int aura_glue(struct shell *s, const char *text, size_t len, uint8_t *sta
     struct bp_env env = *broker_env();
     struct aura_caps caps = *env.caps;
     caps.notes = apps_available(APP_NOTES);
+    caps.calculator = apps_available(APP_CALCULATOR);
+    caps.files = apps_available(APP_FILES);
     env.caps = &caps;
     aura_run_text(s, &env, broker_replay(), BP_SHELL_PID, BP_SHELL_GEN, ++shell_nonce, text, len, &o);
     *state = o.state;

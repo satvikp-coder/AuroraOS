@@ -13,7 +13,7 @@ static int passed, failed;
 #define W 1024u
 #define H 768u
 static struct shell sh;
-static struct aura_caps CAPS = { 1, 0, 0, 0, 0 };
+static struct aura_caps CAPS = { 1, 0, 0, 0, 0, 0, 0 };
 static struct bp_env ENV; static struct bp_replay RP; static uint64_t nonce;
 static int runner_calls;
 static int lookup(uint32_t pid, uint64_t *gen, uint32_t *principal, uint32_t *rights)

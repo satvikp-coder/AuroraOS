@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <broker_policy.h>
 
-static const struct aura_caps CAPS = { 1, 0, 0, 0, 0 };
+static const struct aura_caps CAPS = { 1, 0, 0, 0, 0, 0, 0 };
 static int lookup(uint32_t pid, uint64_t *gen, uint32_t *principal, uint32_t *rights)
 {
     if (pid == BP_SHELL_PID) { *gen = BP_SHELL_GEN; *principal = 0x7F000003u; *rights = BP_RIGHTS_ALL; return 1; }

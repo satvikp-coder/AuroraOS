@@ -94,6 +94,8 @@ static const char *const MESSAGING[] = { "send", "message", "messages", "sms", "
 static const char *const TIMERS[] = { "timer", "stopwatch", "alarm", "remind", "reminder", "countdown", 0 };
 static const char *const HARDWARE[] = { "brightness", "brighter", "dim", "dimmer", "volume", "mute", "wifi", "bluetooth", "airplane", "battery", "flashlight", "torch", 0 };
 static const char *const NOTES[] = { "note", "notes", "notebook", "memo", 0 };
+static const char *const CALCULATOR[] = { "calculator", "calc", 0 };
+static const char *const FILES_APP[] = { "files", "file", "documents", "browser", 0 };
 static const char *const CONJ[] = { "and", "then", "also", "plus", "after", 0 };
 static const char *const LEAD[] = { "please", "hey aura", "hi aura", "aura", "ok", "okay", "can you", "could you", "would you", "will you", "i want to", "i would like to", "id like to", "i need to", "lets", 0 };
 static const char *const TRAIL[] = { "please", "now", "thanks", "thank you", 0 };
@@ -158,6 +160,43 @@ static int open_screen(const struct toks *tk, int lo, int hi, const struct aura_
     char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Open "; for (; pre[i]; i++) b[i] = pre[i]; for (int k = 0; SCREEN_NAME[sc][k]; k++) b[i++] = SCREEN_NAME[sc][k]; b[i] = 0;
     if (sc == ASC_PAGES && !caps->pages) { fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_PAGES, 0, 0, AA_NONE, 0, "Unsupported: Pages is not available yet"); return 1; }
     fin(o, AK_OPEN_SCREEN, AS_ACTIONABLE, AR_NONE, 0, sc, AA_NONE, 0, b);
+    return 1;
+}
+
+/* ---- open app: "open notes", "open calculator", "open files" ---- */
+static int open_app(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    int p = lo, n = first_of(tk, p, hi, OPEN_VERBS);
+    if (!n) return 0;
+    p += n;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Open what?"); return 1; }
+
+    int app_id = -1;
+    const char *app_label = 0;
+    int has_cap = 0;
+
+    if (has_any(tk, p, hi, NOTES)) { app_id = 2; app_label = "Notes"; has_cap = caps->notes; }
+    else if (has_any(tk, p, hi, CALCULATOR)) { app_id = 1; app_label = "Calculator"; has_cap = caps->calculator; }
+    else if (has_any(tk, p, hi, FILES_APP)) { app_id = 3; app_label = "Files"; has_cap = caps->files; }
+    else { return 0; }
+
+    p++;
+    if (p < hi && eq(tk->t[p], "app")) p++;
+    if (p != hi) return 0;
+
+    if (!has_cap) {
+        char ub[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Unsupported: no "; for (; pre[i]; i++) ub[i] = pre[i];
+        for (int k = 0; app_label[k] && i < AURA_PREVIEW_MAX - 1; k++) ub[i++] = app_label[k];
+        ub[i] = 0;
+        fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_APP, 0, 0, AA_NONE, 0, ub);
+        return 1;
+    }
+
+    char prev[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Open "; for (; pre[i]; i++) prev[i] = pre[i];
+    for (int k = 0; app_label[k] && i < AURA_PREVIEW_MAX - 1; k++) prev[i++] = app_label[k];
+    prev[i] = 0;
+    fin(o, AK_OPEN_APP, AS_ACTIONABLE, AR_NONE, 0, app_id, AA_NONE, 0, prev);
     return 1;
 }
 
@@ -351,7 +390,7 @@ static void strip(const struct toks *tk, int *lo, int *hi)
 
 int aura_parse(const char *text, size_t len, const struct aura_caps *caps_in, struct aura_intent *o)
 {
-    static const struct aura_caps none = { 0, 0, 0, 0, 0 };
+    static const struct aura_caps none = { 0, 0, 0, 0, 0, 0, 0 };
     const struct aura_caps *caps = caps_in ? caps_in : &none;
     struct toks tk;
     fin(o, AK_UNKNOWN, AS_REJECTED, AR_NOT_UNDERSTOOD, 0, 0, AA_NONE, 0, "Not a command I know");
@@ -377,8 +416,7 @@ int aura_parse(const char *text, size_t len, const struct aura_caps *caps_in, st
     if (has_any(&tk, lo, hi, CONJ)) return fin(o, AK_CLARIFY, AS_CLARIFY, AR_MULTIPLE, 0, 0, AA_NONE, 0, "One command at a time");
     if (timer_cmd(&tk, lo, hi, caps, o)) return o->status;
     if (open_screen(&tk, lo, hi, caps, o)) return o->status;
-    if (caps->notes && hi - lo == 2 && ph(&tk, lo, hi, "open notes") == 2)
-        return fin(o, AK_OPEN_NOTES, AS_ACTIONABLE, AR_NONE, 0, 0, AA_NONE, 0, "Open Notes");
+    if (open_app(&tk, lo, hi, caps, o)) return o->status;
     if (select_space(&tk, lo, hi, o)) return o->status;
     if (theme(&tk, lo, hi, o)) return o->status;
     if (text_size(&tk, lo, hi, o)) return o->status;
@@ -395,7 +433,7 @@ static int str_eq_n(const char *a, const char *b) { int i = 0; for (; i < AURA_P
 
 int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
 {
-    static const struct aura_caps none = { 0, 0, 0, 0, 0 };
+    static const struct aura_caps none = { 0, 0, 0, 0, 0, 0, 0 };
     const struct aura_caps *caps = caps_in ? caps_in : &none;
     if (!x || x->version != AURA_INTENT_VERSION || x->kind == AK_NONE || x->kind >= AK_COUNT || x->status >= AS_COUNT || x->reason >= AR_COUNT || x->arg_kind > AA_REL || x->risk > 3) return 0;
     int terminated = 0; for (int i = 0; i < AURA_PREVIEW_MAX; i++) if (x->preview[i] == 0) { terminated = 1; break; }
@@ -403,9 +441,11 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     for (int i = 0; x->preview[i]; i++) if ((unsigned char)x->preview[i] < 0x20 || (unsigned char)x->preview[i] > 0x7e) return 0;
     char want[AURA_PREVIEW_MAX];
     switch (x->kind) {
-    case AK_OPEN_NOTES:
-        return caps->notes && x->status == AS_ACTIONABLE && x->reason == AR_NONE && x->risk == 0 &&
-               x->target == 0 && x->arg_kind == AA_NONE && x->arg == 0 && str_eq_n(x->preview, "Open Notes");
+    case AK_OPEN_APP:
+        return (x->target == 1 || x->target == 2 || x->target == 3) &&
+               x->status == AS_ACTIONABLE && x->reason == AR_NONE && x->risk == 0 &&
+               x->arg_kind == AA_NONE && x->arg == 0 &&
+               str_eq_n(x->preview, x->target == 1 ? "Open Calculator" : x->target == 2 ? "Open Notes" : "Open Files");
     case AK_OPEN_SCREEN: {
         static const char *const N[] = { "Open Home", "Open Spaces", "Open Index", "Open Settings", "Open Pages", "Open Clock" };
         if (x->target >= 6 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
@@ -474,7 +514,7 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     }
 }
 
-static const char *const KN[AK_COUNT] = { "none", "open_screen", "select_space", "set_setting", "unsupported", "destructive", "clarify", "unknown", "refused", "timer", "open_notes" };
+static const char *const KN[AK_COUNT] = { "none", "open_screen", "select_space", "set_setting", "unsupported", "destructive", "clarify", "unknown", "refused", "timer", "open_app" };
 static const char *const SN[AS_COUNT] = { "actionable", "needs_approval", "unsupported", "clarify", "rejected" };
 static const char *const RN[AR_COUNT] = { "none", "empty", "too_long", "bad_encoding", "injection", "multiple", "ambiguous", "missing_arg", "range", "not_understood", "no_timer", "no_hardware", "no_notes", "no_messaging", "no_pages", "needs_broker" };
 const char *aura_kind_name(uint8_t k) { return k < AK_COUNT ? KN[k] : "?"; }

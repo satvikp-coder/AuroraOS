@@ -10,7 +10,7 @@
 static int passed, failed;
 #define CHECK(name, cond) do { if (cond) { passed++; } else { failed++; printf("  FAIL: %s (line %d)\n", name, __LINE__); } } while (0)
 
-static struct aura_caps CAPS0 = { 0, 0, 0, 0, 0 }, CAPS_PAGES = { 1, 0, 0, 0, 0 };
+static struct aura_caps CAPS0 = { 0, 0, 0, 0, 0, 0, 0 }, CAPS_PAGES = { 1, 0, 0, 0, 0, 0, 0 };
 
 static struct aura_intent run_caps(const struct aura_caps *c, const char *in, size_t len)
 {
