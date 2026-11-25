@@ -125,6 +125,9 @@ uint64_t pmm_region_budget(uint32_t principal);
 /* Get bounded region info by physical address. Returns 1 if found, 0 otherwise. */
 int pmm_bounded_lookup(uintptr_t addr, struct bounded_region *out);
 
+/* Get bounded region info by virtual address. Returns 1 if found, 0 otherwise. */
+int pmm_bounded_lookup_by_va(uint64_t va, struct bounded_region *out);
+
 /* Initialize bounded allocator (called from pmm_init). */
 void pmm_bounded_init(void);
 

@@ -22,6 +22,15 @@
 extern uint64_t __pmm_used_bm_start[];
 extern uint64_t __pmm_rsv_bm_start[];
 
+/* Host test stubs: provide dummy symbols when not linking with kernel linker.ld */
+#if !defined(__aarch64__)
+uint64_t __pmm_used_bm_start[PMM_MAX_PAGES / 64];
+uint64_t __pmm_rsv_bm_start[PMM_MAX_PAGES / 64];
+
+/* Stub for aspace_unmap_at used by pmm_bounded_cleanup_proc */
+int aspace_unmap_at(struct aspace *as, uint64_t va) { (void)as; (void)va; return 0; }
+#endif
+
 static uint64_t *used_bm;
 static uint64_t *rsv_bm;
 static uintptr_t base;
@@ -340,16 +349,39 @@ int pmm_bounded_lookup(uintptr_t addr, struct bounded_region *out)
     return 1;
 }
 
+/* Find a bounded region by virtual address. Returns index or BOUNDED_MAX_REGIONS if not found. */
+static uint32_t bounded_find_by_va(uint64_t va)
+{
+    for (uint32_t i = 0; i < BOUNDED_MAX_REGIONS; i++) {
+        if (bounded_regions[i].in_use && bounded_regions[i].va == va) {
+            return i;
+        }
+    }
+    return BOUNDED_MAX_REGIONS;
+}
+
+int pmm_bounded_lookup_by_va(uint64_t va, struct bounded_region *out)
+{
+    if (!base || !out) return 0;
+
+    uint32_t slot = bounded_find_by_va(va);
+    if (slot >= BOUNDED_MAX_REGIONS) return 0;
+
+    *out = bounded_regions[slot];
+    return 1;
+}
+
 void pmm_bounded_cleanup_proc(uint32_t pid, struct aspace *as)
 {
     if (!base || pid == 0) return;
 
     for (uint32_t i = 0; i < BOUNDED_MAX_REGIONS; i++) {
         if (bounded_regions[i].in_use && bounded_regions[i].pid == pid) {
-            /* Unmap from process address space if VA is tracked and aspace provided. */
+            /* Unmap from process address space if VA is tracked and aspace provided.
+             * Use aspace_unmap_at which does NOT free the physical pages. */
             if (as && bounded_regions[i].va != 0) {
                 for (uint32_t p = 0; p < bounded_regions[i].pages; p++) {
-                    (void)aspace_unmap(as, bounded_regions[i].va + p * PAGE_SIZE);
+                    (void)aspace_unmap_at(as, bounded_regions[i].va + p * PAGE_SIZE);
                 }
             }
             /* Free the physical pages without permission check (kernel cleanup). */

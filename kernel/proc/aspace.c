@@ -258,6 +258,74 @@ int aspace_unmap_ro(struct aspace *as, uint64_t va)
     return 0;
 }
 
+/* Map a specific physical page at a virtual address with given permissions (UPERM_RW or UPERM_RO).
+ * Unlike aspace_map, this does NOT allocate a new page; it maps the provided PA.
+ * The PA must be a valid allocated page (pmm_is_allocated) and not reserved.
+ * Table pages (L2/L3) are allocated as needed and tracked in as->pages for cleanup.
+ * The data page (PA) is NOT added to as->pages; ownership remains with the caller (bounded allocator).
+ * Returns 0 on success, error code on failure. */
+int aspace_map_at(struct aspace *as, uint64_t va, uint64_t pa, int perm)
+{
+    if (!as || !as->live) return -1;
+    uint64_t attr = user_attr(perm);
+    if (!attr || (va & (PAGE_SIZE - 1)) || (pa & (PAGE_SIZE - 1))) return -2;
+    if (va < USER_VA_BASE || va >= USER_VA_LIMIT) return -2;
+    if ((va >> 30) != (USER_VA_BASE >> 30)) return -2;
+    if (!uv_mappable(va)) return -7;
+    if (!pmm_is_allocated(pa) || pmm_is_reserved(pa)) return -6;
+
+    uint64_t *l1 = (uint64_t *)(uintptr_t)as->l1_pa;
+    uint64_t *e1 = &l1[IDX1(va)];
+    int have_l2 = (*e1 & PTE_VALID) != 0;
+    uint64_t *l2 = have_l2 ? (uint64_t *)(uintptr_t)(*e1 & ADDR_MASK) : 0;
+    int have_l3 = have_l2 && (l2[IDX2(va)] & PTE_VALID) != 0;
+    uint64_t *l3 = have_l3 ? (uint64_t *)(uintptr_t)(l2[IDX2(va)] & ADDR_MASK) : 0;
+    if (have_l3 && (l3[IDX3(va)] & PTE_VALID)) return -5;
+
+    /* Atomicity: need missing table pages up front. */
+    int need = !have_l2 + !have_l3;
+    struct pmm_stats st; pmm_get_stats(&st);
+    if (as->npages + need > ASPACE_MAX_PAGES_CAP || st.free_pages < (uint64_t)need) return -4;
+
+    if (!have_l2) { uint64_t t = take_page(as); if (!t) return -4; *e1 = t | PTE_TABLE | PTE_VALID; l2 = (uint64_t *)(uintptr_t)t; }
+    uint64_t *e2 = &l2[IDX2(va)];
+    if (!have_l3) { uint64_t t = take_page(as); if (!t) return -4; *e2 = t | PTE_TABLE | PTE_VALID; l3 = (uint64_t *)(uintptr_t)t; }
+    uint64_t *e3 = &l3[IDX3(va)];
+
+    *e3 = pa | attr | PTE_TABLE | PTE_VALID;
+    __asm__ volatile ("dsb ishst" ::: "memory");
+    return 0;
+}
+
+/* Unmap a page that was mapped via aspace_map_at.
+ * Clears the PTE, flushes the TLB entry, but does NOT free the physical page.
+ * Table pages are left for aspace_destroy to clean up.
+ * Returns 0 on success, error code on failure. */
+int aspace_unmap_at(struct aspace *as, uint64_t va)
+{
+    if (!as || !as->live) return -1;
+    if ((va & (PAGE_SIZE - 1)) || va < USER_VA_BASE || va >= USER_VA_LIMIT) return -2;
+    if ((va >> 30) != (USER_VA_BASE >> 30)) return -2;
+
+    uint64_t *l1 = (uint64_t *)(uintptr_t)as->l1_pa;
+    uint64_t e1 = l1[IDX1(va)];
+    if (!(e1 & PTE_VALID)) return -5;
+    uint64_t *l2 = (uint64_t *)(uintptr_t)(e1 & ADDR_MASK);
+    uint64_t e2 = l2[IDX2(va)];
+    if (!(e2 & PTE_VALID)) return -5;
+    uint64_t *l3 = (uint64_t *)(uintptr_t)(e2 & ADDR_MASK);
+    uint64_t e3 = l3[IDX3(va)];
+    if (!(e3 & PTE_VALID)) return -5;
+
+    l3[IDX3(va)] = 0;
+    __asm__ volatile ("dsb ishst" ::: "memory");
+    uint64_t arg = ((uint64_t)as->asid << 48) | (va >> 12);
+    __asm__ volatile ("tlbi vae1is, %0\n dsb ish\n isb" :: "r"(arg) : "memory");
+
+    /* Note: we do NOT free the physical page (not in as->pages). Table pages are freed by aspace_destroy. */
+    return 0;
+}
+
 uint64_t aspace_ttbr(const struct aspace *as) { return ((uint64_t)as->asid << 48) | as->l1_pa; }
 
 void aspace_destroy(struct aspace *as)

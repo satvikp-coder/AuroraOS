@@ -124,18 +124,19 @@ int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n)
         uintptr_t pa = pmm_alloc_bounded(size, p->principal, (uint32_t)p->pid, perm, &va);
         if (!pa) return AE_ENOMEM;
 
-        /* Map ALL pages into the process address space, atomically.
-         * aspace_map maps exactly one page; we must call it once per page. */
+        /* Map ALL charged physical pages into the process address space, atomically.
+         * Use aspace_map_at to map the specific physical pages we allocated. */
         int user_perm = (perm == VMM_ATTR_NORMAL_RO) ? UPERM_RO : UPERM_RW;
         uint32_t mapped = 0;
         for (uint32_t i = 0; i < pages; i++) {
             uint64_t page_va = va + i * PAGE_SIZE;
-            if (aspace_map(&p->as, page_va, user_perm, 0, 0, 0) != 0) break;
+            uint64_t page_pa = pa + i * PAGE_SIZE;
+            if (aspace_map_at(&p->as, page_va, page_pa, user_perm) != 0) break;
             mapped++;
         }
         if (mapped < pages) {
             /* Atomic rollback: unmap what we mapped, free the physical pages. */
-            while (mapped--) (void)aspace_unmap(&p->as, va + mapped * PAGE_SIZE);
+            while (mapped--) (void)aspace_unmap_at(&p->as, va + mapped * PAGE_SIZE);
             (void)pmm_free_bounded(pa, 0);  /* kernel principal for cleanup */
             return AE_ENOMEM;
         }
@@ -149,24 +150,25 @@ int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n)
         return (int64_t)va;
     }
     case MEMOP_BOUNDED_FREE: {
-        uintptr_t addr = (uintptr_t)n;
-        if (addr == 0) return AE_EINVAL;
+        uint64_t va = n;
+        if (va == 0) return AE_EINVAL;
+        if (va & (PAGE_SIZE - 1)) return AE_EINVAL;  /* must be page-aligned */
 
-        /* Look up the region to verify ownership. */
+        /* Look up the region by VA to verify ownership. EL0 passes the VA it received. */
         struct bounded_region br;
-        if (!pmm_bounded_lookup(addr, &br)) return AE_EFAULT;
+        if (!pmm_bounded_lookup_by_va(va, &br)) return AE_EFAULT;
         if (br.pid != (uint32_t)p->pid) return AE_EPERM;
 
-        /* Unmap from process address space using stored VA. */
+        /* Unmap from process address space using stored VA.
+         * Use aspace_unmap_at which does NOT free the physical pages. */
         uint32_t pages = br.pages;
-        if (br.va != 0) {
-            for (uint32_t i = 0; i < pages; i++) {
-                (void)aspace_unmap(&p->as, br.va + i * PAGE_SIZE);
-            }
+        for (uint32_t i = 0; i < pages; i++) {
+            (void)aspace_unmap_at(&p->as, br.va + i * PAGE_SIZE);
         }
 
-        /* Free the bounded region (permission check uses process's principal). */
-        int rc = pmm_free_bounded(addr, p->principal);
+        /* Free the bounded region (permission check uses process's principal).
+         * This frees the physical pages and clears the region entry. */
+        int rc = pmm_free_bounded(br.pa, p->principal);
         if (rc != BOUNDED_OK) {
             if (rc == BOUNDED_ERR_PERM) return AE_EPERM;
             if (rc == BOUNDED_ERR_NOT_FOUND) return AE_EFAULT;

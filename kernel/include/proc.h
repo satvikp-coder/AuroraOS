@@ -38,6 +38,8 @@ int      aspace_create(struct aspace *as, uint32_t asid);
 int      aspace_map(struct aspace *as, uint64_t va, int perm, const void *init, size_t len, uint64_t *pa_out);
 int      aspace_map_ro(struct aspace *as, uint64_t va, uint64_t pa);   /* map reserved asset page read-only (EL0 RO, PXN/UXN, nG) */
 int      aspace_unmap_ro(struct aspace *as, uint64_t va);             /* unmap read-only asset page (does not free the asset page) */
+int      aspace_map_at(struct aspace *as, uint64_t va, uint64_t pa, int perm); /* map a specific physical page at VA (permissions: UPERM_RW/RO), no data init, tracks table pages only */
+int      aspace_unmap_at(struct aspace *as, uint64_t va);             /* unmap a page mapped via aspace_map_at: clears PTE, flushes TLB, does NOT free the physical page */
 int      aspace_unmap(struct aspace *as, uint64_t va);                /* unmap and free one mapped user page: 0, or -2 (bad address) / -5 (not mapped); flushes its TLB entry */
 int      aspace_is_mapped(struct aspace *as, uint64_t va);            /* check if VA is mapped: 1=mapped, 0=not, -1=error */
 void     aspace_destroy(struct aspace *as);     /* flushes the ASID's TLB entries, frees every owned page */
