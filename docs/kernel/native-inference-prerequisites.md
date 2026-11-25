@@ -53,6 +53,12 @@ Add the key/value cache (grows with context length) and activation buffers. What
 
 Verdict: **No model runs natively.** Since this assessment was written the OS gained per-process FP/SIMD, a verified read-only model volume with bounded EL0 reads (`SYS_MODEL`, `docs/kernel/model-asset-store.md`) and the integer matvec primitive below. The memory prerequisite (mapping weights larger than the 128 KiB heap) is still open.
 
+### Low-memory fallback (R12-3)
+
+Typed Aura Quick Commands already run without an inference process or model volume. `kernel/ui/aura_exec.c` passes the original text to `aura_parse()` and submits the typed result to the broker. Supported navigation and timer commands use the existing services. Settings changes still require trusted review and healthy records. Unknown input ends at the parser's rejection. This is the available offline fallback today.
+
+If a runtime is added, treat model absence, failed boot integrity checks and workspace allocation failure as inference unavailable. Keep the original typed input and offer the same Quick Commands path. Discard incomplete inference output before submitting anything to the broker. Test the same commands with the model missing and with allocation failure before enabling this handoff. `SYS_MODEL` already supports reads of up to 4 KiB, so mapping the full weights is optional for a streaming design. A full runtime still needs measured working memory, including its activations and context cache.
+
 ## 6. What exists now: a validated int8 matvec primitive (Milestone I, first component)
 
 Exactly this, and nothing more:
