@@ -149,10 +149,11 @@ static int control(uint32_t req_len, uint32_t resp_len, uint32_t *used_len)
     struct sq *q = &Q[VIRTIO_SND_VQ_CONTROL];
     q->desc[0].addr = (uint64_t)(ctrl_page + OFF_REQ); q->desc[0].len = req_len; q->desc[0].flags = DESC_NEXT; q->desc[0].next = 1;
     q->desc[1].addr = (uint64_t)(ctrl_page + OFF_RESP); q->desc[1].len = resp_len; q->desc[1].flags = DESC_WRITE; q->desc[1].next = 0;
-    if (vq_submit(&q->vq, 0, resp_len) != VQ_OK) return SND_EPROTO;
+    /* Fault 1 withholds the request so the wait sees no completion even if the device polls the avail ring. */
 #if !(defined(AURORA_SND_FAULT) && AURORA_SND_FAULT == 1)
+    if (vq_submit(&q->vq, 0, resp_len) != VQ_OK) return SND_EPROTO;
     wr(VIO_R_QNOTIFY, VIRTIO_SND_VQ_CONTROL);
-#endif                                                            /* fault 1 SIMULATES a device that never answers: no doorbell */
+#endif
     uint64_t t0 = timer_count(), limit = ms_ticks(CTRL_MS);
     for (;;) {
         uint16_t id; uint32_t len;

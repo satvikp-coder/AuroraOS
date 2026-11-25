@@ -10,7 +10,7 @@
 #   5. legacy transport: reported with the remedy, never driven; boot continues.
 #   6. bring-up plays nothing: the WAV file holds only its 44-byte header.
 #   7. hostile device answers, SIMULATED inside the driver by AURORA_SND_FAULT test builds (the real QEMU device behaves correctly;
-#      the driver corrupts what it received, or withholds the doorbell, before validating): no doorbell -> bounded timeout,
+#      the driver corrupts what it received before validating or withholds the request): no request -> bounded timeout,
 #      non-zero padding, short used length, too many streams in config, unknown status code. Each must give exactly one
 #      "device failed" line, reset the device, and let boot complete with the userspace suite passing.
 # Every scenario must print exactly ONE [snd] line. Silent boots, timeouts or a panic are FAILURES.
@@ -105,7 +105,7 @@ fault() { # n description expected-reason
     log="$OUT/fault$1.log"; run_qemu "$OUT/fault$1/kernel.bin" "$log" $(snd_args "$OUT/f$1.wav"); finished "fault$1" "$log"
     expect_snd "$log" "[snd] virtio-sound: device failed: $3; device reset, boot continues without sound" "fault$1 ($2): exactly one failure line, device reset"
 }
-fault 1 "no doorbell, bounded timeout" "PCM_INFO timed out"
+fault 1 "request withheld, bounded timeout" "PCM_INFO timed out"
 fault 2 "non-zero padding in a PCM_INFO record" "malformed PCM_INFO response"
 fault 3 "used length one byte short" "malformed PCM_INFO response"
 fault 4 "config claims 33 streams" "config counts unstable or above driver bounds"
