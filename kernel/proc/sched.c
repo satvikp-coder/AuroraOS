@@ -18,6 +18,13 @@
 #include <timersys.h>
 #include <modelsys.h>
 #include <ui_sys.h>
+#include <passport.h>
+#include <trail.h>
+#include <ledger.h>
+#include <aura_exec.h>
+#include <review.h>
+#include <broker_kernel.h>
+#include <aura_cmd.h>
 
 #define SVC_ENTER_SCHED 0x5c4e
 #define SVC_ENTER_SLICE 0x5c4f   /* a bounded slice for the interactive shell: keeps the tick count and the round-robin position */
@@ -170,6 +177,206 @@ static void user_print(int pid, const char *buf, size_t n)
     console_puts("\n");
 }
 
+/* ---- SYS_PASSPORT syscall handler ---- */
+static int64_t passport_syscall(struct exc_frame *f, struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4)
+{
+    (void)a3; (void)a4;
+    const struct passport *pp = ledger_passport();
+    if (!pp || !ledger_passport_ok()) return AE_EPERM;
+    
+    if (p->principal == PRINCIPAL_NONE) return AE_EPERM;
+    
+    switch ((int)op) {
+    case PP_OP_CHECK: {  /* x1 = perm, x2 = gen -> x0 = 1/0, x1 = grant seq on deny */
+        uint8_t perm = (uint8_t)a1;
+        (void)a2;  /* gen is ignored, we use p->gen */
+        if (perm == PP_NONE || perm >= PP_COUNT) return AE_EINVAL;
+        int allowed = passport_el0_check((struct passport *)pp, p->principal, p->gen, perm);
+        if (!allowed) {
+            /* Find the denial record sequence number for the caller */
+            uint32_t denial_count = passport_denial_count(pp);
+            if (denial_count > 0) {
+                const struct pp_audit_rec *rec = passport_denial_at(pp, denial_count - 1);
+                if (rec && rec->principal == p->principal) {
+                    f->x[1] = rec->seq;
+                }
+            }
+        }
+        return allowed ? 1 : 0;
+    }
+    case PP_OP_LIST: {  /* x1 = user buffer, x2 = max_count -> x0 = count written */
+        struct pp_cap_entry *buf = (struct pp_cap_entry *)a1;
+        uint32_t max_count = (uint32_t)a2;
+        if (!buf || max_count == 0) return AE_EINVAL;
+        if (!user_writable(a1, max_count * sizeof(struct pp_cap_entry))) return AE_EFAULT;
+        
+        struct pp_cap_entry tmp[PP_MAX_GRANTS];
+        uint32_t count = passport_el0_list(pp, p->principal, tmp, max_count);
+        int rc = copy_to_user(a1, tmp, count * sizeof(struct pp_cap_entry));
+        if (rc != AE_OK) return rc;
+        return (int64_t)count;
+    }
+    case PP_OP_AUDIT: {  /* x1 = index, x2 = user buffer -> x0 = 1/0 */
+        uint32_t index = (uint32_t)a1;
+        struct pp_audit_rec *buf = (struct pp_audit_rec *)a2;
+        if (!buf) return AE_EINVAL;
+        if (!user_writable(a2, sizeof(struct pp_audit_rec))) return AE_EFAULT;
+        
+        struct pp_audit_rec rec;
+        int found = passport_el0_audit(pp, index, &rec);
+        if (!found) return 0;
+        return copy_to_user(a2, &rec, sizeof(rec)) == AE_OK ? 1 : AE_EFAULT;
+    }
+    default:
+        return AE_ENOSYS;
+    }
+}
+
+/* ---- SYS_TRAIL syscall handler ---- */
+static int64_t trail_syscall(struct exc_frame *f, struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4)
+{
+    (void)a4;
+    const struct trail *tr = ledger_trail();
+    if (!tr || !ledger_trail_ok()) return AE_EPERM;
+    
+    if (p->principal == PRINCIPAL_NONE) return AE_EPERM;
+    
+    switch ((int)op) {
+    case TR_OP_HEAD: {  /* -> x0 = head_low, x1 = head_high */
+        uint64_t head = trail_head(tr);
+        f->x[0] = (uint64_t)(uint32_t)head;       /* low 32 bits */
+        f->x[1] = (uint64_t)(head >> 32);         /* high 32 bits */
+        return AE_OK;
+    }
+    case TR_OP_READ: {  /* x1 = seq, x2 = user buffer -> x0 = 0/AE_ENOENT */
+        uint32_t seq = (uint32_t)a1;
+        struct trail_rec *buf = (struct trail_rec *)a2;
+        if (!buf) return AE_EINVAL;
+        if (!user_writable(a2, sizeof(struct trail_rec))) return AE_EFAULT;
+        
+        const struct trail_rec *rec = trail_at(tr, seq);
+        if (!rec) return AE_ENOENT;
+        if (rec->principal != p->principal) return AE_EPERM;  /* Principal isolation */
+        return copy_to_user(a2, rec, sizeof(*rec)) == AE_OK ? AE_OK : AE_EFAULT;
+    }
+    case TR_OP_SCAN: {  /* x1 = start_seq (0 = newest), x2 = max_records, x3 = user buffer -> x0 = count */
+        uint32_t start_seq = (uint32_t)a1;
+        uint32_t max_records = (uint32_t)a2;
+        struct trail_rec *buf = (struct trail_rec *)a3;
+        if (!buf || max_records == 0) return AE_EINVAL;
+        if (!user_writable(a3, max_records * sizeof(struct trail_rec))) return AE_EFAULT;
+        
+        struct trail_rec tmp[TR_MAX];
+        uint32_t count = 0;
+        
+        if (start_seq == 0) {
+            /* Start from newest */
+            for (uint32_t i = 0; i < tr->n && count < max_records; i++) {
+                const struct trail_rec *rec = trail_nth_newest(tr, i);
+                if (rec && rec->principal == p->principal) {
+                    tmp[count++] = *rec;
+                }
+            }
+        } else {
+            /* Start from specific sequence */
+            const struct trail_rec *rec = trail_at(tr, start_seq);
+            if (rec && rec->principal == p->principal) {
+                tmp[count++] = *rec;
+                for (uint32_t i = 1; i < tr->n && count < max_records; i++) {
+                    const struct trail_rec *next = trail_nth_newest(tr, i);
+                    if (next && next->principal == p->principal) {
+                        tmp[count++] = *next;
+                    }
+                }
+            }
+        }
+        return copy_to_user(a3, tmp, count * sizeof(struct trail_rec)) == AE_OK ? (int64_t)count : AE_EFAULT;
+    }
+    case TR_OP_COUNT: {  /* -> x0 = total records in chain */
+        return (int64_t)trail_count(tr);
+    }
+    case TR_OP_VERIFY: {  /* x0 = expected_head_low, x1 = expected_head_high -> x0 = TR_OK/TR_E_CHAIN/TR_E_CORRUPT */
+        uint64_t expected_head = a1 | (a2 << 32);
+        return (int64_t)trail_verify_head(tr, expected_head);
+    }
+    default:
+        return AE_ENOSYS;
+    }
+}
+
+/* ---- SYS_ACTION syscall handler ---- */
+static int64_t action_syscall(struct exc_frame *f, struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4)
+{
+    (void)f;
+    if (p->principal == PRINCIPAL_NONE) return AE_EPERM;
+    
+    /* Get the broker environment and check if review path is available */
+    const struct bp_env *env = broker_env();
+    if (!env || !env->review_path) return ACTION_E_REVIEW_UNAVAILABLE;
+    
+    switch ((int)op) {
+    case ACTION_OP_SET_SETTING: {  /* S1: x1 = setting_id, x2 = value, x3 = arg_kind */
+        /* Parse and validate the intent */
+        struct aura_intent intent = {0};
+        intent.version = AURA_INTENT_VERSION;
+        intent.kind = AK_SET_SETTING;
+        intent.target = (uint8_t)a1;  /* setting_id */
+        intent.arg = (int32_t)a2;     /* value */
+        intent.arg_kind = (uint8_t)a3; /* AA_ABS or AA_REL */
+        
+        /* Validate the intent */
+        struct aura_caps caps = { .pages = 1, .timer = 1, .notes = 1, .messaging = 1, .hardware = 1 };
+        if (!aura_validate(&intent, &caps)) return ACTION_E_ARG;
+        
+        /* Check passport capability */
+        if (!env->passport_check || !env->passport_check(p->principal, p->gen, PP_SETTINGS_PROPOSE)) {
+            return ACTION_E_PERM;
+        }
+        
+        /* Check ledger health */
+        if (!ledger_ok()) return ACTION_E_REVIEW_UNAVAILABLE;
+        
+        /* Create broker request */
+        struct bp_request req = {0};
+        req.pid = p->pid;
+        req.gen = p->gen;
+        req.nonce = a4;  /* Use a4 as nonce */
+        req.intent = intent;
+        
+        struct bp_result result = {0};
+        struct bp_replay *replay = broker_replay();
+        bp_decide(env, replay, &req, &result);
+        
+        if (result.decision == BP_ALLOW_NOW) {
+            /* S0 action - execute immediately (should not happen for SET_SETTING) */
+            return ACTION_OK;
+        } else if (result.decision == BP_REVIEW) {
+            /* S1 action - open review */
+            /* The actual review opening happens in the shell loop via aura_s1_begin */
+            return ACTION_PENDING;
+        } else {
+            return ACTION_E_PERM;
+        }
+    }
+    case ACTION_OP_FILE_EDIT: {  /* S2: x1 = file_handle, x2 = offset, x3 = length, x4 = flags, x5 = user buffer */
+        /* Check passport capability */
+        if (!env->passport_check || !env->passport_check(p->principal, p->gen, PP_FILES_WRITE)) {
+            return ACTION_E_PERM;
+        }
+        return ACTION_E_REVIEW_UNAVAILABLE;  /* Not yet implemented */
+    }
+    case ACTION_OP_FILE_DELETE: {  /* S3: x1 = file_handle */
+        /* Check passport capability */
+        if (!env->passport_check || !env->passport_check(p->principal, p->gen, PP_FILES_DELETE)) {
+            return ACTION_E_PERM;
+        }
+        return ACTION_E_REVIEW_UNAVAILABLE;  /* Not yet implemented */
+    }
+    default:
+        return AE_ENOSYS;
+    }
+}
+
 static void do_syscall(struct exc_frame *f, struct proc *p)
 {
     uint64_t nr = f->x[8];
@@ -231,6 +438,15 @@ static void do_syscall(struct exc_frame *f, struct proc *p)
         return;
     case SYS_UI:
         f->x[0] = (uint64_t)ui_syscall(p, f->x[0], f->x[1], f->x[2], f->x[3], f->x[4]);
+        return;
+    case SYS_PASSPORT:
+        f->x[0] = (uint64_t)passport_syscall(f, p, f->x[0], f->x[1], f->x[2], f->x[3], f->x[4]);
+        return;
+    case SYS_TRAIL:
+        f->x[0] = (uint64_t)trail_syscall(f, p, f->x[0], f->x[1], f->x[2], f->x[3], f->x[4]);
+        return;
+    case SYS_ACTION:
+        f->x[0] = (uint64_t)action_syscall(f, p, f->x[0], f->x[1], f->x[2], f->x[3], f->x[4]);
         return;
     case SYS_GETPID: f->x[0] = (uint64_t)p->pid; return;
     case SYS_TICKS:  f->x[0] = ticks; return;

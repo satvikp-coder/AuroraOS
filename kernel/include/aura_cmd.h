@@ -26,9 +26,29 @@
 #define AURA_INTENT_VERSION 1
 #define AURA_PREVIEW_MAX 48
 
-enum aura_kind { AK_NONE = 0, AK_OPEN_SCREEN, AK_SELECT_SPACE, AK_SET_SETTING, AK_UNSUPPORTED, AK_DESTRUCTIVE, AK_CLARIFY, AK_UNKNOWN, AK_REFUSED,
-                 AK_TIMER,   /* additive in schema v1 (a consumer that does not know it rejects the kind): start (target 0, arg = seconds 1..86400) or cancel (target 1) the shell's timer */
-                 AK_COUNT };
+enum aura_kind {
+    AK_NONE = 0,
+    AK_OPEN_SCREEN,
+    AK_SELECT_SPACE,
+    AK_SET_SETTING,
+    AK_OPEN_APP,          /* open a native EL0 application (calculator, notes, files) */
+    /* S2: file modifications (explicit review, risk 2) */
+    AK_EDIT_FILE,
+    AK_RENAME_FILE,
+    AK_MOVE_FILE,
+    /* S3: delete/send/install/share (tactile hold confirmation, risk 3) */
+    AK_DELETE_FILE,
+    AK_SEND_FILE,
+    AK_INSTALL_APP,
+    AK_SHARE_FILE,
+    AK_UNSUPPORTED,
+    AK_DESTRUCTIVE,
+    AK_CLARIFY,
+    AK_UNKNOWN,
+    AK_REFUSED,
+    AK_TIMER,   /* additive in schema v1 (a consumer that does not know it rejects the kind): start (target 0, arg = seconds 1..86400) or cancel (target 1) the shell's timer */
+    AK_COUNT
+};
 enum aura_status { AS_ACTIONABLE = 0,      /* an S0 navigation the policy lets run without review (still the broker's decision) */
                    AS_NEEDS_APPROVAL,      /* S1 or higher: needs a preview and the documented approval before any effect */
                    AS_UNSUPPORTED,         /* understood, but no native service exists: it will not be done */
@@ -36,7 +56,10 @@ enum aura_status { AS_ACTIONABLE = 0,      /* an S0 navigation the policy lets r
                    AS_REJECTED,            /* invalid input or out-of-range value, or a request the native OS cannot honour yet */
                    AS_COUNT };
 enum aura_reason { AR_NONE = 0, AR_EMPTY, AR_TOO_LONG, AR_BAD_ENCODING, AR_INJECTION, AR_MULTIPLE, AR_AMBIGUOUS, AR_MISSING_ARG, AR_RANGE, AR_NOT_UNDERSTOOD,
-                   AR_NO_TIMER, AR_NO_HARDWARE, AR_NO_NOTES, AR_NO_MESSAGING, AR_NO_PAGES, AR_NEEDS_BROKER, AR_COUNT };
+                   AR_NO_TIMER, AR_NO_HARDWARE, AR_NO_NOTES, AR_NO_MESSAGING, AR_NO_PAGES, AR_NEEDS_BROKER,
+                   /* S2/S3 specific reasons */
+                   AR_NO_FILES, AR_NO_PERMISSION, AR_NO_TARGET, AR_NO_DESTINATION, AR_NO_APP, AR_NO_CONTACT,
+                   AR_COUNT };
 enum aura_screen { ASC_HOME = 0, ASC_SPACES, ASC_INDEX, ASC_SETTINGS, ASC_PAGES, ASC_CLOCK, ASC_COUNT };      /* AK_OPEN_SCREEN targets */
 enum aura_arg { AA_NONE = 0, AA_ABS, AA_REL };
 
@@ -47,9 +70,14 @@ enum aura_arg { AA_NONE = 0, AA_ABS, AA_REL };
 #define ATM_MIN_S 1
 #define ATM_MAX_S 86400
 
-/* registry setting ids (docs/kernel/settings.md): 1 theme, 2 text scale */
+/* registry setting ids (docs/kernel/settings.md): 1 theme, 2 text scale, 3 reduced motion, 4 focus mode, 5 aura mode, 6 notifications, 7 space */
 #define ASET_THEME 1
 #define ASET_TEXT_SCALE 2
+#define ASET_REDUCED_MOTION 3
+#define ASET_FOCUS_MODE 4
+#define ASET_AURA_MODE 5
+#define ASET_NOTIFICATIONS 6
+#define ASET_SPACE 7
 
 struct aura_intent {
     uint8_t version;          /* AURA_INTENT_VERSION */
@@ -64,7 +92,7 @@ struct aura_intent {
 };
 
 /* What the native OS actually provides. A zero field means "does not exist": the matching command is reported unsupported. */
-struct aura_caps { uint8_t pages, timer, notes, messaging, hardware; };
+struct aura_caps { uint8_t pages, timer, notes, calculator, files, messaging, hardware; };
 
 /* Parse one command. `len` bytes of `text` are read (no NUL needed). Always fills *out; returns out->status. Never reads past len. */
 int aura_parse(const char *text, size_t len, const struct aura_caps *caps, struct aura_intent *out);

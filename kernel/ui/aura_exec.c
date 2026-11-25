@@ -1,5 +1,6 @@
 /* kernel/ui/aura_exec.c - the S0 executor and the Aura pipeline (see aura_exec.h). No allocation, no libc. */
 #include <aura_exec.h>
+#include <broker_policy.h>
 
 static const uint8_t SCREEN_OF[ASC_COUNT] = { SCR_HOME, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_CLOCK };
 
@@ -24,6 +25,13 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
         shell_select_space(sh, in->target);
         shell_go(sh, SCR_HOME);                                                                 /* so Home shows the chosen Space */
         return sh->space == in->target && sh->screen == SCR_HOME;
+    }
+    if (in->kind == AK_OPEN_APP) {
+        if (!sh->launcher || !sh->launcher->launch) return 0;
+        if (in->target < 1 || in->target > 3) return 0;  /* calculator=1, notes=2, files=3 */
+        if (!sh->launcher->available(in->target)) return 0;
+        int rc = sh->launcher->launch(in->target);
+        return rc == 0;  /* APPS_OK = 0 */
     }
     return 0;
 }
@@ -101,7 +109,12 @@ void aura_run_text(struct shell *sh, const struct bp_env *env, struct bp_replay 
     if (d.decision == BP_ALLOW_NOW) ok = aura_execute_s0(sh, &out->intent, env->caps);
     aura_outcome_from(out, &d, ok);
     s1_undo_flag = is_undo;
-    if (d.decision == BP_REVIEW) aura_s1_begin(sh, env, pid, nonce, out);                       /* S1: only the trusted shell opens a review; nothing changes until a person approves */
+    if (d.decision == BP_REVIEW) {
+        if (d.risk == 1) aura_s1_begin(sh, env, pid, nonce, out);                       /* S1: reversible settings */
+        else if (d.risk == 2) aura_s2_begin(sh, env, pid, nonce, out);                    /* S2: file modifications */
+    } else if (d.decision == BP_HOLD) {
+        aura_s3_begin(sh, env, pid, nonce, out);                                           /* S3: delete/send/install/share */
+    }
 }
 
 void aura_run_queued(struct shell *sh, const struct bp_env *env, uint32_t pid, uint64_t gen, const struct aura_intent *in, struct aura_outcome *out)
@@ -143,6 +156,18 @@ int aura_s1_resolve(const struct aura_intent *in, uint32_t cur, int32_t *next)
     } else if (in->target == ASET_THEME) {
         if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 2) return -1;
         *next = in->arg;
+    } else if (in->target == ASET_FOCUS_MODE) {
+        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 3) return -1;
+        *next = in->arg;
+    } else if (in->target == ASET_AURA_MODE) {
+        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 2) return -1;
+        *next = in->arg;
+    } else if (in->target == ASET_NOTIFICATIONS) {
+        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 2) return -1;
+        *next = in->arg;
+    } else if (in->target == ASET_REDUCED_MOTION) {
+        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 1) return -1;
+        *next = in->arg;
     } else return -1;
     return (uint32_t)*next == cur ? -2 : 0;
 }
@@ -177,24 +202,32 @@ static int s1_rec(const struct aura_s1_env *e, uint8_t target, uint8_t state, ui
     return e->trail_append(&r);
 }
 
+/* Helper to record REVIEW_DECLINE (kind 5, state 4) in the Trail. */
+static int s1_rec_review_decline(const struct aura_s1_env *e, uint8_t target, uint64_t ticket, uint32_t uptime_ms)
+{
+    struct trail_rec r; uint8_t *z = (uint8_t *)&r; for (size_t i = 0; i < sizeof r; i++) z[i] = 0;
+    r.pid = BP_SHELL_PID; r.principal = 0x7F000003u; r.kind = 5; r.target = target; r.risk = 1; r.decision = BP_REVIEW; r.reason = BPR_NONE; r.state = 4; r.arg = (int32_t)ticket; r.uptime_ms = uptime_ms;
+    return e->trail_append(&r);
+}
+
 int aura_s1_complete(struct shell *sh, const struct bp_env *env, struct bp_replay *rp, uint64_t ticket, uint64_t fresh_nonce)
 {
     if (!sh || !env || !rp || !S1) return AX_FAILED;
     const struct rv_request basis = sh->rv_req;                                   /* exactly what the person approved */
     const uint8_t id = basis.intent.target;
     /* 1. the records must be healthy NOW; 2. the broker must still say REVIEW for this requester (a revoked right or an unhealthy service ends it here) */
-    if (!S1->ledger_ok()) { rv_decline(&sh->rv, ticket); s1_report(sh, AX_UNAVAILABLE, "Not done: the records became unavailable. Nothing changed."); return AX_UNAVAILABLE; }
+    if (!S1->ledger_ok()) { rv_decline(&sh->rv, ticket); s1_rec_review_decline(S1, id, ticket, (uint32_t)S1->now_ms()); s1_report(sh, AX_UNAVAILABLE, "Not done: the records became unavailable. Nothing changed."); return AX_UNAVAILABLE; }
     { struct bp_request rq; uint8_t *z = (uint8_t *)&rq; for (size_t i = 0; i < sizeof rq; i++) z[i] = 0;
       rq.pid = BP_SHELL_PID; rq.gen = BP_SHELL_GEN; rq.nonce = fresh_nonce; rq.intent = basis.intent;
       struct bp_result d; bp_decide(env, rp, &rq, &d);
-      if (d.decision != BP_REVIEW) { rv_decline(&sh->rv, ticket); s1_report(sh, AX_DENIED, "Not done: no longer allowed. Nothing changed."); return AX_DENIED; } }
+      if (d.decision != BP_REVIEW) { rv_decline(&sh->rv, ticket); s1_rec_review_decline(S1, id, ticket, (uint32_t)S1->now_ms()); s1_report(sh, AX_DENIED, "Not done: no longer allowed. Nothing changed."); return AX_DENIED; } }
     /* 3. read the setting NOW; the approval only counts if the world is as it was reviewed */
     uint32_t cur = 0;
-    if (!sh->store || !sh->store->get || sh->store->get(id, &cur) != SETTINGS_OK) { rv_decline(&sh->rv, ticket); s1_report(sh, AX_UNAVAILABLE, "Not done: cannot read the setting. Nothing changed."); return AX_UNAVAILABLE; }
+    if (!sh->store || !sh->store->get || sh->store->get(id, &cur) != SETTINGS_OK) { rv_decline(&sh->rv, ticket); s1_rec_review_decline(S1, id, ticket, (uint32_t)S1->now_ms()); s1_report(sh, AX_UNAVAILABLE, "Not done: cannot read the setting. Nothing changed."); return AX_UNAVAILABLE; }
     struct rv_request now_q = basis; now_q.prior = (int32_t)cur;
-    { int32_t nx = 0; int rc = aura_s1_resolve(&basis.intent, cur, &nx); if (rc != 0) { rv_decline(&sh->rv, ticket); s1_report(sh, AX_FAILED, "Not done: the setting changed meanwhile. Nothing changed."); return AX_FAILED; } now_q.next = nx; }
+    { int32_t nx = 0; int rc = aura_s1_resolve(&basis.intent, cur, &nx); if (rc != 0) { rv_decline(&sh->rv, ticket); s1_rec_review_decline(S1, id, ticket, (uint32_t)S1->now_ms()); s1_report(sh, AX_FAILED, "Not done: the setting changed meanwhile. Nothing changed."); return AX_FAILED; } now_q.next = nx; }
     int vr = shell_review_verify(sh, S1->now_ms(), ticket, &now_q, env->caps);              /* consumes the approval; compares every byte, the requester, both values */
-    if (vr != RV_OK) { s1_report(sh, AX_FAILED, vr == RV_E_CHANGED ? "Not done: the request changed since you approved it. Nothing changed." : "Not done: the approval is no longer valid. Nothing changed."); return AX_FAILED; }
+    if (vr != RV_OK) { s1_rec_review_decline(S1, id, ticket, (uint32_t)S1->now_ms()); s1_report(sh, AX_FAILED, vr == RV_E_CHANGED ? "Not done: the request changed since you approved it. Nothing changed." : "Not done: the approval is no longer valid. Nothing changed."); return AX_FAILED; }
     const int32_t next = now_q.next;
     /* 4. the PRE record: no record, no change */
     if (s1_rec(S1, id, AX_NEEDS_APPROVAL, 0, (int32_t)cur) != 0) { s1_report(sh, AX_UNAVAILABLE, "Not done: the record could not be written. Nothing changed."); return AX_UNAVAILABLE; }
@@ -213,7 +246,26 @@ int aura_s1_complete(struct shell *sh, const struct bp_env *env, struct bp_repla
         return AX_FAILED;
     }
     /* 7. only a verified value is applied to the live interface */
-    if (id == ASET_TEXT_SCALE) shell_set_text_scale(sh, (uint32_t)next);
+    switch (id) {
+    case ASET_TEXT_SCALE:
+        shell_set_text_scale(sh, (uint32_t)next);
+        break;
+    case ASET_THEME:
+        shell_set_theme(sh, (uint32_t)next);
+        break;
+    case ASET_REDUCED_MOTION:
+        shell_set_reduced_motion(sh, (uint32_t)next);
+        break;
+    case ASET_FOCUS_MODE:
+        shell_set_focus_mode(sh, (uint32_t)next);
+        break;
+    case ASET_AURA_MODE:
+        shell_set_aura_mode(sh, (uint32_t)next);
+        break;
+    case ASET_NOTIFICATIONS:
+        shell_set_notifications(sh, (uint32_t)next);
+        break;
+    }
     /* 8. the POST record, and the truth about it */
     if (s1_rec(S1, id, AX_DONE, 0, next) != 0) { s1_report(sh, AX_DONE, "Saved, but its record could not be written. No Undo."); return AX_DONE; }
     char msg[64]; msg[0] = 0; put(msg, sizeof msg, "Done: ", basis.intent.preview);
@@ -255,6 +307,124 @@ int aura_s1_undo_text(struct shell *sh, char *out, size_t cap, char *why, size_t
         char d[8]; int k = 0; if (!v) d[k++] = '0'; while (v && k < 7) { d[k++] = (char)('0' + v % 10); v /= 10; } while (k) *w++ = d[--k];
     } else if (post.target == ASET_THEME && v <= 2) {
         const char *a = v == 0 ? "set theme to auto" : v == 1 ? "set theme to light" : "set theme to dark"; while (*a) *w++ = *a++;
+    } else if (post.target == ASET_FOCUS_MODE && v <= 3) {
+        static const char *const N[] = { "set focus mode to off", "set focus mode to work", "set focus mode to rest", "set focus mode to sleep" };
+        const char *a = N[v]; while (*a) *w++ = *a++;
+    } else if (post.target == ASET_AURA_MODE && v <= 2) {
+        static const char *const N[] = { "set aura mode to off", "set aura mode to suggest", "set aura mode to act with review" };
+        const char *a = N[v]; while (*a) *w++ = *a++;
+    } else if (post.target == ASET_NOTIFICATIONS && v <= 2) {
+        static const char *const N[] = { "set notifications to all", "set notifications to priority only", "set notifications to none" };
+        const char *a = N[v]; while (*a) *w++ = *a++;
+    } else if (post.target == ASET_REDUCED_MOTION && v <= 1) {
+        const char *a = v == 0 ? "set reduced motion off" : "set reduced motion on"; while (*a) *w++ = *a++;
     } else return 0;
     *w = 0; return 1;
+}
+
+/* ============================ S2 file execution (after trusted review approval) ============================ */
+
+static void s2_outcome(struct aura_outcome *o, int state, const char *msg) { o->state = (uint8_t)state; o->executed = 0; put(o->msg, sizeof o->msg, msg, 0); }
+
+static int s2_rec(const struct aura_s1_env *e, uint8_t kind, uint8_t target, uint8_t state, int32_t arg)
+{
+    struct trail_rec r; uint8_t *z = (uint8_t *)&r; for (size_t i = 0; i < sizeof r; i++) z[i] = 0;
+    r.pid = BP_SHELL_PID; r.principal = 0x7F000003u; r.kind = kind; r.target = target; r.risk = 2; r.decision = BP_REVIEW; r.reason = BPR_NONE; r.state = state; r.arg = arg;
+    r.uptime_ms = (uint32_t)e->now_ms();
+    return e->trail_append(&r);
+}
+
+void aura_s2_begin(struct shell *sh, const struct bp_env *env, uint32_t pid, uint64_t nonce, struct aura_outcome *out)
+{
+    if (!sh || !env || !out || pid != BP_SHELL_PID || !S1 || out->intent.kind < AK_EDIT_FILE || out->intent.kind > AK_MOVE_FILE) return;
+    if (!S1->ledger_ok()) { s2_outcome(out, AX_UNAVAILABLE, "Not available: the records are unhealthy. Nothing changed."); return; }
+    struct rv_request q; uint8_t *z = (uint8_t *)&q; for (size_t i = 0; i < sizeof q; i++) z[i] = 0;
+    q.intent = out->intent; q.pid = BP_SHELL_PID; q.gen = BP_SHELL_GEN; q.principal = 0x7F000003u; q.nonce = nonce; q.prior = 0; q.next = 0;
+    int64_t t = shell_review_open(sh, S1->now_ms(), &q, env->caps, "Aura");
+    if (t > 0) { s2_outcome(out, AX_NEEDS_APPROVAL, "Waiting for your approval. Nothing changed yet."); return; }
+    s2_outcome(out, AX_UNAVAILABLE, t == RV_E_STATE ? "Not available: a review needs a keyboard. Nothing changed." : t == RV_E_BUSY ? "Another review is open. Nothing changed." : "The review could not open. Nothing changed.");
+}
+
+int aura_s2_complete(struct shell *sh, const struct bp_env *env, struct bp_replay *rp, uint64_t ticket, uint64_t fresh_nonce)
+{
+    if (!sh || !env || !rp || !S1) return AX_FAILED;
+    const struct rv_request basis = sh->rv_req;
+    const uint8_t kind = basis.intent.kind;
+    if (!S1->ledger_ok()) { rv_decline(&sh->rv, ticket); s2_rec(S1, kind, 0, AX_FAILED, 0); s1_report(sh, AX_UNAVAILABLE, "Not done: the records became unavailable. Nothing changed."); return AX_UNAVAILABLE; }
+    { struct bp_request rq; uint8_t *z = (uint8_t *)&rq; for (size_t i = 0; i < sizeof rq; i++) z[i] = 0;
+      rq.pid = BP_SHELL_PID; rq.gen = BP_SHELL_GEN; rq.nonce = fresh_nonce; rq.intent = basis.intent;
+      struct bp_result d; bp_decide(env, rp, &rq, &d);
+      if (d.decision != BP_REVIEW) { rv_decline(&sh->rv, ticket); s2_rec(S1, kind, 0, AX_FAILED, 0); s1_report(sh, AX_DENIED, "Not done: no longer allowed. Nothing changed."); return AX_DENIED; } }
+    int vr = shell_review_verify(sh, S1->now_ms(), ticket, &basis, env->caps);
+    if (vr != RV_OK) { s2_rec(S1, kind, 0, AX_FAILED, 0); s1_report(sh, AX_FAILED, vr == RV_E_CHANGED ? "Not done: the request changed since you approved it. Nothing changed." : "Not done: the approval is no longer valid. Nothing changed."); return AX_FAILED; }
+    /* PRE record */
+    if (s2_rec(S1, kind, 0, AX_NEEDS_APPROVAL, 0) != 0) { s1_report(sh, AX_UNAVAILABLE, "Not done: the record could not be written. Nothing changed."); return AX_UNAVAILABLE; }
+    /* Execute the file operation - for now, this is a stub since no file service exists */
+    int executed = 0;
+    if (kind == AK_EDIT_FILE) { executed = 0; /* TODO: file service edit */ }
+    else if (kind == AK_RENAME_FILE) { executed = 0; /* TODO: file service rename */ }
+    else if (kind == AK_MOVE_FILE) { executed = 0; /* TODO: file service move */ }
+    if (!executed) {
+        (void)s2_rec(S1, kind, 0, AX_FAILED, 1);
+        s1_report(sh, AX_FAILED, "Not confirmed: file service not available.");
+        return AX_FAILED;
+    }
+    /* POST record */
+    if (s2_rec(S1, kind, 0, AX_DONE, 0) != 0) { s1_report(sh, AX_DONE, "Saved, but its record could not be written. No Undo."); return AX_DONE; }
+    char msg[64]; msg[0] = 0; put(msg, sizeof msg, "Done: ", basis.intent.preview);
+    { uint32_t n = 0; while (msg[n]) n++; uint32_t seq = S1->trail_last_seq(); char t[12]; int k = 0; if (!seq) t[k++] = '0'; while (seq && k < 11) { t[k++] = (char)('0' + seq % 10); seq /= 10; }
+      const char *pre = " Receipt #"; for (; *pre && n + 1 < sizeof msg; pre++) msg[n++] = *pre; while (k && n + 1 < sizeof msg) msg[n++] = t[--k]; if (n + 1 < sizeof msg) msg[n++] = '.'; msg[n] = 0; }
+    s1_report(sh, AX_DONE, msg);
+    return AX_DONE;
+}
+
+/* ============================ S3 execution (after hold-to-confirm) ============================ */
+
+void aura_s3_begin(struct shell *sh, const struct bp_env *env, uint32_t pid, uint64_t nonce, struct aura_outcome *out)
+{
+    if (!sh || !env || !out || pid != BP_SHELL_PID || !S1 || out->intent.kind < AK_DELETE_FILE || out->intent.kind > AK_SHARE_FILE) return;
+    if (!S1->ledger_ok()) { s1_outcome(out, AX_UNAVAILABLE, "Not available: the records are unhealthy. Nothing changed."); return; }
+    if (!env->hold_input) { s1_outcome(out, AX_UNAVAILABLE, "Not available: hold-to-confirm input not available. Nothing changed."); return; }
+    /* Store the S3 intent for completion after hold confirmation */
+    sh->s3_intent = out->intent;
+    sh->s3_pending = 1;
+    sh->s3_nonce = nonce;
+    s1_outcome(out, AX_NEEDS_APPROVAL, "Hold to confirm. Nothing changed yet.");
+}
+
+int aura_s3_complete(struct shell *sh, const struct bp_env *env, struct bp_replay *rp, struct hold *hd, uint64_t fresh_nonce, struct aura_outcome *out)
+{
+    if (!sh || !env || !rp || !hd || !S1) return AX_FAILED;
+    const uint8_t kind = sh->s3_intent.kind;
+    if (!S1->ledger_ok()) { s1_outcome(out, AX_UNAVAILABLE, "Not done: the records became unavailable. Nothing changed."); return AX_UNAVAILABLE; }
+    { struct bp_request rq; uint8_t *z = (uint8_t *)&rq; for (size_t i = 0; i < sizeof rq; i++) z[i] = 0;
+      rq.pid = BP_SHELL_PID; rq.gen = BP_SHELL_GEN; rq.nonce = fresh_nonce; rq.intent = sh->s3_intent;
+      struct bp_result d; bp_decide(env, rp, &rq, &d);
+      if (d.decision != BP_HOLD) { s1_outcome(out, AX_DENIED, "Not done: no longer allowed. Nothing changed."); return AX_DENIED; } }
+    /* Check hold confirmation */
+    if (hd->state != HD_CONFIRMED) { s1_outcome(out, AX_FAILED, "Hold confirmation required. Nothing changed."); return AX_FAILED; }
+    /* PRE record */
+    struct trail_rec r; uint8_t *z = (uint8_t *)&r; for (size_t i = 0; i < sizeof r; i++) z[i] = 0;
+    r.pid = BP_SHELL_PID; r.principal = 0x7F000003u; r.kind = kind; r.target = 0; r.risk = 3; r.decision = BP_HOLD; r.reason = BPR_NONE; r.state = AX_NEEDS_APPROVAL; r.arg = 0;
+    r.uptime_ms = (uint32_t)S1->now_ms();
+    if (S1->trail_append(&r) != 0) { s1_outcome(out, AX_UNAVAILABLE, "Not done: the record could not be written. Nothing changed."); return AX_UNAVAILABLE; }
+    /* Execute the S3 action - stub for now */
+    int executed = 0;
+    if (kind == AK_DELETE_FILE) { executed = 0; /* TODO: file service delete */ }
+    else if (kind == AK_SEND_FILE) { executed = 0; /* TODO: messaging service send */ }
+    else if (kind == AK_INSTALL_APP) { executed = 0; /* TODO: installer service */ }
+    else if (kind == AK_SHARE_FILE) { executed = 0; /* TODO: share service */ }
+    if (!executed) {
+        (void)S1->trail_append(&(struct trail_rec){ .pid = BP_SHELL_PID, .principal = 0x7F000003u, .kind = kind, .target = 0, .risk = 3, .decision = BP_HOLD, .reason = BPR_NONE, .state = AX_FAILED, .arg = 1, .uptime_ms = (uint32_t)S1->now_ms() });
+        s1_outcome(out, AX_FAILED, "Not confirmed: service not available.");
+        return AX_FAILED;
+    }
+    /* POST record */
+    r.state = AX_DONE;
+    if (S1->trail_append(&r) != 0) { s1_outcome(out, AX_DONE, "Saved, but its record could not be written. No Undo."); return AX_DONE; }
+    char msg[64]; msg[0] = 0; put(msg, sizeof msg, "Done: ", sh->s3_intent.preview);
+    { uint32_t n = 0; while (msg[n]) n++; uint32_t seq = S1->trail_last_seq(); char t[12]; int k = 0; if (!seq) t[k++] = '0'; while (seq && k < 11) { t[k++] = (char)('0' + seq % 10); seq /= 10; }
+      const char *pre = " Receipt #"; for (; *pre && n + 1 < sizeof msg; pre++) msg[n++] = *pre; while (k && n + 1 < sizeof msg) msg[n++] = t[--k]; if (n + 1 < sizeof msg) msg[n++] = '.'; msg[n] = 0; }
+    s1_outcome(out, AX_DONE, msg);
+    return AX_DONE;
 }

@@ -32,8 +32,22 @@ struct pp_actor { uint8_t kind; uint32_t pid; uint64_t gen; uint32_t principal; 
 enum pp_result { PP_OK = 0, PP_E_ACTOR = -1, PP_E_PERM = -2, PP_E_PRINCIPAL = -3, PP_E_FULL = -4, PP_E_NOENT = -5, PP_E_STORE = -6, PP_E_FORMAT = -7, PP_E_VERSION = -8, PP_E_ARG = -9, PP_E_QUOTA = -10 };
 enum pp_op { PP_OP_GRANT = 1, PP_OP_REVOKE, PP_OP_CHECK_DENY, PP_OP_LOAD, PP_OP_SAVE };
 
+/* EL0-facing operations for SYS_PASSPORT */
+enum pp_el0_op {
+    PP_OP_CHECK = 1,   /* x1 = perm, x2 = gen -> x0 = 1/0, x1 = grant seq on deny */
+    PP_OP_LIST  = 2,   /* x1 = user buffer, x2 = max_count -> x0 = count written */
+    PP_OP_AUDIT = 3,   /* x1 = index, x2 = user buffer -> x0 = 1/0 */
+};
+
 struct pp_grant { uint32_t principal; uint64_t gen; uint8_t perm; uint8_t used; };   /* gen 0 = the principal in general, else only that process instance */
 struct pp_audit_rec { uint32_t seq; uint8_t op, perm; int8_t result; uint8_t actor_kind; uint32_t actor_pid, principal; };
+
+/* EL0-facing capability entry for PP_OP_LIST */
+struct pp_cap_entry {
+    uint8_t perm;      /* Permission type (PP_NAVIGATE, etc.) */
+    uint64_t gen;      /* Generation this applies to (0 = durable) */
+    uint8_t active;    /* 1 if currently active */
+};
 
 struct passport {
     struct pp_grant g[PP_MAX_GRANTS];
@@ -64,4 +78,9 @@ size_t passport_encode(const struct passport *p, uint8_t *buf, size_t cap);     
 int  passport_decode(struct passport *p, const uint8_t *buf, size_t len);                      /* PP_OK, or an error and an EMPTY table (fail closed) */
 int  passport_save(struct passport *p, const struct pp_store *st);
 int  passport_load(struct passport *p, const struct pp_store *st);                             /* any failure leaves an empty table and loaded_ok = 0 */
+
+/* EL0-facing operations (principal derived from caller's process) */
+int  passport_el0_check(struct passport *p, uint32_t principal, uint64_t gen, uint8_t perm);   /* 1 = allowed, 0 = denied (records denial) */
+uint32_t passport_el0_list(const struct passport *p, uint32_t principal, struct pp_cap_entry *buf, uint32_t max_count); /* entries written */
+int  passport_el0_audit(const struct passport *p, uint32_t index, struct pp_audit_rec *buf);  /* 1 = found, 0 = out of range */
 #endif

@@ -29,7 +29,16 @@
 #define TR_REC_BYTES 40
 #define TR_IMAGE_MAX (24 + TR_MAX * TR_REC_BYTES + 4)
 
-enum { TR_OK = 0, TR_E_ARG = -1, TR_E_STORE = -2, TR_E_FORMAT = -3, TR_E_VERSION = -4, TR_E_CHAIN = -5 };
+enum { TR_OK = 0, TR_E_ARG = -1, TR_E_STORE = -2, TR_E_FORMAT = -3, TR_E_VERSION = -4, TR_E_CHAIN = -5, TR_E_CORRUPT = -6 };
+
+/* EL0-facing operations for SYS_TRAIL */
+enum tr_el0_op {
+    TR_OP_HEAD   = 1,  /* -> x0 = head_low, x1 = head_high */
+    TR_OP_READ   = 2,  /* x1 = seq, x2 = user buffer -> x0 = 0/AE_ENOENT */
+    TR_OP_SCAN   = 3,  /* x1 = start_seq (0 = newest), x2 = max_records, x3 = user buffer -> x0 = count */
+    TR_OP_COUNT  = 4,  /* -> x0 = total records */
+    TR_OP_VERIFY = 5,  /* x0 = expected_head_low, x1 = expected_head_high -> x0 = TR_OK/TR_E_CHAIN/TR_E_CORRUPT */
+};
 
 struct trail_rec {
     uint32_t seq;                      /* assigned by trail_append; strictly increasing, never reused */
@@ -62,4 +71,10 @@ size_t trail_encode(const struct trail *t, uint8_t *buf, size_t cap);
  * a wrong magic, version or length leaves an empty, unhealthy trail. A clean image returns TR_OK with healthy = 1. */
 int  trail_decode(struct trail *t, const uint8_t *buf, size_t len);
 int  trail_load(struct trail *t, const struct tr_store *st);
+
+/* EL0-facing read functions (principal isolation enforced: caller must match record's principal) */
+uint32_t trail_count(const struct trail *t);                              /* total records in chain */
+const struct trail_rec *trail_at(const struct trail *t, uint32_t seq);    /* find by sequence number (1-based) */
+const struct trail_rec *trail_nth_newest(const struct trail *t, uint32_t n); /* 0 = newest, 1 = second newest, etc. */
+int trail_verify_head(const struct trail *t, uint64_t expected_head);     /* TR_OK if chain valid and head matches, TR_E_CHAIN if broken, TR_E_CORRUPT if malformed */
 #endif

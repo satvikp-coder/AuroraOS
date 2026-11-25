@@ -90,6 +90,11 @@ struct shell_store {
     int (*reset)(uint32_t id);
 };
 
+/* Geometry computed from the current text scale and screen size; shared with the review modal. */
+struct geo {
+    int32_t W, H, hdr_h, rail_h, top, bottom, dock_y, dock_h, dock_x, dock_w, btn_w, btn_h;
+};
+
 /* What the last Settings action did (shown on screen and logged). */
 enum { SM_NONE = 0, SM_SAVED, SM_RESET_SAVED, SM_SESSION, SM_STORE_FAIL, SM_DENIED, SM_VERSION, SM_HC_ON, SM_HC_OFF, SM_AURA_LOCAL };
 
@@ -98,6 +103,11 @@ struct shell {
     uint8_t screen, space, about_open, corner_open, review_open, dirty;
     uint8_t contrast;                   /* 1 = high-contrast appearance (a runtime preference; nothing persists it yet) */
     uint8_t text_pct;                   /* text scale in percent, SHELL_TEXT_MIN..SHELL_TEXT_MAX (100 = the reference layout) */
+    uint8_t theme;                      /* 0 = auto, 1 = light, 2 = dark (stored preference; no dark theme drawn yet) */
+    uint8_t reduced_motion;             /* 1 = reduced motion enabled (stored preference; nothing animates yet) */
+    uint8_t focus_mode;                 /* 0 = off, 1 = work, 2 = rest, 3 = sleep (stored preference) */
+    uint8_t aura_mode;                  /* 0 = off, 1 = suggest, 2 = act with review (stored preference, needs system permission) */
+    uint8_t notifications;              /* 0 = all, 1 = priority only, 2 = none (stored preference, no notification source) */
     int32_t lay_bottom;                 /* lowest content pixel of the last scaled layout (layout fitting and tests) */
     uint8_t hist[SHELL_HISTORY], hist_n;
     struct shell_caps caps;
@@ -148,6 +158,8 @@ struct shell {
     char clk_live[64], clk_val[12], clk_up[16];
     /* Hold-to-confirm demo (compositor-owned: no client can start, feed or confirm it). The pure state machine decides; the screen only shows it. */
     struct hold hd; uint16_t hd_key; uint8_t hd_msg, hd_seg; uint32_t hd_seq; char hd_live[40];
+    /* S3 hold-to-confirm: pending action awaiting hold confirmation */
+    struct aura_intent s3_intent; uint8_t s3_pending; uint64_t s3_nonce;
     /* Trail screen: read-only view of the audit ledger; NULL source = not available */
     int (*trail_src)(struct shell_trail_view *out);
     struct shell_trail_view tv; uint64_t tv_digest; uint8_t tv_valid;
@@ -158,6 +170,8 @@ struct shell {
     struct rv rv; struct rv_request rv_req;
     uint8_t rv_prev, rv_lapsed, rv_approved_pending; uint64_t rv_approved_ticket; uint32_t rv_seq;
     char rv_name[24], rv_l_req[48], rv_l_chg[64], rv_l_live[72];
+    /* Trail callback for review decisions (REVIEW_OPEN, REVIEW_APPROVE, REVIEW_DECLINE). Kernel wires this to ledger_trail_append. */
+    int (*review_trail_append)(uint8_t kind, uint8_t state, uint8_t target, uint8_t risk, uint32_t ticket, uint32_t uptime_ms);
     /* Settings screen */
     const struct shell_store *store;    /* NULL = no usable store: changes last for this session only */
     uint32_t sess[SHELL_SET_ROWS];      /* session values (used when there is no store, and for high contrast always) */
@@ -177,6 +191,12 @@ struct shell {
  * wraps instead of being cut; at the largest scales secondary lines are omitted rather than clipped. Out-of-range values are refused. */
 int  shell_set_text_scale(struct shell *sh, uint32_t pct);
 int  shell_set_contrast(struct shell *sh, int on);
+/* S1 settings application (called after trusted review approval). Each updates the live shell state and rebuilds the UI. */
+int  shell_set_theme(struct shell *sh, uint32_t theme);              /* 0=auto, 1=light, 2=dark */
+int  shell_set_reduced_motion(struct shell *sh, uint32_t on);        /* 0=off, 1=on */
+int  shell_set_focus_mode(struct shell *sh, uint32_t mode);          /* 0=off, 1=work, 2=rest, 3=sleep */
+int  shell_set_aura_mode(struct shell *sh, uint32_t mode);           /* 0=off, 1=suggest, 2=act with review */
+int  shell_set_notifications(struct shell *sh, uint32_t mode);       /* 0=all, 1=priority only, 2=none */
 /* Attach the process-snapshot source for the Pages screen and take a first snapshot. */
 void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out));
 /* Re-take the snapshot; returns 1 (and redraws when Pages is showing) only if something displayed changed. */
@@ -199,6 +219,8 @@ void shell_aura_report(struct shell *sh, uint8_t state, const char *msg);       
 /* Attach the ledger view for the Trail screen and take a first copy; shell_trail_refresh re-takes it (returns 1 and redraws only if something shown changed). */
 void shell_set_trail(struct shell *sh, int (*src)(struct shell_trail_view *out));
 int  shell_trail_refresh(struct shell *sh);
+/* Attach the Trail callback for review decisions (REVIEW_OPEN, REVIEW_APPROVE, REVIEW_DECLINE). Kernel wires this to ledger_trail_append. NULL = no Trail recording. */
+void shell_set_review_trail(struct shell *sh, int (*fn)(uint8_t kind, uint8_t state, uint8_t target, uint8_t risk, uint32_t ticket, uint32_t uptime_ms));
 /* Attach (or detach, with NULL) the timer service for the Clock screen. */
 void shell_set_timers(struct shell *sh, const struct shell_timers *timers);
 /* Aura's timer effects (called by the S0 executor after the broker allowed them). Each returns 1 ONLY if the real timer service now shows what was asked:

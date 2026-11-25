@@ -6,7 +6,7 @@
 
 static struct bp_env ENV;
 static struct bp_replay RP;
-static const struct aura_caps CAPS = { 1, 1, 0, 0, 0 };          /* Pages and the shell's timer exist; no Notes, messaging or hardware services */
+static const struct aura_caps CAPS = { 1, 1, 0, 0, 0, 0, 0 };      /* Pages and the shell's timer exist; no Notes, Calculator, Files, messaging or hardware services */
 static uint32_t denial_audited, denial_dropped;                    /* denials written to the Trail this boot / counted but not written (a flood must not thrash the disk) */
 #define BK_DENIAL_AUDIT_MAX 16
 
@@ -18,7 +18,13 @@ static uint32_t rights_of(uint32_t principal, uint64_t gen)
     if (ledger_peek(principal, gen, PP_NAVIGATE)) r |= BP_RIGHT_NAVIGATE;
     if (ledger_peek(principal, gen, PP_SETTINGS_PROPOSE)) r |= BP_RIGHT_SETTINGS;
     if (ledger_peek(principal, gen, PP_TIMER)) r |= BP_RIGHT_TIMER;
+    if (ledger_peek(principal, gen, PP_FILES_WRITE)) r |= BP_RIGHT_FILES;
     return r;
+}
+
+static int passport_check_cb(uint32_t principal, uint64_t gen, uint8_t perm)
+{
+    return ledger_peek(principal, gen, perm);
 }
 
 struct pend { uint8_t used; uint32_t pid; uint64_t gen; struct aura_intent in; };
@@ -42,7 +48,7 @@ static int lookup(uint32_t pid, uint64_t *gen, uint32_t *principal, uint32_t *ri
 
 void broker_init(void)
 {
-    ENV.caps = &CAPS; ENV.lookup = lookup;
+    ENV.caps = &CAPS; ENV.lookup = lookup; ENV.passport_check = passport_check_cb;
     ENV.timer_service = 1;                                            /* the Clock's timer service is attached by the shell */
     ENV.nav_service = 1;                                              /* the shell's navigation executor exists */
     ENV.review_path = 0; ENV.passport = 0; ENV.trail = 0; ENV.hold_input = 0;   /* passport/trail follow the ledger's health (broker_env); the review path and hold input do not exist yet */
@@ -58,6 +64,7 @@ const struct bp_env *broker_env(void)
 {
     ENV.passport = (uint8_t)ledger_passport_ok();                     /* healthy, verified, writable: otherwise a Passport-dependent action is unavailable */
     ENV.trail = (uint8_t)ledger_trail_ok();
+    ENV.hold_input = ENV.trail && ENV.passport;                       /* hold input available when both ledgers are healthy (keyboard required for actual hold) */
     return &ENV;
 }
 struct bp_replay *broker_replay(void) { return &RP; }

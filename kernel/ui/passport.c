@@ -179,3 +179,41 @@ int passport_load(struct passport *p, const struct pp_store *st)
     audit(p, PP_OP_LOAD, 0, rc, 0, 0);
     return rc;
 }
+
+/* EL0-facing operations: principal is derived from the calling process, not passed as argument */
+
+/* Check if the given principal (the caller's) holds a specific permission.
+ * Returns 1 if allowed, 0 if denied. On denial, the denial is recorded in the denial ring. */
+int passport_el0_check(struct passport *p, uint32_t principal, uint64_t gen, uint8_t perm)
+{
+    return passport_check(p, principal, gen, perm);
+}
+
+/* List capabilities held by the given principal.
+ * Copies up to max_count entries to the user buffer (struct pp_cap_entry).
+ * Returns number of entries written, or AE_E2BIG if buffer too small. */
+uint32_t passport_el0_list(const struct passport *p, uint32_t principal, struct pp_cap_entry *buf, uint32_t max_count)
+{
+    if (!p || !principal_ok(principal) || !buf || max_count == 0) return 0;
+    
+    uint32_t written = 0;
+    for (int i = 0; i < PP_MAX_GRANTS && written < max_count; i++) {
+        const struct pp_grant *g = &p->g[i];
+        if (!g->used || g->principal != principal) continue;
+        buf[written].perm = g->perm;
+        buf[written].gen = g->gen;
+        buf[written].active = 1;
+        written++;
+    }
+    return written;
+}
+
+/* Read a denial audit record by index (0 = oldest).
+ * Returns 1 if record found and copied to buffer, 0 if index out of range. */
+int passport_el0_audit(const struct passport *p, uint32_t index, struct pp_audit_rec *buf)
+{
+    const struct pp_audit_rec *rec = passport_denial_at(p, index);
+    if (!rec) return 0;
+    *buf = *rec;
+    return 1;
+}
