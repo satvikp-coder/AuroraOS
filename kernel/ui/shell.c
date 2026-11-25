@@ -2,24 +2,17 @@
 #include <shell.h>
 #include <apps.h>
 #include <settings.h>        /* result codes only (SETTINGS_*); the registry itself is behind struct shell_store */
+#include "review_modal.h"
+#include "shell_internal.h"
 
 const char *const SHELL_SPACE_NAMES[SHELL_SPACES] = { "Study", "Work", "Projects", "Personal" };
-
-#define FOC (UI_VISIBLE | UI_ENABLED | UI_FOCUSABLE)
-#define SOLID UI_VISIBLE   /* non-interactive surfaces: they absorb pointer events (no click-through) but never activate */
-#define COL_HOVER 0x00E4ECF6u
-#define COL_PRESSED 0x00CFDCF0u
-#define COL_AURA 0x0000838Cu
-#define COL_DISABLED_FILL 0x00F3F6FAu
 
 /* Colour roles. The standard palette is the Aurora Glass "Clear" light set; high contrast is opaque black on white with 2 px borders, a
  * non-colour marker on the active control, and a strong focus colour. Meaning is never carried by colour alone: the active control also
  * has a marker (high contrast) and the disabled controls say "not available yet" in their text. */
 /* (accent is near-black, not 0: a zero widget override means "use the default") */
-struct pal { uint32_t canvas, surface, ink, muted, accent, active_ink, focus, border, border_dis, scrim, aura, hover, pressed, secure, secure_ink, ctl; uint8_t bw, marker, rail; };
-static const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, UI_COL_MUTED, UI_COL_ACCENT, UI_COL_SURFACE, UI_COL_FOCUS, 0x00C9D4E3u, 0x00DCE3EDu, UI_COL_SCRIM, COL_AURA, COL_HOVER, COL_PRESSED, 0x00FFB020u, 0x00142136u, 0x006B7C93u, 1, 0, 4 };
-static const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 0x00000000u, 0x00FFFFFFu, 0x00000000u, 2, 1, 6 };
-#define PAL(sh) ((sh)->contrast ? &PAL_HC : &PAL_STD)
+const struct pal PAL_STD = { UI_COL_CANVAS, UI_COL_SURFACE, UI_COL_INK, UI_COL_MUTED, UI_COL_ACCENT, UI_COL_SURFACE, UI_COL_FOCUS, 0x00C9D4E3u, 0x00DCE3EDu, UI_COL_SCRIM, COL_AURA, COL_HOVER, COL_PRESSED, 0x00FFB020u, 0x00142136u, 0x006B7C93u, 1, 0, 4 };
+const struct pal PAL_HC = { 0x00FFFFFFu, 0x00FFFFFFu, 0x00000000u, 0x00333333u, 0x00101010u, 0x00FFFFFFu, 0x000000E0u, 0x00000000u, 0x00555555u, 0x00000000u, 0x00000000u, 0x00D9D9D9u, 0x00B3B3B3u, 0x00000000u, 0x00FFFFFFu, 0x00000000u, 2, 1, 6 };
 
 static const char *const NAMES[SCR_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Aura", "Clock", "Trail", "Hold" };
 
@@ -41,7 +34,7 @@ static const struct idx_item ITEMS[] = {
     { "aura", "Aura", { "assistant", "ask", 0 }, 1 },
     { "settings", "Settings", { "preferences", "options", 0 }, 1 },
     { "notes", "Notes", { "memo", "write", 0 }, 1 },   /* a native EL0 application (is_app); available only if installed */
-    { "clock", "Clock", { "timer", "countdown", "uptime" }, 1 },
+    { "clock", "Clock", { "timer", "countdown", "uptime" }, 1 },   /* a native EL0 application (is_app); available only if installed */
     { "trail", "Trail", { "audit", "history", "log" }, 1 },           /* listed, honestly unavailable: no native Notes app exists */
     { "calculator", "Calculator", { "calc", "math", "arithmetic" }, 1 },
     { "files", "Files", { "documents", "browse", "folders" }, 1 },   /* a native EL0 read-only viewer started by the kernel launcher; available only if installed */   /* a native EL0 application started by the kernel launcher; available only if installed */
@@ -50,7 +43,7 @@ static const struct idx_item ITEMS[] = {
 static const struct dest DEST[] = {
     { D_SCREEN, SCR_HOME }, { D_SCREEN, SCR_SPACES }, { D_SCREEN, SCR_INDEX },
     { D_SPACE, 0 }, { D_SPACE, 1 }, { D_SPACE, 2 }, { D_SPACE, 3 },
-    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_APP, 2 }, { D_SCREEN, SCR_CLOCK }, { D_SCREEN, SCR_TRAIL }, { D_APP, 1 }, { D_APP, 3 }, { D_SCREEN, SCR_HOLD },
+    { D_ABOUT, 0 }, { D_SCREEN, SCR_PAGES }, { D_SCREEN, SCR_AURA }, { D_SCREEN, SCR_SETTINGS }, { D_APP, 2 }, { D_APP, 4 }, { D_SCREEN, SCR_TRAIL }, { D_APP, 1 }, { D_APP, 3 }, { D_SCREEN, SCR_HOLD },
 };
 #define NITEMS (sizeof ITEMS / sizeof ITEMS[0])
 _Static_assert(sizeof ITEMS / sizeof ITEMS[0] == sizeof DEST / sizeof DEST[0], "registry tables must match");
@@ -75,14 +68,7 @@ static void index_refresh(struct shell *sh)
     sh->sel = (int8_t)idx_default_active(sh->res, sh->nres);      /* never a typo suggestion: Enter must not open one by itself */
 }
 
-static void scpy(char *d, uint32_t cap, const char *s)
-{
-    uint32_t i = 0;
-    for (; i + 1 < cap && s[i]; i++) d[i] = s[i];
-    d[i] = 0;
-}
-
-static struct ui_widget *add(struct shell *sh, int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint8_t layer, uint8_t kind,
+struct ui_widget *add(struct shell *sh, int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint8_t layer, uint8_t kind,
                              const char *text, uint32_t fill, uint32_t id, uint8_t flags)
 {
     if (sh->n >= SHELL_MAX_WIDGETS) return 0;                   /* a layout that outgrows the array is a bug: refuse, never overrun */
@@ -241,7 +227,7 @@ static void build_corner(struct shell *sh)
  * and at the largest scales optional lines are left out rather than clipped. Nothing is ever placed outside the content region. */
 struct fnt { uint8_t size, mag; };
 
-static struct fnt pick_font(uint32_t base, uint32_t pct)
+struct fnt pick_font(uint32_t base, uint32_t pct)
 {
     static const struct fnt L[] = { { 12, 1 }, { 14, 1 }, { 16, 1 }, { 18, 1 }, { 24, 1 }, { 14, 2 }, { 16, 2 }, { 18, 2 }, { 24, 2 } };
     uint32_t want = (base * pct + 50) / 100, best = 0, bd = 0xffffffffu;
@@ -259,7 +245,7 @@ void shell_font_for(uint32_t base, uint32_t pct, uint8_t *size, uint8_t *mag)
     if (mag) *mag = f.mag;
 }
 
-static int32_t lines_for(struct fnt f, int bold, const char *t, int32_t inner_w)
+int32_t lines_for(struct fnt f, int bold, const char *t, int32_t inner_w)
 {
     const struct gfx_font *g = gfx_font_find(bold ? 700 : 400, f.size);
     if (!g || !t) return 1;
@@ -271,8 +257,8 @@ static int32_t lines_for(struct fnt f, int bold, const char *t, int32_t inner_w)
     return total > 16 ? 16 : (int32_t)total;
 }
 
-static int32_t lh_of(struct fnt f, int bold) { int32_t a = 0, l = 0; ui_text_metrics(f.size, (uint8_t)bold, f.mag, &a, &l); return l; }
-static int32_t adv_of(struct fnt f, int bold) { int32_t a = 0, l = 0; ui_text_metrics(f.size, (uint8_t)bold, f.mag, &a, &l); return a; }
+int32_t lh_of(struct fnt f, int bold) { int32_t a = 0, l = 0; ui_text_metrics(f.size, (uint8_t)bold, f.mag, &a, &l); return l; }
+int32_t adv_of(struct fnt f, int bold) { int32_t a = 0, l = 0; ui_text_metrics(f.size, (uint8_t)bold, f.mag, &a, &l); return a; }
 static void track(struct shell *sh, int32_t bottom) { if (bottom > sh->lay_bottom) sh->lay_bottom = bottom; }
 static size_t slen_(const char *t) { size_t n = 0; while (t && t[n] && n < 256) n++; return n; }
 
@@ -288,7 +274,7 @@ static int32_t sl(struct shell *sh, int32_t x, int32_t y, int32_t w, const char 
 }
 
 /* A wrapped button: at least minh high and tall enough for its wrapped label. Returns its height. */
-static int32_t sb(struct shell *sh, int32_t x, int32_t y, int32_t w, int32_t minh, const char *t, uint32_t id, int enabled, uint8_t layer)
+int32_t sb(struct shell *sh, int32_t x, int32_t y, int32_t w, int32_t minh, const char *t, uint32_t id, int enabled, uint8_t layer)
 {
     struct fnt f = pick_font(16, sh->text_pct);
     int32_t bw = enabled ? PAL(sh)->bw : 1;
@@ -299,8 +285,6 @@ static int32_t sb(struct shell *sh, int32_t x, int32_t y, int32_t w, int32_t min
     track(sh, y + hh);
     return hh;
 }
-
-struct geo { int32_t W, H, hdr_h, rail_h, top, bottom, dock_y, dock_h, dock_x, dock_w, btn_w, btn_h; };
 
 static struct geo make_geo(const struct shell *sh)
 {
@@ -549,7 +533,7 @@ static void corner_scaled(struct shell *sh, const struct geo *g)
     if (p) p->c.h = iy + ch + 16 - y;
 }
 
-static void build(struct shell *sh);
+void build(struct shell *sh);
 
 /* ============================ Settings (native screen over the typed registry) ============================ */
 enum { K_WORKS = 0, K_STORED, K_SESSION };
@@ -658,7 +642,14 @@ void shell_set_store(struct shell *sh, const struct shell_store *store)
 {
     sh->store = store;
     uint32_t v = 0;
-    if (store && store->get && store->get(SET_TEXT_SCALE, &v) == SETTINGS_OK && v >= SHELL_TEXT_MIN && v <= SHELL_TEXT_MAX) shell_set_text_scale(sh, v);
+    if (store && store->get) {
+        if (store->get(SET_TEXT_SCALE, &v) == SETTINGS_OK && v >= SHELL_TEXT_MIN && v <= SHELL_TEXT_MAX) shell_set_text_scale(sh, v);
+        if (store->get(SET_THEME, &v) == SETTINGS_OK && v <= 2) shell_set_theme(sh, v);
+        if (store->get(SET_REDUCED_MOTION, &v) == SETTINGS_OK && v <= 1) shell_set_reduced_motion(sh, v);
+        if (store->get(SET_FOCUS_MODE, &v) == SETTINGS_OK && v <= 3) shell_set_focus_mode(sh, v);
+        if (store->get(SET_AURA_MODE, &v) == SETTINGS_OK && v <= 2) shell_set_aura_mode(sh, v);
+        if (store->get(SET_NOTIFICATIONS, &v) == SETTINGS_OK && v <= 2) shell_set_notifications(sh, v);
+    }
     build(sh); sh->dirty = 1;
 }
 
@@ -713,8 +704,6 @@ static void settings_flow(struct shell *sh, const struct geo *g, int opt)
 
 /* ---- Pages: a live, read-only view of the real process table (procsnap). Nothing is simulated; there is no Kill/Pause/Resume because no secure
  * service for them exists. Text comes only from the snapshot (names are sanitised there). ---- */
-static void pcat(char *d, uint32_t cap, const char *t) { uint32_t n = 0; while (n + 1 < cap && d[n]) n++; for (uint32_t i = 0; n + 1 < cap && t[i]; i++) d[n++] = t[i]; d[n] = 0; }
-static void pnum(char *d, uint32_t cap, uint64_t v) { char t[24]; int k = 0; do { t[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 24); char o[25]; int m = 0; while (k) o[m++] = t[--k]; o[m] = 0; pcat(d, cap, o); }
 static void ppad(char *d, uint32_t cap, const char *t, uint32_t w) { uint32_t b = 0; while (d[b]) b++; pcat(d, cap, t); uint32_t n = 0; while (d[n]) n++; while (n - b < w && n + 1 < cap) { d[n++] = ' '; d[n] = 0; } }
 
 static void pages_texts(struct shell *sh)
@@ -798,13 +787,19 @@ void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out))
 }
 
 /* ---- Aura: type a quick command, see what it would do, run it through the Action Broker, read the real result. Deterministic; no language model. ---- */
-static const struct aura_caps AURA_PREVIEW_CAPS = { 1, 0, 0, 0, 0 };         /* only for the preview; the broker applies the platform's real capabilities */
+/* aura_caps fields: pages, timer, notes, calculator, files, messaging, hardware */
+static const struct aura_caps AURA_PREVIEW_CAPS = { 1, 0, 0, 0, 0, 0, 0 };         /* only for the preview; the broker applies the platform's real capabilities */
 
 static void aura_refresh(struct shell *sh)
 {
     sh->aura_in[sh->aura_len] = 0;
-    struct aura_caps pc = AURA_PREVIEW_CAPS; pc.timer = sh->timers != 0;          /* the preview offers timer commands only when the Clock has a service */
-    pc.notes = sh->launcher && sh->launcher->available && sh->launcher->available(APP_NOTES);
+    struct aura_caps pc = AURA_PREVIEW_CAPS;
+    pc.timer = sh->timers != 0;                         /* timer commands only when Clock has a service */
+    if (sh->launcher && sh->launcher->available) {
+        pc.notes = sh->launcher->available(2);          /* APP_NOTES = 2 */
+        pc.calculator = sh->launcher->available(1);     /* APP_CALCULATOR = 1 */
+        pc.files = sh->launcher->available(3);          /* APP_FILES = 3 */
+    }
     aura_parse(sh->aura_in, sh->aura_len, &pc, &sh->aura_pv);
 }
 
@@ -866,8 +861,20 @@ static void aura_flow(struct shell *sh, const struct geo *g, int opt)
         y += fh + 6;
     }
     y += sl(sh, 56, y, iw, sh->aura_prev, 14, P->muted, 0) + 4;
+    /* S3 hold-to-confirm: show hold button when an S3 action is pending */
+    if (sh->s3_pending) {
+        int32_t bw = iw;
+        y += sb(sh, 56, y, bw, 48, "Hold to confirm", SID_HOLD_BTN, 1, UI_LAYER_CONTENT) + 8;
+        int32_t step = (bw + 8) / 4, sw = step - 8;
+        for (uint32_t k = 0; k < HOLD_SEGMENTS; k++) {
+            struct ui_widget *s = add(sh, 56 + (int32_t)k * step, y, sw, 12, 4, UI_LAYER_CONTENT, UI_PANEL, 0, k < sh->hd_seg ? P->ink : P->canvas, 0xF400u + k, SOLID);
+            if (s) { s->border_w = 1; s->border = P->ctl; }
+        }
+        track(sh, y + 12);
+        y += 20;
+    }
     {
-        int32_t bw = iw / 2 - 4, h1 = sb(sh, 56, y, bw, 48, "Run", SID_AURA_RUN, sh->aura_len > 0, UI_LAYER_CONTENT);
+        int32_t bw = iw / 2 - 4, h1 = sb(sh, 56, y, bw, 48, "Run", SID_AURA_RUN, sh->aura_len > 0 && !sh->s3_pending, UI_LAYER_CONTENT);
         int32_t h2 = sb(sh, 56 + bw + 8, y, bw, 48, "Clear", SID_AURA_CLEAR, sh->aura_len > 0 || sh->aura_state, UI_LAYER_CONTENT);
         y += (h1 > h2 ? h1 : h2) + 8;
     }
@@ -1023,76 +1030,6 @@ int shell_clock_cancel(struct shell *sh)
 
 /* ---- Trusted review: the compositor-owned modal. Colour alone proves nothing (software can draw amber): authenticity rests on the fixed string, the scrim over everything, the
  * kernel-supplied requester name, and the chord, which only the kernel input path delivers here. The secure colour is used ONLY by this function. ---- */
-static int rv_live(const struct shell *sh) { return sh->rv.state == RV_OPEN || sh->rv.state == RV_ARMED; }
-static int rv_ended(const struct shell *sh) { return sh->rv.state == RV_EXPIRED || sh->rv.state == RV_GONE; }
-static void rv_pct(char *d, uint32_t cap, int32_t v) { pnum(d, cap, (uint64_t)(v < 0 ? 0 : v)); pcat(d, cap, "%"); }
-static void rv_val(char *d, uint32_t cap, uint8_t target, int32_t v)
-{
-    if (target == 2) rv_pct(d, cap, v);
-    else pcat(d, cap, v == 0 ? "Auto" : v == 1 ? "Light" : v == 2 ? "Dark" : "unknown");
-}
-static void rv_texts(struct shell *sh)
-{
-    sh->rv_l_req[0] = sh->rv_l_chg[0] = sh->rv_l_live[0] = 0;
-    pcat(sh->rv_l_req, sizeof sh->rv_l_req, "Requested by: "); pcat(sh->rv_l_req, sizeof sh->rv_l_req, sh->rv_name[0] ? sh->rv_name : "unknown");
-    uint8_t tg = sh->rv_req.intent.target;
-    pcat(sh->rv_l_chg, sizeof sh->rv_l_chg, tg == 2 ? "Text size: " : tg == 1 ? "Theme: " : "Setting: ");
-    rv_val(sh->rv_l_chg, sizeof sh->rv_l_chg, tg, sh->rv_req.prior); pcat(sh->rv_l_chg, sizeof sh->rv_l_chg, " -> "); rv_val(sh->rv_l_chg, sizeof sh->rv_l_chg, tg, sh->rv_req.next);
-    const char *l = sh->rv.state == RV_ARMED ? "Approve is enabled for 10 seconds." : sh->rv.state == RV_EXPIRED ? "Review expired. Nothing changed."
-        : sh->rv.state == RV_GONE ? "Requester exited. Nothing changed." : sh->rv_lapsed ? "Approve timed out. Press Ctrl+Alt+Delete again." : "Press Ctrl+Alt+Delete to enable Approve.";
-    pcat(sh->rv_l_live, sizeof sh->rv_l_live, l);
-}
-static int32_t ml(struct shell *sh, int32_t x, int32_t y, int32_t w, const char *t, uint32_t base, uint32_t ink, int bold, uint32_t id)
-{
-    struct fnt f = pick_font(base, sh->text_pct);
-    int32_t hh = lines_for(f, bold, t, w) * lh_of(f, bold) + 4;
-    struct ui_widget *k = add(sh, x, y, w, hh, 0, UI_LAYER_MODAL, UI_LABEL, t, PAL(sh)->surface, id, SOLID);
-    if (k) { k->font_size = f.size; k->mag = f.mag; k->bold = (uint8_t)bold; k->wrap = 1; k->ink = ink; }
-    return hh;
-}
-static void review_flow(struct shell *sh, const struct geo *g)
-{
-    const struct pal *P = PAL(sh);
-    rv_texts(sh);
-    add(sh, 0, 0, g->W, g->H, 0, UI_LAYER_SCRIM, UI_PANEL, 0, P->scrim, 0xF200u, SOLID);
-    int32_t w = 640 * (int32_t)sh->text_pct / 100; if (w < 640) w = 640; if (w > g->W - 48) w = g->W - 48;
-    int32_t x = (g->W - w) / 2, y = g->top, iw = w - 32;
-    struct ui_widget *d = add(sh, x, y, w, 100, 20, UI_LAYER_MODAL, UI_PANEL, 0, P->surface, 0xF201u, SOLID);
-    if (d) { d->border_w = 2; d->border = P->focus; }
-    int32_t iy = y + 16;
-    struct fnt f16 = pick_font(16, sh->text_pct);
-    int32_t sh_h = lh_of(f16, 1) + 16; if (sh_h < 40) sh_h = 40;
-    struct ui_widget *strip = add(sh, x + 16, iy, iw, sh_h, 8, UI_LAYER_MODAL, UI_PANEL, 0, P->secure, 0xF210u, SOLID);      /* the secure strip: fixed text, the only user of the secure colour */
-    if (strip) { strip->border_w = 2; strip->border = P->ink; }
-    struct ui_widget *st = add(sh, x + 18, iy + (sh_h - lh_of(f16, 1)) / 2, iw - 4, lh_of(f16, 1), 0, UI_LAYER_MODAL, UI_LABEL, "AuroraOS secure review", P->secure, 0xF211u, SOLID);
-    if (st) { st->font_size = f16.size; st->mag = f16.mag; st->bold = 1; st->ink = P->secure_ink; }
-    iy += sh_h + 8;
-    iy += ml(sh, x + 16, iy, iw, sh->rv_l_req, 16, P->ink, 0, 0xF212u) + 2;
-    iy += ml(sh, x + 16, iy, iw, sh->rv_req.intent.preview, 18, P->ink, 1, 0xF213u) + 2;
-    iy += ml(sh, x + 16, iy, iw, sh->rv_l_chg, 16, P->ink, 0, 0xF214u) + 2;
-    iy += ml(sh, x + 16, iy, iw, sh->rv_req.intent.target == 1 ? "Reversible. Recorded in Trail. Stored only: no dark theme." : "Reversible. Recorded in Trail.", 14, P->muted, 0, 0xF215u) + 2;
-    iy += ml(sh, x + 16, iy, iw, sh->rv_l_live, 14, P->ink, 1, 0xF216u) + 8;
-    int32_t gap = 8, bw = (iw - gap) / 2, armed = sh->rv.state == RV_ARMED;
-    int32_t h1 = sb(sh, x + 16, iy, bw, 48, rv_ended(sh) ? "Close" : "Cancel", SID_REVIEW_CANCEL, 1, UI_LAYER_MODAL);          /* added BEFORE Approve: default focus is Cancel */
-    int32_t h2 = sb(sh, x + 16 + bw + gap, iy, bw, 48, armed ? "Approve" : "Approve (locked)", SID_REVIEW_APPROVE, armed, UI_LAYER_MODAL);
-    iy += (h1 > h2 ? h1 : h2);
-    if (d) d->c.h = iy + 16 - y;
-}
-static void review_close(struct shell *sh)
-{
-    if (!sh->review_open) return;
-    ui_modal_pop(&sh->fx);
-    uint32_t keep = sh->fx.focus >= 0 ? sh->c[sh->fx.focus].id : SHELL_NONE;
-    sh->review_open = 0; sh->rv_seq++; build(sh);
-    if (keep != SHELL_NONE) { int32_t i = shell_find(sh, keep); if (i >= 0) ui_focus_set(&sh->fx, i); }
-    sh->dirty = 1;
-}
-static void review_decline(struct shell *sh)               /* Cancel, Close and Escape: a live review is declined (its ticket retired), an ended one is simply closed */
-{
-    if (!sh->review_open) return;
-    if (rv_live(sh)) rv_decline(&sh->rv, sh->rv.ticket);
-    review_close(sh);
-}
 void shell_aura_report(struct shell *sh, uint8_t state, const char *msg)
 {
     if (!sh) return;
@@ -1113,6 +1050,10 @@ int64_t shell_review_open(struct shell *sh, uint64_t now_ms, const struct rv_req
     sh->review_open = 1; sh->rv_seq++;
     build(sh); ui_modal_push(&sh->fx, UI_LAYER_MODAL);                              /* focus lands on the first control of the modal: Cancel */
     sh->dirty = 1;
+    /* Trail: REVIEW_OPEN (kind 5, state 2, arg = ticket) */
+    if (sh->review_trail_append) {
+        (void)sh->review_trail_append(5, 2, q->intent.target, 1, (uint32_t)t, (uint32_t)now_ms);
+    }
     return t;
 }
 int shell_review_attention(struct shell *sh, uint64_t now_ms, int repeat)
@@ -1121,14 +1062,14 @@ int shell_review_attention(struct shell *sh, uint64_t now_ms, int repeat)
     shell_set_now_ms(sh, now_ms);
     int rc = rv_attention(&sh->rv, now_ms, repeat);
     sh->rv_prev = sh->rv.state;                                                      /* so a later ARMED -> OPEN is recognised as a lapse */
-    if (sh->review_open) { if (rc == RV_OK) sh->rv_lapsed = 0; sh->rv_seq++; build(sh); sh->dirty = 1; }
+    if (sh->review_open) { if (rc == RV_OK) sh->rv_lapsed = 0; review_modal_refresh(sh); }
     return rc;
 }
 int shell_review_requester_gone(struct shell *sh, uint32_t pid, uint64_t gen)
 {
     if (!sh) return 0;
     int dead = rv_requester_gone(&sh->rv, pid, gen);
-    if (dead && sh->review_open) { sh->rv_seq++; build(sh); sh->dirty = 1; }
+    if (dead && sh->review_open) { review_modal_refresh(sh); }
     return dead;
 }
 int shell_review_take_approved(struct shell *sh, uint64_t *ticket)
@@ -1149,14 +1090,16 @@ static void review_tick(struct shell *sh, uint64_t now_ms)
     if (sh->rv_prev == RV_ARMED && st == RV_OPEN) { sh->rv_lapsed = 1; changed = 1; }       /* the 10 s window ended without an answer */
     if (st != sh->rv_prev) changed = 1;
     sh->rv_prev = (uint8_t)st;
-    if (changed && sh->review_open) { sh->rv_seq++; build(sh); sh->dirty = 1; }
+    if (changed && sh->review_open) { review_modal_refresh(sh); }
 }
 
 /* ---- Trail: a read-only view of the audit ledger. Everything shown is a constant or a number from the kernel's copy; no user text, no wall-clock time. ---- */
 static const char *const TV_PERM[] = { "nothing", "navigation", "settings proposals", "file writes", "file deletes", "installs", "sending", "timers" };
 static const char *const TV_WHY[] = { "none", "bad request", "unknown requester", "stale requester", "repeated request", "busy", "no permission", "not a command", "unsupported",
-                                      "navigation unavailable", "review unavailable", "passport unavailable", "trail unavailable", "hold unavailable", "timer unavailable" };
-static const char *const TV_KIND[] = { "none", "open", "space", "setting", "unsupported", "delete", "clarify", "unknown", "refused", "timer" };
+                                      "navigation unavailable", "review unavailable", "passport unavailable", "trail unavailable", "hold unavailable", "timer unavailable",
+                                      "files unavailable", "permission denied" };
+static const char *const TV_KIND[] = { "none", "open", "space", "setting", "unsupported", "delete", "clarify", "unknown", "refused", "timer",
+                                      "edit_file", "rename_file", "move_file", "delete_file", "send_file", "install_app", "share_file" };
 
 static uint64_t tv_digest_of(const struct shell_trail_view *v)
 {
@@ -1271,6 +1214,10 @@ void shell_set_trail(struct shell *sh, int (*src)(struct shell_trail_view *out))
     sh->trail_src = src; sh->tv_valid = 0; sh->tr_first = 0;
     shell_trail_refresh(sh);
 }
+void shell_set_review_trail(struct shell *sh, int (*fn)(uint8_t kind, uint8_t state, uint8_t target, uint8_t risk, uint32_t ticket, uint32_t uptime_ms))
+{
+    sh->review_trail_append = fn;
+}
 
 /* The completion toast: a compositor-owned notice in the header (the Horizon status slot). It never takes focus and cannot be clicked; it is drawn on the
  * topmost layer but only inside the header, so it cannot cover the dock, the content, a sheet or a dialog. */
@@ -1348,7 +1295,7 @@ int shell_tick(struct shell *sh, uint64_t now_ms)
     if (now_ms > sh->now_ms) sh->now_ms = now_ms;
     review_tick(sh, now_ms);
     if (sh->toast_on && now_ms >= sh->toast_until_ms) { sh->toast_on = 0; changed = 1; }
-    if (sh->screen == SCR_HOLD) {                                         /* the ONLY place a hold can confirm: the poll, after every input already processed */
+    if (sh->screen == SCR_HOLD || (sh->screen == SCR_AURA && sh->s3_pending)) { /* hold can confirm on Hold screen or Aura screen with pending S3 */
         if (hold_modal(sh)) hold_event(&sh->hd, HE_MODAL_CHANGE, now_ms, 0);
         (void)hold_poll(&sh->hd, now_ms);
         uint8_t pm = sh->hd_msg, ps = sh->hd_seg; hold_sync(sh);
@@ -1436,7 +1383,7 @@ void shell_set_clients(struct shell *sh, const struct uip_state *st, const char 
 }
 
 /* Rebuild the whole widget array from the state. Focus is kept by stable id when that control still exists and can be focused. */
-static void build(struct shell *sh)
+void build(struct shell *sh)
 {
     uint32_t keep = SHELL_NONE;
     if (sh->fx.focus >= 0 && (uint32_t)sh->fx.focus < sh->n) keep = sh->c[sh->fx.focus].id;
@@ -1470,7 +1417,7 @@ static void build(struct shell *sh)
     if (sh->about_open) build_about(sh);
     build_corner(sh);
     }
-    if (sh->review_open) { struct geo g = make_geo(sh); review_flow(sh, &g); }                  /* above everything the shell and every client can draw */
+    if (sh->review_open) { struct geo g = make_geo(sh); review_modal_build(sh, &g); }          /* above everything the shell and every client can draw */
     toast_add(sh);
     for (uint32_t i = 0; i < sh->n; i++) sh->c[i] = sh->w[i].c;
     sh->fx.c = sh->c; sh->fx.n = sh->n;
@@ -1512,6 +1459,51 @@ int shell_set_text_scale(struct shell *sh, uint32_t pct)
 int shell_set_contrast(struct shell *sh, int on)
 {
     sh->contrast = on ? 1 : 0;
+    build(sh); sh->dirty = 1;
+    return 1;
+}
+
+int shell_set_theme(struct shell *sh, uint32_t theme)
+{
+    if (theme > 2) return 0;                    /* only 0=auto, 1=light, 2=dark */
+    if (theme == sh->theme) return 1;
+    sh->theme = (uint8_t)theme;
+    build(sh); sh->dirty = 1;
+    return 1;
+}
+
+int shell_set_reduced_motion(struct shell *sh, uint32_t on)
+{
+    if (on > 1) return 0;
+    if (on == sh->reduced_motion) return 1;
+    sh->reduced_motion = (uint8_t)on;
+    build(sh); sh->dirty = 1;
+    return 1;
+}
+
+int shell_set_focus_mode(struct shell *sh, uint32_t mode)
+{
+    if (mode > 3) return 0;                    /* 0=off, 1=work, 2=rest, 3=sleep */
+    if (mode == sh->focus_mode) return 1;
+    sh->focus_mode = (uint8_t)mode;
+    build(sh); sh->dirty = 1;
+    return 1;
+}
+
+int shell_set_aura_mode(struct shell *sh, uint32_t mode)
+{
+    if (mode > 2) return 0;                    /* 0=off, 1=suggest, 2=act with review */
+    if (mode == sh->aura_mode) return 1;
+    sh->aura_mode = (uint8_t)mode;
+    build(sh); sh->dirty = 1;
+    return 1;
+}
+
+int shell_set_notifications(struct shell *sh, uint32_t mode)
+{
+    if (mode > 2) return 0;                    /* 0=all, 1=priority only, 2=none */
+    if (mode == sh->notifications) return 1;
+    sh->notifications = (uint8_t)mode;
     build(sh); sh->dirty = 1;
     return 1;
 }
@@ -1662,11 +1654,19 @@ static void activate(struct shell *sh, uint32_t id)
     case SID_CLOCK_START: clk_start(sh, sh->clk_preset); build(sh); { int32_t k = shell_find(sh, clk_eff(sh) == CK_RUNNING ? SID_CLOCK_CANCEL : SID_CLOCK_START); if (k >= 0) ui_focus_set(&sh->fx, k); } break;   /* Start moves focus to Cancel */
     case SID_CLOCK_CANCEL: clk_cancel(sh); build(sh); { int32_t k = shell_find(sh, SID_CLOCK_START); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_CLOCK_HOME: shell_go(sh, SCR_HOME); break;
-    case SID_REVIEW_CANCEL: review_decline(sh); break;
+    case SID_REVIEW_CANCEL: review_modal_decline(sh); break;
     case SID_REVIEW_APPROVE: {
         if (!sh->review_open) break;
         int rc = rv_approve(&sh->rv, sh->now_ms, sh->rv.ticket);
-        if (rc == RV_OK) { sh->rv_approved_pending = 1; sh->rv_approved_ticket = sh->rv.ticket; review_close(sh); }         /* approved: nothing executes here, the executor must still verify */
+        if (rc == RV_OK) { 
+            sh->rv_approved_pending = 1; 
+            sh->rv_approved_ticket = sh->rv.ticket; 
+            /* Trail: REVIEW_APPROVE (kind 5, state 3, arg = ticket+1) */
+            if (sh->review_trail_append) {
+                (void)sh->review_trail_append(5, 3, sh->rv_req.intent.target, 1, (uint32_t)sh->rv.ticket + 1, (uint32_t)sh->now_ms);
+            }
+            review_modal_close(sh); 
+        }       /* approved: nothing executes here, the executor must still verify */
         else { if (rc == RV_E_LAPSED) sh->rv_lapsed = 1; sh->rv_prev = sh->rv.state; sh->rv_seq++; build(sh); }
         break; }
     case SID_TRAIL_HOME: shell_go(sh, SCR_HOME); break;
@@ -1723,7 +1723,7 @@ static int shell_handle_core(struct shell *sh, const struct input_event *e)
     switch (e->kind) {
     case IN_KEY_DOWN:
         r = ui_key(&sh->fx, e);
-        if (r == UI_ESCAPE) { r = SHELL_NONE; if (sh->review_open) review_decline(sh); else if (sh->about_open) set_about(sh, 0); else if (sh->corner_open) set_corner(sh, 0); else shell_back(sh); }
+        if (r == UI_ESCAPE) { r = SHELL_NONE; if (sh->review_open) review_modal_decline(sh); else if (sh->about_open) set_about(sh, 0); else if (sh->corner_open) set_corner(sh, 0); else shell_back(sh); }
         break;
     case IN_PTR_MOVE: shell_set_pointer(sh, e->x, e->y); return 1;
     case IN_PTR_DOWN: shell_set_pointer(sh, e->x, e->y); ui_pointer_down(&sh->fx, e->x, e->y); break;
@@ -1749,7 +1749,9 @@ static int hold_over(const struct shell *sh, int32_t x, int32_t y)
 /* Feed the demo's state machine from a REAL input event after the shell has handled it (so a focus change the event caused is known). */
 static void hold_post(struct shell *sh, const struct input_event *e, uint32_t focus_before)
 {
-    if (sh->screen != SCR_HOLD) { if (sh->hd.state != HD_IDLE || sh->hd_msg) hold_reset(sh); return; }     /* left the screen (Back, Esc, Home): nothing survives */
+    int on_hold_screen = sh->screen == SCR_HOLD;
+    int on_aura_s3 = sh->screen == SCR_AURA && sh->s3_pending;
+    if (!on_hold_screen && !on_aura_s3) { if (sh->hd.state != HD_IDLE || sh->hd_msg) hold_reset(sh); return; }     /* left the screen (Back, Esc, Home): nothing survives */
     uint64_t now = sh->now_ms;
     int focused = hold_focus_id(sh) == SID_HOLD_BTN;
     if (hold_modal(sh)) hold_event(&sh->hd, HE_MODAL_CHANGE, now, 0);

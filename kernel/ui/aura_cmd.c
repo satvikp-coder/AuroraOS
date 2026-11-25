@@ -94,11 +94,21 @@ static const char *const MESSAGING[] = { "send", "message", "messages", "sms", "
 static const char *const TIMERS[] = { "timer", "stopwatch", "alarm", "remind", "reminder", "countdown", 0 };
 static const char *const HARDWARE[] = { "brightness", "brighter", "dim", "dimmer", "volume", "mute", "wifi", "bluetooth", "airplane", "battery", "flashlight", "torch", 0 };
 static const char *const NOTES[] = { "note", "notes", "notebook", "memo", 0 };
+static const char *const CALCULATOR[] = { "calculator", "calc", 0 };
+static const char *const FILES_APP[] = { "files", "file", "documents", "browser", 0 };
 static const char *const CONJ[] = { "and", "then", "also", "plus", "after", 0 };
 static const char *const LEAD[] = { "please", "hey aura", "hi aura", "aura", "ok", "okay", "can you", "could you", "would you", "will you", "i want to", "i would like to", "id like to", "i need to", "lets", 0 };
 static const char *const TRAIL[] = { "please", "now", "thanks", "thank you", 0 };
 static const char *const OPEN_VERBS[] = { "open", "go to", "goto", "show me", "show", "launch", "take me to", "switch to", "navigate to", "view", 0 };
 static const char *const SET_VERBS[] = { "set", "change", "switch", "make", "turn", "use", "select", "adjust", 0 };
+/* S2 file operation verbs */
+static const char *const EDIT_VERBS[] = { "edit", "modify", "change", "update", 0 };
+static const char *const RENAME_VERBS[] = { "rename", 0 };
+static const char *const MOVE_VERBS[] = { "move", 0 };
+/* S3 specific verbs */
+static const char *const DELETE_VERBS[] = { "delete", "remove", "erase", "wipe", 0 };
+static const char *const SEND_VERBS[] = { "send", "message", "share", 0 };
+static const char *const INSTALL_VERBS[] = { "install", "download", 0 };
 
 static const char *const SCREEN_NAME[ASC_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Clock" };
 static const char *const SPACE_NAME[4] = { "Study", "Work", "Projects", "Personal" };
@@ -158,6 +168,44 @@ static int open_screen(const struct toks *tk, int lo, int hi, const struct aura_
     char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Open "; for (; pre[i]; i++) b[i] = pre[i]; for (int k = 0; SCREEN_NAME[sc][k]; k++) b[i++] = SCREEN_NAME[sc][k]; b[i] = 0;
     if (sc == ASC_PAGES && !caps->pages) { fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_PAGES, 0, 0, AA_NONE, 0, "Unsupported: Pages is not available yet"); return 1; }
     fin(o, AK_OPEN_SCREEN, AS_ACTIONABLE, AR_NONE, 0, sc, AA_NONE, 0, b);
+    return 1;
+}
+
+/* ---- open app: "open notes", "open calculator", "open files" ---- */
+static int open_app(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    int p = lo, n = first_of(tk, p, hi, OPEN_VERBS);
+    if (!n) return 0;
+    p += n;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Open what?"); return 1; }
+
+    /* Check for known apps */
+    int app_id = -1;
+    const char *app_label = 0;
+    int has_cap = 0;
+
+    if (has_any(tk, p, hi, NOTES)) { app_id = 2; app_label = "Notes"; has_cap = caps->notes; }
+    else if (has_any(tk, p, hi, CALCULATOR)) { app_id = 1; app_label = "Calculator"; has_cap = caps->calculator; }
+    else if (has_any(tk, p, hi, FILES_APP)) { app_id = 3; app_label = "Files"; has_cap = caps->files; }
+    else { return 0; }  /* not an app we know */
+
+    p++;  /* consume the app name token */
+    if (p < hi && eq(tk->t[p], "app")) p++;
+    if (p != hi) return 0;  /* leftover words */
+
+    if (!has_cap) {
+        char ub[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Unsupported: no "; for (; pre[i]; i++) ub[i] = pre[i];
+        for (int k = 0; app_label[k] && i < AURA_PREVIEW_MAX - 1; k++) ub[i++] = app_label[k];
+        ub[i] = 0;
+        fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_APP, 0, 0, AA_NONE, 0, ub);
+        return 1;
+    }
+
+    char prev[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Open "; for (; pre[i]; i++) prev[i] = pre[i];
+    for (int k = 0; app_label[k] && i < AURA_PREVIEW_MAX - 1; k++) prev[i++] = app_label[k];
+    prev[i] = 0;
+    fin(o, AK_OPEN_APP, AS_ACTIONABLE, AR_NONE, 0, app_id, AA_NONE, 0, prev);
     return 1;
 }
 
@@ -333,6 +381,287 @@ static int text_size(const struct toks *tk, int lo, int hi, struct aura_intent *
     return 1;
 }
 
+/* ---- S2: file modifications (explicit review, risk 2) ---- */
+static int file_target(const struct toks *tk, int p, int hi, char *name, int cap)
+{
+    if (p >= hi) return 0;
+    int n = 0;
+    for (int i = p; i < hi && n < cap - 1; i++) {
+        if (i > p) name[n++] = ' ';
+        for (int k = 0; tk->t[i][k] && n < cap - 1; k++) name[n++] = tk->t[i][k];
+    }
+    name[n] = 0;
+    return n > 0 ? hi - p : 0;
+}
+
+static int edit_file(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    (void)caps;
+    int p = lo, n = first_of(tk, p, hi, EDIT_VERBS);
+    if (!n) return 0;
+    p += n;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p < hi && eq(tk->t[p], "file")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Edit what file?"); return 1; }
+    char name[32]; int used = file_target(tk, p, hi, name, sizeof name);
+    if (!used) return 0;
+    p += used;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; put_num(b, sizeof b, "Edit file: ", 0, ""); /* name goes in preview */
+    int i = 0; const char *pre = "Edit file: "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; name[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = name[k];
+    b[i] = 0;
+    fin(o, AK_EDIT_FILE, AS_NEEDS_APPROVAL, AR_NONE, 2, 0, AA_NONE, 0, b);
+    return 1;
+}
+
+static int rename_file(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    (void)caps;
+    int p = lo, n = first_of(tk, p, hi, RENAME_VERBS);
+    if (!n) return 0;
+    p += n;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p < hi && eq(tk->t[p], "file")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Rename what file?"); return 1; }
+    char from[32]; int used = file_target(tk, p, hi, from, sizeof from);
+    if (!used) return 0;
+    p += used;
+    if (p >= hi || !eq(tk->t[p], "to")) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Rename to what?"); return 1; }
+    p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Rename to what?"); return 1; }
+    char to[32]; used = file_target(tk, p, hi, to, sizeof to);
+    if (!used) return 0;
+    p += used;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Rename file "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; from[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = from[k];
+    const char *mid = " to "; for (; *mid && i < AURA_PREVIEW_MAX - 1; mid++) b[i++] = *mid;
+    for (int k = 0; to[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = to[k];
+    b[i] = 0;
+    fin(o, AK_RENAME_FILE, AS_NEEDS_APPROVAL, AR_NONE, 2, 0, AA_NONE, 0, b);
+    return 1;
+}
+
+static int move_file(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    (void)caps;
+    int p = lo, n = first_of(tk, p, hi, MOVE_VERBS);
+    if (!n) return 0;
+    p += n;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p < hi && eq(tk->t[p], "file")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Move what file?"); return 1; }
+    char from[32]; int used = file_target(tk, p, hi, from, sizeof from);
+    if (!used) return 0;
+    p += used;
+    if (p >= hi || !eq(tk->t[p], "to")) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Move to where?"); return 1; }
+    p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Move to where?"); return 1; }
+    char to[32]; used = file_target(tk, p, hi, to, sizeof to);
+    if (!used) return 0;
+    p += used;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Move file "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; from[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = from[k];
+    const char *mid = " to "; for (; *mid && i < AURA_PREVIEW_MAX - 1; mid++) b[i++] = *mid;
+    for (int k = 0; to[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = to[k];
+    b[i] = 0;
+    fin(o, AK_MOVE_FILE, AS_NEEDS_APPROVAL, AR_NONE, 2, 0, AA_NONE, 0, b);
+    return 1;
+}
+
+/* ---- S3: delete/send/install/share (tactile hold confirmation, risk 3) ---- */
+static int delete_file(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    (void)caps;
+    int p = lo, n = first_of(tk, p, hi, DELETE_VERBS);
+    if (!n) return 0;
+    p += n;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p < hi && eq(tk->t[p], "file")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Delete what file?"); return 1; }
+    char name[32]; int used = file_target(tk, p, hi, name, sizeof name);
+    if (!used) return 0;
+    p += used;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Delete file: "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; name[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = name[k];
+    b[i] = 0;
+    fin(o, AK_DELETE_FILE, AS_REJECTED, AR_NEEDS_BROKER, 3, 0, AA_NONE, 0, b);
+    return 1;
+}
+
+static int send_file(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    (void)caps;
+    int p = lo, n = first_of(tk, p, hi, SEND_VERBS);
+    if (!n) return 0;
+    p += n;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p < hi && eq(tk->t[p], "file")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Send what file?"); return 1; }
+    char name[32]; int used = file_target(tk, p, hi, name, sizeof name);
+    if (!used) return 0;
+    p += used;
+    if (p >= hi || !eq(tk->t[p], "to")) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Send to whom?"); return 1; }
+    p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Send to whom?"); return 1; }
+    char to[32]; used = file_target(tk, p, hi, to, sizeof to);
+    if (!used) return 0;
+    p += used;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Send file "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; name[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = name[k];
+    const char *mid = " to "; for (; *mid && i < AURA_PREVIEW_MAX - 1; mid++) b[i++] = *mid;
+    for (int k = 0; to[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = to[k];
+    b[i] = 0;
+    fin(o, AK_SEND_FILE, AS_REJECTED, AR_NEEDS_BROKER, 3, 0, AA_NONE, 0, b);
+    return 1;
+}
+
+static int install_app(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    (void)caps;
+    int p = lo, n = first_of(tk, p, hi, INSTALL_VERBS);
+    if (!n) return 0;
+    p += n;
+    if (p < hi && (eq(tk->t[p], "an") || eq(tk->t[p], "a") || eq(tk->t[p], "the"))) p++;
+    if (p < hi && eq(tk->t[p], "app")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Install what app?"); return 1; }
+    char name[32]; int used = file_target(tk, p, hi, name, sizeof name);
+    if (!used) return 0;
+    p += used;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Install app: "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; name[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = name[k];
+    b[i] = 0;
+    fin(o, AK_INSTALL_APP, AS_REJECTED, AR_NEEDS_BROKER, 3, 0, AA_NONE, 0, b);
+    return 1;
+}
+
+static int share_file(const struct toks *tk, int lo, int hi, const struct aura_caps *caps, struct aura_intent *o)
+{
+    (void)caps;
+    int p = lo, n = first_of(tk, p, hi, SEND_VERBS); /* share uses same verbs as send */
+    if (!n) { static const char *const V[] = { "share", 0 }; n = first_of(tk, p, hi, V); }
+    if (!n) return 0;
+    p += n;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p < hi && eq(tk->t[p], "file")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Share what file?"); return 1; }
+    char name[32]; int used = file_target(tk, p, hi, name, sizeof name);
+    if (!used) return 0;
+    p += used;
+    if (p >= hi || !eq(tk->t[p], "with")) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Share with whom?"); return 1; }
+    p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Share with whom?"); return 1; }
+    char with[32]; used = file_target(tk, p, hi, with, sizeof with);
+    if (!used) return 0;
+    p += used;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Share file "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; name[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = name[k];
+    const char *mid = " with "; for (; *mid && i < AURA_PREVIEW_MAX - 1; mid++) b[i++] = *mid;
+    for (int k = 0; with[k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = with[k];
+    b[i] = 0;
+    fin(o, AK_SHARE_FILE, AS_REJECTED, AR_NEEDS_BROKER, 3, 0, AA_NONE, 0, b);
+    return 1;
+}
+
+/* ---- S1 extended: focus mode, aura mode, notifications, reduced motion ---- */
+static int focus_mode(const struct toks *tk, int lo, int hi, struct aura_intent *o)
+{
+    int has_focus = has(tk, lo, hi, "focus"), has_mode = has(tk, lo, hi, "mode");
+    if (!has_focus || !has_mode) return 0;
+    static const char *const FOCUS_NAME[] = { "off", "work", "rest", "sleep" };
+    int p = lo, n = first_of(tk, p, hi, SET_VERBS);
+    if (!n) { static const char *const V[] = { "enable", 0 }; n = first_of(tk, p, hi, V); }
+    p += n;
+    if (p < hi && eq(tk->t[p], "on")) p++;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p < hi && eq(tk->t[p], "to")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Focus mode to what?"); return 1; }
+    int v = -1;
+    for (int i = 0; i < 4; i++) if (eq(tk->t[p], FOCUS_NAME[i])) { v = i; break; }
+    if (v < 0) return 0;
+    p++;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Set focus mode to "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; FOCUS_NAME[v][k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = FOCUS_NAME[v][k];
+    b[i] = 0;
+    fin(o, AK_SET_SETTING, AS_NEEDS_APPROVAL, AR_NONE, 1, ASET_FOCUS_MODE, AA_ABS, v, b);
+    return 1;
+}
+
+static int aura_mode(const struct toks *tk, int lo, int hi, struct aura_intent *o)
+{
+    int has_aura = has(tk, lo, hi, "aura"), has_mode = has(tk, lo, hi, "mode");
+    if (!has_aura || !has_mode) return 0;
+    static const char *const AURA_NAME[] = { "off", "suggest", "act with review" };
+    int p = lo, n = first_of(tk, p, hi, SET_VERBS);
+    if (!n) { static const char *const V[] = { "enable", 0 }; n = first_of(tk, p, hi, V); }
+    p += n;
+    if (p < hi && eq(tk->t[p], "on")) p++;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p < hi && eq(tk->t[p], "to")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Aura mode to what?"); return 1; }
+    int v = -1;
+    for (int i = 0; i < 3; i++) if (eq(tk->t[p], AURA_NAME[i])) { v = i; break; }
+    if (v < 0) return 0;
+    p++;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Set Aura mode to "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; AURA_NAME[v][k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = AURA_NAME[v][k];
+    b[i] = 0;
+    fin(o, AK_SET_SETTING, AS_NEEDS_APPROVAL, AR_NONE, 1, ASET_AURA_MODE, AA_ABS, v, b);
+    return 1;
+}
+
+static int notifications(const struct toks *tk, int lo, int hi, struct aura_intent *o)
+{
+    int has_notif = has(tk, lo, hi, "notification") || has(tk, lo, hi, "notifications");
+    if (!has_notif) return 0;
+    static const char *const NOTIF_NAME[] = { "all", "priority only", "none" };
+    int p = lo, n = first_of(tk, p, hi, SET_VERBS);
+    if (!n) { static const char *const V[] = { "enable", 0 }; n = first_of(tk, p, hi, V); }
+    p += n;
+    if (p < hi && eq(tk->t[p], "on")) p++;
+    if (p < hi && eq(tk->t[p], "the")) p++;
+    if (p < hi && eq(tk->t[p], "to")) p++;
+    if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Notifications to what?"); return 1; }
+    int v = -1;
+    for (int i = 0; i < 3; i++) if (eq(tk->t[p], NOTIF_NAME[i])) { v = i; break; }
+    if (v < 0) return 0;
+    p++;
+    if (p != hi) return 0;
+    char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Set notifications to "; for (; pre[i]; i++) b[i] = pre[i];
+    for (int k = 0; NOTIF_NAME[v][k] && i < AURA_PREVIEW_MAX - 1; k++) b[i++] = NOTIF_NAME[v][k];
+    b[i] = 0;
+    fin(o, AK_SET_SETTING, AS_NEEDS_APPROVAL, AR_NONE, 1, ASET_NOTIFICATIONS, AA_ABS, v, b);
+    return 1;
+}
+
+static int reduced_motion(const struct toks *tk, int lo, int hi, struct aura_intent *o)
+{
+    int has_reduced = has(tk, lo, hi, "reduced") && has(tk, lo, hi, "motion");
+    if (!has_reduced) return 0;
+    int p = lo, n = first_of(tk, p, hi, SET_VERBS);
+    if (!n) { static const char *const V[] = { "enable", "disable", "turn", 0 }; n = first_of(tk, p, hi, V); }
+    p += n;
+    if (p < hi && (eq(tk->t[p], "on") || eq(tk->t[p], "off"))) {
+        int v = eq(tk->t[p], "on") ? 1 : 0;
+        p++;
+        if (p != hi) return 0;
+        char b[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Set reduced motion "; for (; pre[i]; i++) b[i] = pre[i];
+        if (v) { const char *s = "on"; while (*s) b[i++] = *s++; } else { const char *s = "off"; while (*s) b[i++] = *s++; }
+        b[i] = 0;
+        fin(o, AK_SET_SETTING, AS_NEEDS_APPROVAL, AR_NONE, 1, ASET_REDUCED_MOTION, AA_ABS, v, b);
+        return 1;
+    }
+    return 0;
+}
+
 /* strip filler words at the start and end; the remaining range is what the grammars see */
 static void strip(const struct toks *tk, int *lo, int *hi)
 {
@@ -351,7 +680,7 @@ static void strip(const struct toks *tk, int *lo, int *hi)
 
 int aura_parse(const char *text, size_t len, const struct aura_caps *caps_in, struct aura_intent *o)
 {
-    static const struct aura_caps none = { 0, 0, 0, 0, 0 };
+    static const struct aura_caps none = { 0, 0, 0, 0, 0, 0, 0 };
     const struct aura_caps *caps = caps_in ? caps_in : &none;
     struct toks tk;
     fin(o, AK_UNKNOWN, AS_REJECTED, AR_NOT_UNDERSTOOD, 0, 0, AA_NONE, 0, "Not a command I know");
@@ -377,16 +706,38 @@ int aura_parse(const char *text, size_t len, const struct aura_caps *caps_in, st
     if (has_any(&tk, lo, hi, CONJ)) return fin(o, AK_CLARIFY, AS_CLARIFY, AR_MULTIPLE, 0, 0, AA_NONE, 0, "One command at a time");
     if (timer_cmd(&tk, lo, hi, caps, o)) return o->status;
     if (open_screen(&tk, lo, hi, caps, o)) return o->status;
+<<<<<<< HEAD
     if (caps->notes && hi - lo == 2 && ph(&tk, lo, hi, "open notes") == 2)
         return fin(o, AK_OPEN_NOTES, AS_ACTIONABLE, AR_NONE, 0, 0, AA_NONE, 0, "Open Notes");
+=======
+    if (open_app(&tk, lo, hi, caps, o)) return o->status;
+>>>>>>> feature/notes-aura-integration
     if (select_space(&tk, lo, hi, o)) return o->status;
     if (theme(&tk, lo, hi, o)) return o->status;
     if (text_size(&tk, lo, hi, o)) return o->status;
     if (has_any(&tk, lo, hi, MESSAGING)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_MESSAGING, 3, 0, AA_NONE, 0, "Unsupported: no messaging service");
     if (!caps->timer && has_any(&tk, lo, hi, TIMERS)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_TIMER, 0, 0, AA_NONE, 0, "Unsupported: no timer service");
     if (has_any(&tk, lo, hi, HARDWARE)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_HARDWARE, 1, 0, AA_NONE, 0, "Unsupported: no driver for that");
+<<<<<<< HEAD
     if (has_any(&tk, lo, hi, NOTES)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_NOTES, 0, 0, AA_NONE, 0,
                                                 caps->notes ? "Unsupported: only opening Notes is available" : "Unsupported: no Notes app");
+=======
+    /* NOTES words alone (without "open") are not a command; they fall through to UNKNOWN */
+    /* S2: file modifications */
+    if (edit_file(&tk, lo, hi, caps, o)) return o->status;
+    if (rename_file(&tk, lo, hi, caps, o)) return o->status;
+    if (move_file(&tk, lo, hi, caps, o)) return o->status;
+    /* S3: delete/send/install/share */
+    if (delete_file(&tk, lo, hi, caps, o)) return o->status;
+    if (send_file(&tk, lo, hi, caps, o)) return o->status;
+    if (install_app(&tk, lo, hi, caps, o)) return o->status;
+    if (share_file(&tk, lo, hi, caps, o)) return o->status;
+    /* S1 extended */
+    if (focus_mode(&tk, lo, hi, o)) return o->status;
+    if (aura_mode(&tk, lo, hi, o)) return o->status;
+    if (notifications(&tk, lo, hi, o)) return o->status;
+    if (reduced_motion(&tk, lo, hi, o)) return o->status;
+>>>>>>> feature/notes-aura-integration
     return fin(o, AK_UNKNOWN, AS_REJECTED, AR_NOT_UNDERSTOOD, 0, 0, AA_NONE, 0, "Not a command I know");
 }
 
@@ -395,7 +746,7 @@ static int str_eq_n(const char *a, const char *b) { int i = 0; for (; i < AURA_P
 
 int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
 {
-    static const struct aura_caps none = { 0, 0, 0, 0, 0 };
+    static const struct aura_caps none = { 0, 0, 0, 0, 0, 0, 0 };
     const struct aura_caps *caps = caps_in ? caps_in : &none;
     if (!x || x->version != AURA_INTENT_VERSION || x->kind == AK_NONE || x->kind >= AK_COUNT || x->status >= AS_COUNT || x->reason >= AR_COUNT || x->arg_kind > AA_REL || x->risk > 3) return 0;
     int terminated = 0; for (int i = 0; i < AURA_PREVIEW_MAX; i++) if (x->preview[i] == 0) { terminated = 1; break; }
@@ -417,18 +768,44 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
         if (x->target >= 4 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
         return x->status == AS_ACTIONABLE && x->reason == AR_NONE && x->risk == 0 && str_eq_n(x->preview, N[x->target]);
     }
+    case AK_OPEN_APP: {
+        /* target = app id (1=calculator, 2=notes, 3=files), arg_kind=AA_NONE, arg=0, risk=0 */
+        if (x->target < 1 || x->target > 3 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
+        if (x->status != AS_ACTIONABLE || x->reason != AR_NONE || x->risk != 0) return 0;
+        static const char *const N[] = { "Open Calculator", "Open Notes", "Open Files" };
+        if (!caps->calculator && x->target == 1) return 0;
+        if (!caps->notes && x->target == 2) return 0;
+        if (!caps->files && x->target == 3) return 0;
+        return str_eq_n(x->preview, N[x->target - 1]);
+    }
     case AK_SET_SETTING:
         if (x->status == AS_REJECTED) return x->reason == AR_RANGE && x->target == 2 && x->arg_kind == AA_NONE && x->arg == 0 && x->risk == 1 && str_eq_n(x->preview, "Text size must be 75 to 200 percent");
         if (x->status != AS_NEEDS_APPROVAL || x->reason != AR_NONE || x->risk != 1) return 0;                 /* a setting change is never actionable on its own */
-        if (x->target == 1) {
+        if (x->target == 1) { /* theme */
             static const char *const N[] = { "Change theme to Auto", "Change theme to Light", "Change theme to Dark" };
             return x->arg_kind == AA_ABS && x->arg >= 0 && x->arg <= 2 && str_eq_n(x->preview, N[x->arg]);
         }
-        if (x->target == 2) {
+        if (x->target == 2) { /* text scale */
             if (x->arg_kind == AA_REL) return (x->arg == 1 && str_eq_n(x->preview, "Make text larger")) || (x->arg == -1 && str_eq_n(x->preview, "Make text smaller"));
             if (x->arg_kind != AA_ABS || x->arg < 75 || x->arg > 200) return 0;
             put_num(want, sizeof want, "Set text size to ", x->arg, "%");
             return str_eq_n(x->preview, want);
+        }
+        if (x->target == 4) { /* focus mode */
+            static const char *const N[] = { "Set focus mode to off", "Set focus mode to work", "Set focus mode to rest", "Set focus mode to sleep" };
+            return x->arg_kind == AA_ABS && x->arg >= 0 && x->arg <= 3 && str_eq_n(x->preview, N[x->arg]);
+        }
+        if (x->target == 5) { /* aura mode */
+            static const char *const N[] = { "Set Aura mode to off", "Set Aura mode to suggest", "Set Aura mode to act with review" };
+            return x->arg_kind == AA_ABS && x->arg >= 0 && x->arg <= 2 && str_eq_n(x->preview, N[x->arg]);
+        }
+        if (x->target == 6) { /* notifications */
+            static const char *const N[] = { "Set notifications to all", "Set notifications to priority only", "Set notifications to none" };
+            return x->arg_kind == AA_ABS && x->arg >= 0 && x->arg <= 2 && str_eq_n(x->preview, N[x->arg]);
+        }
+        if (x->target == 3) { /* reduced motion */
+            if (x->arg_kind != AA_ABS || x->arg < 0 || x->arg > 1) return 0;
+            return (x->arg == 1 && str_eq_n(x->preview, "Set reduced motion on")) || (x->arg == 0 && str_eq_n(x->preview, "Set reduced motion off"));
         }
         return 0;
     case AK_TIMER:
@@ -447,7 +824,12 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
         switch (x->reason) {
         case AR_NO_TIMER: return !caps->timer && x->risk == 0 && str_eq_n(x->preview, "Unsupported: no timer service");
         case AR_NO_HARDWARE: return x->risk == 1 && str_eq_n(x->preview, "Unsupported: no driver for that");
+<<<<<<< HEAD
         case AR_NO_NOTES: return x->risk == 0 && str_eq_n(x->preview, caps->notes ? "Unsupported: only opening Notes is available" : "Unsupported: no Notes app");
+=======
+        case AR_NO_NOTES: return x->risk == 0 && str_eq_n(x->preview, "Unsupported: no Notes app");
+        case AR_NO_APP: return x->risk == 0 && (str_eq_n(x->preview, "Unsupported: no Notes") || str_eq_n(x->preview, "Unsupported: no Calculator") || str_eq_n(x->preview, "Unsupported: no Files"));
+>>>>>>> feature/notes-aura-integration
         case AR_NO_MESSAGING: return x->risk == 3 && str_eq_n(x->preview, "Unsupported: no messaging service");
         case AR_NO_PAGES: return !caps->pages && x->risk == 0 && str_eq_n(x->preview, "Unsupported: Pages is not available yet");
         default: return 0;
@@ -455,6 +837,29 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     }
     case AK_DESTRUCTIVE: return x->status == AS_REJECTED && x->reason == AR_NEEDS_BROKER && x->risk == 3 && x->target == 0 && x->arg_kind == AA_NONE && x->arg == 0 && str_eq_n(x->preview, "Not done: needs broker and trusted approval");
     case AK_REFUSED: return x->status == AS_REJECTED && x->reason == AR_INJECTION && x->risk == 3 && x->target == 0 && x->arg_kind == AA_NONE && x->arg == 0 && str_eq_n(x->preview, "Refused: not a command");
+    /* S2: file modifications (explicit review, risk 2) */
+    case AK_EDIT_FILE:
+    case AK_RENAME_FILE:
+    case AK_MOVE_FILE:
+        if (x->status != AS_NEEDS_APPROVAL || x->reason != AR_NONE || x->risk != 2) return 0;
+        if (x->arg_kind != AA_NONE || x->arg != 0) return 0;
+        /* preview must start with the expected prefix */
+        if (x->kind == AK_EDIT_FILE) return str_eq_n(x->preview, "Edit file: ");
+        if (x->kind == AK_RENAME_FILE) return str_eq_n(x->preview, "Rename file ");
+        if (x->kind == AK_MOVE_FILE) return str_eq_n(x->preview, "Move file ");
+        return 0;
+    /* S3: delete/send/install/share (tactile hold confirmation, risk 3) */
+    case AK_DELETE_FILE:
+    case AK_SEND_FILE:
+    case AK_INSTALL_APP:
+    case AK_SHARE_FILE:
+        if (x->status != AS_REJECTED || x->reason != AR_NEEDS_BROKER || x->risk != 3) return 0;
+        if (x->arg_kind != AA_NONE || x->arg != 0) return 0;
+        if (x->kind == AK_DELETE_FILE) return str_eq_n(x->preview, "Delete file: ");
+        if (x->kind == AK_SEND_FILE) return str_eq_n(x->preview, "Send file ");
+        if (x->kind == AK_INSTALL_APP) return str_eq_n(x->preview, "Install app: ");
+        if (x->kind == AK_SHARE_FILE) return str_eq_n(x->preview, "Share file ");
+        return 0;
     case AK_CLARIFY:
         if (x->status != AS_CLARIFY || x->risk != 0 || x->target != 0 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
         switch (x->reason) {
@@ -474,9 +879,13 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     }
 }
 
+<<<<<<< HEAD
 static const char *const KN[AK_COUNT] = { "none", "open_screen", "select_space", "set_setting", "unsupported", "destructive", "clarify", "unknown", "refused", "timer", "open_notes" };
+=======
+static const char *const KN[AK_COUNT] = { "none", "open_screen", "select_space", "set_setting", "open_app", "edit_file", "rename_file", "move_file", "delete_file", "send_file", "install_app", "share_file", "unsupported", "destructive", "clarify", "unknown", "refused", "timer" };
+>>>>>>> feature/notes-aura-integration
 static const char *const SN[AS_COUNT] = { "actionable", "needs_approval", "unsupported", "clarify", "rejected" };
-static const char *const RN[AR_COUNT] = { "none", "empty", "too_long", "bad_encoding", "injection", "multiple", "ambiguous", "missing_arg", "range", "not_understood", "no_timer", "no_hardware", "no_notes", "no_messaging", "no_pages", "needs_broker" };
+static const char *const RN[AR_COUNT] = { "none", "empty", "too_long", "bad_encoding", "injection", "multiple", "ambiguous", "missing_arg", "range", "not_understood", "no_timer", "no_hardware", "no_notes", "no_messaging", "no_pages", "needs_broker", "no_files", "no_permission", "no_target", "no_destination", "no_app", "no_contact" };
 const char *aura_kind_name(uint8_t k) { return k < AK_COUNT ? KN[k] : "?"; }
 const char *aura_status_name(uint8_t s) { return s < AS_COUNT ? SN[s] : "?"; }
 const char *aura_reason_name(uint8_t r) { return r < AR_COUNT ? RN[r] : "?"; }

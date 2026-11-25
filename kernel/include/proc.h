@@ -117,6 +117,13 @@ void sched_trace_reset(void);
 #define SYS_MEM    10  /* x0 = operation (MEMOP_*), x1 = page count: a bounded user heap; see kernel/proc/memsys.c */
 enum { MEMOP_GROW = 1, MEMOP_SHRINK, MEMOP_INFO };
 #define SYS_SETTINGS 9   /* x0 = operation (SETOP_*), x1 = setting id, x2 = value: see kernel/settings.c */
+/* 11 = SYS_MODEL (kernel/include/modelsys.h) */
+/* 12..40 = reserved, deliberately -ENOSYS (process test asserts this) */
+/* 41 = SYS_UI (kernel/include/ui_sys.h) */
+/* 42 = SYS_TIMER (kernel/include/timersys.h) */
+#define SYS_PASSPORT 43  /* x0 = operation (PP_OP_*), x1-x5 arguments: see kernel/include/passport.h */
+#define SYS_TRAIL    44  /* x0 = operation (TR_OP_*), x1-x5 arguments: see kernel/include/trail.h */
+#define SYS_ACTION   45  /* x0 = operation (ACTION_OP_*), x1-x5 arguments: see kernel/include/aura_cmd.h, kernel/include/review.h */
 #define SYS_WRITE_MAX 256
 #define AE_OK      0
 #define AE_EINVAL (-1)
@@ -128,6 +135,7 @@ enum { MEMOP_GROW = 1, MEMOP_SHRINK, MEMOP_INFO };
 #define AE_EPERM  (-7)   /* sender not authorised for that destination */
 #define AE_ENOMEM (-8)   /* out of memory, over the process's budget, or the kernel's reserve would be used */
 #define AE_EIO    (-9)   /* the device failed a read the kernel had already bounded (SYS_MODEL) */
+#define AE_ENOENT (-10)  /* no such entry (e.g., Trail record not found) */
 
 /* ---- file system call (kernel/proc/fssys.c) ---- */
 #include <principal.h>

@@ -117,3 +117,34 @@ int trail_load(struct trail *t, const struct tr_store *st)
     if (!st || !st->read || st->read(buf, sizeof buf, &len)) { trail_init(t); t->healthy = 0; return TR_E_STORE; }
     return trail_decode(t, buf, len);
 }
+
+/* EL0-facing read functions */
+
+uint32_t trail_count(const struct trail *t)
+{
+    return t ? t->n : 0;
+}
+
+const struct trail_rec *trail_at(const struct trail *t, uint32_t seq)
+{
+    if (!t || seq == 0) return 0;
+    for (uint32_t i = 0; i < t->n; i++) {
+        if (t->r[i].seq == seq) return &t->r[i];
+    }
+    return 0;
+}
+
+const struct trail_rec *trail_nth_newest(const struct trail *t, uint32_t n)
+{
+    if (!t || n >= t->n) return 0;
+    return &t->r[t->n - 1 - n];
+}
+
+int trail_verify_head(const struct trail *t, uint64_t expected_head)
+{
+    if (!t) return TR_E_CORRUPT;
+    int v = trail_verify(t);
+    if (v != TR_OK) return v;
+    uint64_t head = trail_head(t);
+    return (head == expected_head) ? TR_OK : TR_E_CHAIN;
+}

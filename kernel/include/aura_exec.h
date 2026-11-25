@@ -16,6 +16,24 @@
 
 enum { AX_NONE = 0, AX_DONE, AX_DENIED, AX_UNAVAILABLE, AX_NEEDS_APPROVAL, AX_NOT_UNDERSTOOD, AX_FAILED };
 
+/* EL0-facing operations for SYS_ACTION */
+enum action_op {
+    ACTION_OP_SET_SETTING = 1,  /* S1: x1 = setting_id (ASET_*), x2 = value, x3 = arg_kind (AA_ABS/AA_REL) */
+    ACTION_OP_FILE_EDIT   = 2,  /* S2: x1 = file_handle, x2 = offset, x3 = length, x4 = flags, x5 = user buffer */
+    ACTION_OP_FILE_DELETE = 3,  /* S3: x1 = file_handle */
+};
+
+/* Action syscall result codes */
+enum action_result {
+    ACTION_OK              = 0,   /* Action executed successfully (S0) or review opened (S1/S2/S3) */
+    ACTION_PENDING         = 1,   /* Review opened, ticket returned in x1 */
+    ACTION_E_PERM          = -1,  /* No capability for this action */
+    ACTION_E_REVIEW_UNAVAILABLE = -2,  /* Review path not available or ledger unhealthy */
+    ACTION_E_NO_UNDO       = -3,  /* S3 action has no undo */
+    ACTION_E_ARG           = -4,  /* Invalid arguments */
+    ACTION_E_STATE         = -5,  /* Invalid state (e.g., no live review) */
+};
+
 struct aura_outcome {
     uint8_t state;                 /* AX_*: what really happened */
     uint8_t decision, reason;      /* the policy's answer (BP_*, BPR_*) */
@@ -65,4 +83,12 @@ void aura_run_text(struct shell *sh, const struct bp_env *env, struct bp_replay 
 /* Pipeline for an intent that was already parsed and ALLOWED earlier (queued from an EL0 request): re-checks that the requester is still the same live
  * instance, re-validates the intent, then executes. A requester that exited or was replaced in between has its request dropped. */
 void aura_run_queued(struct shell *sh, const struct bp_env *env, uint32_t pid, uint64_t gen, const struct aura_intent *in, struct aura_outcome *out);
+
+/* S2 file execution (after trusted review approval) */
+void aura_s2_begin(struct shell *sh, const struct bp_env *env, uint32_t pid, uint64_t nonce, struct aura_outcome *out);
+int aura_s2_complete(struct shell *sh, const struct bp_env *env, struct bp_replay *rp, uint64_t ticket, uint64_t fresh_nonce);
+
+/* S3 execution (after hold-to-confirm) */
+void aura_s3_begin(struct shell *sh, const struct bp_env *env, uint32_t pid, uint64_t nonce, struct aura_outcome *out);
+int aura_s3_complete(struct shell *sh, const struct bp_env *env, struct bp_replay *rp, struct hold *hd, uint64_t fresh_nonce, struct aura_outcome *out);
 #endif

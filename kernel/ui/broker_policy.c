@@ -1,5 +1,7 @@
 /* kernel/ui/broker_policy.c - the pure Action Broker policy (see broker_policy.h). No allocation, no clock, no libc. */
 #include <broker_policy.h>
+#include <aura_cmd.h>
+#include <passport.h>
 
 void bp_replay_init(struct bp_replay *r)
 {
@@ -9,9 +11,12 @@ void bp_replay_init(struct bp_replay *r)
 uint8_t bp_risk_of_kind(uint8_t kind)
 {
     switch (kind) {
-    case AK_OPEN_SCREEN: case AK_SELECT_SPACE: case AK_OPEN_NOTES: return 0;
+    case AK_OPEN_SCREEN: case AK_SELECT_SPACE: return 0;
+    case AK_OPEN_APP: return 0;
     case AK_TIMER: return 0;
     case AK_SET_SETTING: return 1;
+    case AK_EDIT_FILE: case AK_RENAME_FILE: case AK_MOVE_FILE: return 2;
+    case AK_DELETE_FILE: case AK_SEND_FILE: case AK_INSTALL_APP: case AK_SHARE_FILE: return 3;
     case AK_DESTRUCTIVE: return 3;
     default: return 255;
     }
@@ -76,15 +81,23 @@ void bp_decide(const struct bp_env *env, struct bp_replay *replay, const struct 
         if (!env->nav_service) { res(out, BP_UNAVAILABLE, BPR_NO_NAVIGATION, risk, principal); return; }
         res(out, BP_ALLOW_NOW, BPR_NONE, risk, principal); return;
     case AS_NEEDS_APPROVAL:
-        if (risk != 1) { res(out, BP_DENY, BPR_BAD_INTENT, risk, principal); return; }
-        if (!(rights & BP_RIGHT_SETTINGS)) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
-        if (!env->review_path) { res(out, BP_UNAVAILABLE, BPR_NO_REVIEW, risk, principal); return; }
-        if (!env->trail) { res(out, BP_UNAVAILABLE, BPR_NO_TRAIL, risk, principal); return; }              /* a change that must be recorded cannot run when the Trail cannot record it */
-        res(out, BP_REVIEW, BPR_NONE, risk, principal); return;
+        if (risk == 1) { /* S1: reversible settings */
+            if (!(rights & BP_RIGHT_SETTINGS)) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
+            if (!env->review_path) { res(out, BP_UNAVAILABLE, BPR_NO_REVIEW, risk, principal); return; }
+            if (!env->trail) { res(out, BP_UNAVAILABLE, BPR_NO_TRAIL, risk, principal); return; }
+            res(out, BP_REVIEW, BPR_NONE, risk, principal); return;
+        }
+        if (risk == 2) { /* S2: file modifications */
+            if (!(rights & BP_RIGHT_FILES)) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
+            if (!env->review_path) { res(out, BP_UNAVAILABLE, BPR_NO_REVIEW, risk, principal); return; }
+            if (!env->trail) { res(out, BP_UNAVAILABLE, BPR_NO_TRAIL, risk, principal); return; }
+            res(out, BP_REVIEW, BPR_NONE, risk, principal); return;
+        }
+        res(out, BP_DENY, BPR_BAD_INTENT, risk, principal); return;
     case AS_UNSUPPORTED:
         res(out, BP_UNAVAILABLE, BPR_UNSUPPORTED, risk == 255 ? 0 : risk, principal); return;
     case AS_REJECTED:
-        if (kind == AK_DESTRUCTIVE) {                                                          /* S3: every dependency, in this order, fails closed */
+        if (kind == AK_DESTRUCTIVE || kind == AK_DELETE_FILE || kind == AK_SEND_FILE || kind == AK_INSTALL_APP || kind == AK_SHARE_FILE) { /* S3: every dependency, in this order, fails closed */
             if (!env->passport) { res(out, BP_UNAVAILABLE, BPR_NO_PASSPORT, 3, principal); return; }
             if (!env->trail) { res(out, BP_UNAVAILABLE, BPR_NO_TRAIL, 3, principal); return; }
             if (!env->review_path) { res(out, BP_UNAVAILABLE, BPR_NO_REVIEW, 3, principal); return; }
@@ -105,6 +118,7 @@ const char *bp_decision_name(uint8_t d)
 const char *bp_reason_name(uint8_t r)
 {
     static const char *const N[BPR_COUNT] = { "none", "bad_intent", "bad_requester", "stale_requester", "replay", "table_full", "no_right", "not_actionable",
-                                              "unsupported", "no_navigation", "no_review", "no_passport", "no_trail", "no_hold", "no_timer" };
+                                              "unsupported", "no_navigation", "no_review", "no_passport", "no_trail", "no_hold", "no_timer",
+                                              "no_files", "no_permission" };
     return r < BPR_COUNT ? N[r] : "?";
 }

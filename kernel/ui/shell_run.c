@@ -17,6 +17,7 @@
 #include <timer.h>
 #include <ui_sys.h>
 #include <broker_kernel.h>
+#include <broker_policy.h>
 #include <timersys.h>
 #include <ledger.h>
 
@@ -145,15 +146,32 @@ static uint32_t s1_last_seq(void) { const struct trail *t = ledger_trail(); retu
 static uint64_t s1_now(void) { return timersys_now_ms(); }
 static int s1_nth(uint32_t n, struct trail_rec *o) { const struct trail *t = ledger_trail(); if (n >= t->n) return 0; *o = t->r[t->n - 1 - n]; return 1; }
 static const struct aura_s1_env S1ENV = { s1_ledger_ok, s1_append, s1_newest, s1_last_seq, s1_now, s1_nth };
+
+/* Review Trail callback: records REVIEW_OPEN (state 2), REVIEW_APPROVE (state 3), REVIEW_DECLINE (state 4) as kind 5 records. */
+static int review_trail_append(uint8_t kind, uint8_t state, uint8_t target, uint8_t risk, uint32_t ticket, uint32_t uptime_ms)
+{
+    struct trail_rec r; uint8_t *z = (uint8_t *)&r; for (size_t i = 0; i < sizeof r; i++) z[i] = 0;
+    r.pid = BP_SHELL_PID; r.principal = 0x7F000003u; r.kind = kind; r.target = target; r.risk = risk; r.decision = BP_REVIEW; r.reason = BPR_NONE; r.state = state; r.arg = (int32_t)ticket; r.uptime_ms = uptime_ms;
+    return ledger_trail_append(&r) == LG_E_OK ? 0 : -1;
+}
 static void s1_boot_recover(void) { int r = aura_s1_recover(&SH); if (r) console_puts("shell: s1 recovered an interrupted setting change\n"); }
+
+/* Dynamic caps for the shell's own Aura requests: includes app availability. */
+static struct aura_caps shell_aura_caps;
 
 static int aura_glue(struct shell *s, const char *text, size_t len, uint8_t *state, char *msg, size_t cap)
 {
     struct aura_outcome o;
-    struct bp_env env = *broker_env();
-    struct aura_caps caps = *env.caps;
-    caps.notes = apps_available(APP_NOTES);
-    env.caps = &caps;
+    const struct bp_env *base = broker_env();
+    struct bp_env env = *base;                          /* copy the base env (passport, trail, hold_input, etc.) */
+    /* Update caps with current app availability from the shell's launcher. */
+    shell_aura_caps = *base->caps;                      /* start with platform caps (pages, timer, etc.) */
+    if (s->launcher && s->launcher->available) {
+        shell_aura_caps.notes = s->launcher->available(2);       /* APP_NOTES = 2 */
+        shell_aura_caps.calculator = s->launcher->available(1);  /* APP_CALCULATOR = 1 */
+        shell_aura_caps.files = s->launcher->available(3);       /* APP_FILES = 3 */
+    }
+    env.caps = &shell_aura_caps;
     aura_run_text(s, &env, broker_replay(), BP_SHELL_PID, BP_SHELL_GEN, ++shell_nonce, text, len, &o);
     *state = o.state;
     size_t i = 0; for (; o.msg[i] && i + 1 < cap; i++) msg[i] = o.msg[i]; msg[i] = 0;
@@ -303,7 +321,11 @@ void shell_loop(struct input_state *in)
     ledger_boot();                                               /* the durable Passport: loaded and verified (or an honest reason why not) */
     broker_set_review_path(SH.caps.keyboard != 0);               /* S1 settings changes are reviewable only when a keyboard can answer the trusted review */
     shell_set_trail(&SH, trail_view_take);                        /* the Trail screen reads a copy of the ledgers */
-    console_puts("shell: appearance text="); console_dec(SH.text_pct); console_puts(" contrast="); console_dec(SH.contrast); console_puts("\n");
+    shell_set_review_trail(&SH, review_trail_append);             /* the trusted review records its decisions to the Trail */
+    console_puts("shell: appearance text="); console_dec(SH.text_pct); console_puts(" contrast="); console_dec(SH.contrast);
+    console_puts(" theme="); console_dec(SH.theme); console_puts(" reduced_motion="); console_dec(SH.reduced_motion);
+    console_puts(" focus_mode="); console_dec(SH.focus_mode); console_puts(" aura_mode="); console_dec(SH.aura_mode);
+    console_puts(" notifications="); console_dec(SH.notifications); console_puts("\n");
     present();
     console_puts("shell: ready keyboards="); console_dec((uint64_t)vi->keyboards);
     console_puts(" pointers="); console_dec((uint64_t)vi->pointers); console_puts("\n");
@@ -348,8 +370,16 @@ void shell_loop(struct input_state *in)
 #ifdef AURORA_REVIEW_TEST
               console_puts(" (review test build: nothing executes)\n");
 #else
-              int st = aura_s1_complete(&SH, broker_env(), broker_replay(), tk, ++shell_nonce);
-              console_puts(" -> s1 state="); console_dec((uint64_t)st); console_puts(" ["); console_puts(SH.aura_msg); console_puts("]\n");
+              /* Determine if this is S1 or S2 by checking the intent kind of the approved request */
+              uint8_t kind = SH.rv_req.intent.kind;
+              int st = 0;
+              if (kind == AK_SET_SETTING) {
+                  st = aura_s1_complete(&SH, broker_env(), broker_replay(), tk, ++shell_nonce);
+                  console_puts(" -> s1 state="); console_dec((uint64_t)st); console_puts(" ["); console_puts(SH.aura_msg); console_puts("]\n");
+              } else if (kind >= AK_EDIT_FILE && kind <= AK_MOVE_FILE) {
+                  st = aura_s2_complete(&SH, broker_env(), broker_replay(), tk, ++shell_nonce);
+                  console_puts(" -> s2 state="); console_dec((uint64_t)st); console_puts(" ["); console_puts(SH.aura_msg); console_puts("]\n");
+              }
 #endif
           } }
 #ifdef AURORA_REVIEW_TEST
@@ -378,6 +408,15 @@ void shell_loop(struct input_state *in)
         if (SH.screen == SCR_TRAIL) { uint64_t q = (timer_count() - t0) / (hz / 4 ? hz / 4 : 1); if (q != tr_q) { tr_q = q; shell_trail_refresh(&SH); } }   /* re-read four times a second; it repaints only if something shown changed */
         if (SH.hd_seq != hd_seq_logged) { hd_seq_logged = SH.hd_seq; console_puts("shell: say "); console_puts(SH.hd_live); console_puts("\n"); }
         if (SH.hd.confirmations != hd_conf_logged) { hd_conf_logged = SH.hd.confirmations; console_puts("shell: hold confirmed total="); console_dec(hd_conf_logged); console_puts(" (demo: nothing was done)\n"); }
+        /* S3 completion: if there's a pending S3 action and hold just confirmed, execute it */
+        if (SH.s3_pending && SH.hd.state == HD_CONFIRMED) {
+            console_puts("shell: hold confirmed for S3 action kind="); console_dec(SH.s3_intent.kind); console_puts("\n");
+            struct aura_outcome out;
+            int st = aura_s3_complete(&SH, broker_env(), broker_replay(), &SH.hd, ++shell_nonce, &out);
+            console_puts(" -> s3 state="); console_dec((uint64_t)st); console_puts(" ["); console_puts(out.msg); console_puts("]\n");
+            shell_aura_report(&SH, out.state, out.msg);
+            SH.s3_pending = 0;
+        }
         if (SH.tr_seq != tr_seq_logged) { tr_seq_logged = SH.tr_seq; console_puts("shell: say "); console_puts(SH.tr_live); console_puts("\n"); }
         if (SH.screen == SCR_TRAIL && SH.tv_digest != tv_logged) { tv_logged = SH.tv_digest; console_puts("shell: trail view health="); console_dec(SH.tv.health); console_puts(" records="); console_dec(SH.tv.n); console_puts(" grants="); console_dec(SH.tv.ngrants); console_puts(" first="); console_dec(SH.tr_first); console_puts("\n"); }
         log_state(&screen, &space, &focus, &modal, &opens, &qsig, &corner);
