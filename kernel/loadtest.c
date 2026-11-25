@@ -156,8 +156,8 @@ static void part1(void)
             if (free_pages() != 0) ok = 0;
         }
         hog_release();
-        check("loader: with exactly 0..10 free pages the load fails with PROC_ELOAD_NOMEM until 7 pages are available (3 tables + 2 image + 2 stack) and then succeeds; every failure and every destroy returns ALL pages (checked at each depth)",
-              ok && first_success == 7 && free_pages() == pages0);
+        check("loader: with exactly 0..10 free pages the load fails with PROC_ELOAD_NOMEM until 8 pages are available (3 tables + 2 image + 2 stack + ownership array) and then succeeds; every failure and every destroy returns ALL pages (checked at each depth)",
+              ok && first_success == 8 && free_pages() == pages0);
     }
 
     /* ---- slot exhaustion ---- */
