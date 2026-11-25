@@ -268,6 +268,14 @@ class Canvas:
             self.put(x, top, color, clip); self.put(x, bottom, color, clip)
         for y in range(top, bottom + 1):
             self.put(left, y, color, clip); self.put(right, y, color, clip)
+        w, h = right - left, bottom - top
+        if h >= w:
+            points = [((2 * y * w + h) // (2 * h), y) for y in range(1, h)]
+        else:
+            points = [(x, (2 * x * h + w) // (2 * w)) for x in range(1, w)]
+        for x, y in points:
+            self.put(left + x, top + y, color, clip)
+            self.put(right - x, top + y, color, clip)
 
     def line(self, face, x, y, cps, color, clip):
         if y + face["line"] <= clip[1] or y >= clip[3]:

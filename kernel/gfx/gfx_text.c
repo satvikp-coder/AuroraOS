@@ -167,12 +167,20 @@ static void draw_cell(const struct gfx_surface *s, const struct gfx_font *f, con
         }
         return;
     }
-    /* missing glyph: a hollow box standing on the baseline, one pixel in from each side of the cell */
+    /* Missing glyph: an outlined box with two corner-to-corner diagonals. */
     int64_t bh = (int64_t)f->ascent * mag * 3 / 4; if (bh < 5) bh = 5;
     int64_t left = pen + mag, right = pen + (int64_t)f->advance * mag - 2 * mag, bottom = baseline - mag, top = baseline - bh;
     if (right < left + 2) return;
     for (int64_t x = left; x <= right; x++) { put(s, c, x, top, color); put(s, c, x, bottom, color); }
     for (int64_t y = top; y <= bottom; y++) { put(s, c, left, y, color); put(s, c, right, y, color); }
+    int64_t width = right - left, height = bottom - top;
+    int64_t steps = width > height ? width : height;
+    for (int64_t step = 1; step < steps; step++) {
+        int64_t dx = (step * width + steps / 2) / steps;
+        int64_t dy = (step * height + steps / 2) / steps;
+        put(s, c, left + dx, top + dy, color);
+        put(s, c, right - dx, top + dy, color);
+    }
 }
 
 static void draw_line(const struct gfx_surface *s, const struct gfx_font *f, const struct clipbox *c, int64_t x, int64_t y, const char *str, size_t len, uint32_t color, int mag)
