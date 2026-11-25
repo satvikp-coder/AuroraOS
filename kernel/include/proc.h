@@ -22,17 +22,24 @@
 
 /* ---- address spaces ---- */
 enum { UPERM_RX = 1, UPERM_RW = 2, UPERM_RO = 3 };
-#define ASPACE_MAX_PAGES (24 + (int)USER_HEAP_MAX_PAGES)    /* tables and fixed pages, plus the heap budget */
+/* Maximum pages an address space can own: tables (L1+L2+L3=3) + code+data+stack(4) + heap(USER_HEAP_MAX_PAGES) + ELF segments.
+ * We cap it at a reasonable bound; the actual pages array is dynamically allocated from the PMM. */
+#define ASPACE_MAX_PAGES_CAP (24 + (int)USER_HEAP_MAX_PAGES + 32)  /* 88 pages max, fits in one page (512 entries) */
+
 struct aspace {
     uint64_t l1_pa;
     uint32_t asid;                              /* 8-bit ASID (TCR_EL1.AS = 0); 0 is the kernel */
-    uint64_t pages[ASPACE_MAX_PAGES];           /* every physical page owned: tables and user pages */
+    uint64_t *pages;                            /* dynamically allocated array of owned physical pages */
     int npages;
+    int capacity;                               /* allocated capacity of pages array */
     int live;
 };
 int      aspace_create(struct aspace *as, uint32_t asid);
 int      aspace_map(struct aspace *as, uint64_t va, int perm, const void *init, size_t len, uint64_t *pa_out);
-int      aspace_unmap(struct aspace *as, uint64_t va);   /* unmap and free one mapped user page: 0, or -2 (bad address) / -5 (not mapped); flushes its TLB entry */
+int      aspace_map_ro(struct aspace *as, uint64_t va, uint64_t pa);   /* map reserved asset page read-only (EL0 RO, PXN/UXN, nG) */
+int      aspace_unmap_ro(struct aspace *as, uint64_t va);             /* unmap read-only asset page (does not free the asset page) */
+int      aspace_unmap(struct aspace *as, uint64_t va);                /* unmap and free one mapped user page: 0, or -2 (bad address) / -5 (not mapped); flushes its TLB entry */
+int      aspace_is_mapped(struct aspace *as, uint64_t va);            /* check if VA is mapped: 1=mapped, 0=not, -1=error */
 void     aspace_destroy(struct aspace *as);     /* flushes the ASID's TLB entries, frees every owned page */
 uint64_t aspace_ttbr(const struct aspace *as);
 
@@ -64,6 +71,10 @@ struct proc {
     int rx_pending; uint64_t rx_buf, rx_max;    /* a blocking receive in progress (state BLOCKED) */
     uint64_t yields, preemptions;               /* voluntary switches (SYS_YIELD) vs timer-driven ones: never conflated */
     char name[16];
+
+    /* ---- Bounded large allocation region (MEM-03) ------------------- */
+    uint32_t bounded_pages;                     /* total pages in bounded regions owned by this process */
+    uint32_t bounded_count;                     /* number of bounded regions owned by this process */
 };
 int  proc_create(int role, uint64_t arg1, const char *name);   /* pid > 0, or a negative error */
 int  proc_create_image(int role, uint64_t arg1, const char *name, const void *image, size_t len);   /* same, with kernel-supplied code (<= 1 page) instead of the built-in blob */
@@ -115,8 +126,17 @@ void sched_trace_reset(void);
 #define IPC_NONBLOCK 1
 #define SYS_FS     8   /* x0 = operation (FSOP_*), x1..x4 arguments: see kernel/proc/fssys.c */
 #define SYS_MEM    10  /* x0 = operation (MEMOP_*), x1 = page count: a bounded user heap; see kernel/proc/memsys.c */
-enum { MEMOP_GROW = 1, MEMOP_SHRINK, MEMOP_INFO };
+enum { MEMOP_GROW = 1, MEMOP_SHRINK, MEMOP_INFO,
+       MEMOP_BOUNDED_ALLOC = 10,  /* x1 = size in bytes, x2 = perm (VMM_ATTR_*), returns physical address or error */
+       MEMOP_BOUNDED_FREE = 11,   /* x1 = physical address, returns 0 or error */
+       MEMOP_BOUNDED_INFO = 12    /* returns (budget_pages << 32) | allocated_pages */
+};
 #define SYS_SETTINGS 9   /* x0 = operation (SETOP_*), x1 = setting id, x2 = value: see kernel/settings.c */
+#define SYS_RO_MAP   12  /* x0 = operation (RO_*), x1..x2 arguments: read-only asset mapping; see kernel/proc/rosys.c */
+enum { ROOP_MAP = 1,      /* x1 = asset_id, x2 = requested VA (0 = kernel-chosen); returns VA or error */
+       ROOP_UNMAP = 2,    /* x1 = VA, x2 = size (pages); returns 0 or error */
+       ROOP_INFO = 3      /* x1 = asset_id; returns (asset_size_pages << 32) | asset_flags or error */
+};
 #define SYS_WRITE_MAX 256
 #define AE_OK      0
 #define AE_EINVAL (-1)
@@ -142,6 +162,7 @@ int  proc_set_service_principal(int pid, uint32_t principal);   /* kernel-only; 
 int64_t fs_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4);
 int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n);   /* SYS_MEM (kernel/proc/memsys.c) */
 int64_t settings_syscall(struct proc *p, uint64_t op, uint64_t id, uint64_t value);   /* kernel/settings.c */
+int64_t ro_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2);   /* SYS_RO_MAP (kernel/proc/rosys.c) */
 
 /* ---- safe user memory access ---- */
 int copy_from_user(void *dst, uint64_t uva, size_t n);   /* AE_OK / AE_EINVAL / AE_EFAULT; never faults the kernel */

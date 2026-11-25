@@ -24,7 +24,7 @@ qemu-system-aarch64 \
     -machine virt,highmem=off \
     -cpu cortex-a53 \
     -smp 1 \
-    -m 256M \
+    -m 512M \
     -kernel "$KERNEL" \
     -nographic \
     -serial stdio \
