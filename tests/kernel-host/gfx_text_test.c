@@ -215,8 +215,13 @@ int main(void)
       gfx_clear(&s, BG); gfx_draw_text(&s, f, 2, 2, "ab\ncd", 5, INK, 0);
       { long a = count(&s, INK); gfx_clear(&s, BG); gfx_draw_text(&s, f, 2, 2, "ab", 2, INK, 0); CHECK("drawing stops at the first newline", a == count(&s, INK) && a > 0); }
       gfx_clear(&s, BG); gfx_draw_text(&s, f, 0, 0, "\x01", 1, INK, 0);
-      { int64_t bh = f->ascent * 3 / 4; if (bh < 5) bh = 5; long expect = 2 * (f->advance - 2 - 1 + 1) + 2 * (bh - 2);
-        CHECK("a missing glyph is a hollow box of the documented size", count(&s, INK) == expect && px(&s, 1, f->ascent - bh) == INK && px(&s, f->advance - 2, f->ascent - 1) == INK && px(&s, 3, f->ascent - bh + 2) == BG); }
+      { int bh = f->ascent * 3 / 4; if (bh < 5) bh = 5;
+        int left = 1, right = f->advance - 2, top = f->ascent - bh, bottom = f->ascent - 1;
+        CHECK("the missing glyph has an outline and both diagonals reach its lower half",
+              px(&s, left, top) == INK && px(&s, right, bottom) == INK &&
+              px(&s, left + 1, bottom - 1) == INK && px(&s, right - 1, bottom - 1) == INK &&
+              px(&s, left + 1, top + 1) == INK && px(&s, right - 1, top + 1) == INK &&
+              px(&s, left + 3, top + 1) == BG); }
       gfx_clear(&s, BG); gfx_draw_text(&s, f, 0, 0, "\xE0\xA4\xB9", 3, INK, 0); { long a = count(&s, INK); gfx_clear(&s, BG); gfx_draw_text(&s, f, 0, 0, "\x7F", 1, INK, 0); CHECK("Devanagari draws the same single box as DEL (no shaping, one cell)", a == count(&s, INK) && a > 0); }
       free(b.base); }
 
