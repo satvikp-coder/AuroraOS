@@ -8,13 +8,14 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
 {
     if (!sh || !in || !caps) return 0;
     if (!aura_validate(in, caps) || in->status != AS_ACTIONABLE || in->risk != 0) return 0;      /* only a validated S0 navigation */
-    if (sh->about_open || sh->corner_open) return 0;                                            /* a modal owns the screen: never navigate behind it */
+    if (sh->about_open || sh->corner_open || sh->review_open) return 0;                         /* a modal owns the screen: never navigate behind it */
     if (in->kind == AK_OPEN_APP) {
         if (!sh->launcher || !sh->launcher->launch) return 0;
         if (in->target < 1 || in->target > 3) return 0;  /* calculator=1, notes=2, files=3 */
         if (!sh->launcher->available(in->target)) return 0;
         int rc = sh->launcher->launch(in->target);
-        return rc == 0;  /* APPS_OK = 0 */
+        if (rc == 0 || rc == APPS_EBUSY) shell_go(sh, SCR_PAGES);  /* opened apps appear on Pages; EBUSY = already running */
+        return rc == 0 || rc == APPS_EBUSY;  /* APPS_OK = 0, EBUSY = already open */
     }
     if (in->kind == AK_TIMER) {                                                                 /* success only if the REAL timer service now shows what was asked */
         if (in->target == ATM_START) return shell_clock_start(sh, (uint32_t)in->arg);
@@ -32,13 +33,6 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
         shell_select_space(sh, in->target);
         shell_go(sh, SCR_HOME);
         return sh->space == in->target && sh->screen == SCR_HOME;
-    }
-    if (in->kind == AK_OPEN_APP) {
-        if (!sh->launcher || !sh->launcher->launch) return 0;
-        if (in->target < 1 || in->target > 3) return 0;  /* calculator=1, notes=2, files=3 */
-        if (!sh->launcher->available(in->target)) return 0;
-        int rc = sh->launcher->launch(in->target);
-        return rc == 0;  /* APPS_OK = 0 */
     }
     return 0;
 }

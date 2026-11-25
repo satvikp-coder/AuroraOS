@@ -185,13 +185,7 @@ static int open_app(const struct toks *tk, int lo, int hi, const struct aura_cap
     if (p < hi && eq(tk->t[p], "app")) p++;
     if (p != hi) return 0;
 
-    if (!has_cap) {
-        char ub[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Unsupported: no "; for (; pre[i]; i++) ub[i] = pre[i];
-        for (int k = 0; app_label[k] && i < AURA_PREVIEW_MAX - 1; k++) ub[i++] = app_label[k];
-        ub[i] = 0;
-        fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_APP, 0, 0, AA_NONE, 0, ub);
-        return 1;
-    }
+    if (!has_cap) return 0;  /* let the generic NOTES-unsupported handler below produce AR_NO_NOTES */
 
     char prev[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Open "; for (; pre[i]; i++) prev[i] = pre[i];
     for (int k = 0; app_label[k] && i < AURA_PREVIEW_MAX - 1; k++) prev[i++] = app_label[k];
