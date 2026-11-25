@@ -377,13 +377,16 @@ int aura_parse(const char *text, size_t len, const struct aura_caps *caps_in, st
     if (has_any(&tk, lo, hi, CONJ)) return fin(o, AK_CLARIFY, AS_CLARIFY, AR_MULTIPLE, 0, 0, AA_NONE, 0, "One command at a time");
     if (timer_cmd(&tk, lo, hi, caps, o)) return o->status;
     if (open_screen(&tk, lo, hi, caps, o)) return o->status;
+    if (caps->notes && hi - lo == 2 && ph(&tk, lo, hi, "open notes") == 2)
+        return fin(o, AK_OPEN_NOTES, AS_ACTIONABLE, AR_NONE, 0, 0, AA_NONE, 0, "Open Notes");
     if (select_space(&tk, lo, hi, o)) return o->status;
     if (theme(&tk, lo, hi, o)) return o->status;
     if (text_size(&tk, lo, hi, o)) return o->status;
     if (has_any(&tk, lo, hi, MESSAGING)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_MESSAGING, 3, 0, AA_NONE, 0, "Unsupported: no messaging service");
     if (!caps->timer && has_any(&tk, lo, hi, TIMERS)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_TIMER, 0, 0, AA_NONE, 0, "Unsupported: no timer service");
     if (has_any(&tk, lo, hi, HARDWARE)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_HARDWARE, 1, 0, AA_NONE, 0, "Unsupported: no driver for that");
-    if (has_any(&tk, lo, hi, NOTES)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_NOTES, 0, 0, AA_NONE, 0, "Unsupported: no Notes app");
+    if (has_any(&tk, lo, hi, NOTES)) return fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_NOTES, 0, 0, AA_NONE, 0,
+                                                caps->notes ? "Unsupported: only opening Notes is available" : "Unsupported: no Notes app");
     return fin(o, AK_UNKNOWN, AS_REJECTED, AR_NOT_UNDERSTOOD, 0, 0, AA_NONE, 0, "Not a command I know");
 }
 
@@ -400,6 +403,9 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     for (int i = 0; x->preview[i]; i++) if ((unsigned char)x->preview[i] < 0x20 || (unsigned char)x->preview[i] > 0x7e) return 0;
     char want[AURA_PREVIEW_MAX];
     switch (x->kind) {
+    case AK_OPEN_NOTES:
+        return caps->notes && x->status == AS_ACTIONABLE && x->reason == AR_NONE && x->risk == 0 &&
+               x->target == 0 && x->arg_kind == AA_NONE && x->arg == 0 && str_eq_n(x->preview, "Open Notes");
     case AK_OPEN_SCREEN: {
         static const char *const N[] = { "Open Home", "Open Spaces", "Open Index", "Open Settings", "Open Pages", "Open Clock" };
         if (x->target >= 6 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
@@ -441,7 +447,7 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
         switch (x->reason) {
         case AR_NO_TIMER: return !caps->timer && x->risk == 0 && str_eq_n(x->preview, "Unsupported: no timer service");
         case AR_NO_HARDWARE: return x->risk == 1 && str_eq_n(x->preview, "Unsupported: no driver for that");
-        case AR_NO_NOTES: return x->risk == 0 && str_eq_n(x->preview, "Unsupported: no Notes app");
+        case AR_NO_NOTES: return x->risk == 0 && str_eq_n(x->preview, caps->notes ? "Unsupported: only opening Notes is available" : "Unsupported: no Notes app");
         case AR_NO_MESSAGING: return x->risk == 3 && str_eq_n(x->preview, "Unsupported: no messaging service");
         case AR_NO_PAGES: return !caps->pages && x->risk == 0 && str_eq_n(x->preview, "Unsupported: Pages is not available yet");
         default: return 0;
@@ -468,7 +474,7 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     }
 }
 
-static const char *const KN[AK_COUNT] = { "none", "open_screen", "select_space", "set_setting", "unsupported", "destructive", "clarify", "unknown", "refused", "timer" };
+static const char *const KN[AK_COUNT] = { "none", "open_screen", "select_space", "set_setting", "unsupported", "destructive", "clarify", "unknown", "refused", "timer", "open_notes" };
 static const char *const SN[AS_COUNT] = { "actionable", "needs_approval", "unsupported", "clarify", "rejected" };
 static const char *const RN[AR_COUNT] = { "none", "empty", "too_long", "bad_encoding", "injection", "multiple", "ambiguous", "missing_arg", "range", "not_understood", "no_timer", "no_hardware", "no_notes", "no_messaging", "no_pages", "needs_broker" };
 const char *aura_kind_name(uint8_t k) { return k < AK_COUNT ? KN[k] : "?"; }

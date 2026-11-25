@@ -1,5 +1,6 @@
 /* kernel/ui/shell.c - native Aurora Glass shell (Tier 0 Clear): screens, navigation, layout, input dispatch. See kernel/include/shell.h. */
 #include <shell.h>
+#include <apps.h>
 #include <settings.h>        /* result codes only (SETTINGS_*); the registry itself is behind struct shell_store */
 
 const char *const SHELL_SPACE_NAMES[SHELL_SPACES] = { "Study", "Work", "Projects", "Personal" };
@@ -803,6 +804,7 @@ static void aura_refresh(struct shell *sh)
 {
     sh->aura_in[sh->aura_len] = 0;
     struct aura_caps pc = AURA_PREVIEW_CAPS; pc.timer = sh->timers != 0;          /* the preview offers timer commands only when the Clock has a service */
+    pc.notes = sh->launcher && sh->launcher->available && sh->launcher->available(APP_NOTES);
     aura_parse(sh->aura_in, sh->aura_len, &pc, &sh->aura_pv);
 }
 

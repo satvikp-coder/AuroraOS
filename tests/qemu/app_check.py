@@ -5,11 +5,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gfx_check import Qmp, read_ppm, wait_serial
 
 SID_DOCK_INDEX = 4
+SID_DOCK_HOME = 2
+SID_APP_AURA = 14
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--qmp", required=True); ap.add_argument("--serial", required=True); ap.add_argument("--tmp", required=True)
     ap.add_argument("--scenario", required=True); ap.add_argument("--expect", default=""); ap.add_argument("--timeout", type=float, default=400)
+    ap.add_argument("--check-aura-notes", action="store_true")
     a = ap.parse_args()
     passed = failed = 0
     dl = time.time() + a.timeout
@@ -42,7 +45,7 @@ def main():
     def key(k, d): return {"type": "key", "data": {"down": d, "key": {"type": "qcode", "data": k}}}
     def tap(k): q.cmd("input-send-event", events=[key(k, True), key(k, False)]); time.sleep(0.25)
     def typ(t):
-        for ch in t: tap(ch)
+        for ch in t: tap("spc" if ch == " " else ch)
         time.sleep(0.4)
     def move(x, y): q.cmd("input-send-event", events=[{"type": "abs", "data": {"axis": "x", "value": int(x * 32767 / 1023)}}, {"type": "abs", "data": {"axis": "y", "value": int(y * 32767 / 767)}}]); time.sleep(0.2)
     def btn(d): q.cmd("input-send-event", events=[{"type": "btn", "data": {"down": d, "button": "left"}}])
@@ -102,6 +105,16 @@ def main():
             return [l for l in t2[marks[1]:].split(chr(10)) if l.startswith("[user p%d] " % pid2)] if len(marks) > 1 else []
         check("the new instance starts at 0: no stale display or state from the old one", wait_for(lambda: any("calc display=0" in l for l in since_relaunch()), 30) and not any("calc display=20" in l or "Divide" in l for l in since_relaunch()))
         check("exactly one new surface was created for it (the old one is gone)", len([s for s in surfaces() if s[1] == pid2]) == 2 and "ui: client gone pid=%d surfaces dropped=1" % pid in log())
+        if a.check_aura_notes:
+            check("the packaged shell can return Home and open Aura", tab_to(SID_DOCK_HOME) and (tap("ret") or True) and
+                  wait_for(lambda: screen_now() == "Home", 15) and tab_to(SID_APP_AURA) and (tap("ret") or True) and
+                  wait_for(lambda: screen_now() == "Aura", 15))
+            typ("open notes"); tap("ret")
+            check("Aura executes the typed Notes launch and opens Pages", wait_for(lambda:
+                  "kind=open_notes decision=allow_now reason=none state=1 [Done: Open Notes] screen=Pages" in log(), 30))
+            notes = re.search(r"apps: launched notes pid=(\d+) principal=602", log())
+            check("the packaged Notes process uses the registry identity and draws a client surface", notes is not None and
+                  wait_for(lambda: any(s[1] == int(notes.group(1)) for s in surfaces()), 30))
     elif sc == "refused":
         # An installed Calculator that is damaged: the kernel must refuse it with a specific reason, create no process, and leave the other applications usable.
         check("boot registered the Calculator", "apps: calculator registered" in log())
