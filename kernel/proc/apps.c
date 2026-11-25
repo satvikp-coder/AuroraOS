@@ -4,6 +4,7 @@
 #include <fs.h>
 #include <launch.h>
 #include <proc.h>
+#include <timersys.h>
 #include <ui_sys.h>
 
 struct appdef { uint32_t id; const char *key, *label, *file; uint32_t principal; };
@@ -11,6 +12,7 @@ static const struct appdef DEFS[] = {
     { APP_CALCULATOR, "calculator", "Calculator", "calc.elf", 601 },
     { APP_NOTES, "notes", "Notes", "notes.elf", 602 },
     { APP_FILES, "files", "Files", "files.elf", 603 },
+    { APP_CLOCK, "clock", "Clock", "clock.elf", 604 },
 };
 static struct { int pid; uint64_t gen; } run[APP_COUNT];
 static int registered[APP_COUNT];
@@ -24,7 +26,8 @@ void apps_init(void)
         int rc = launch_register(d->key, d->file, d->principal, 0);
         registered[d->id] = (rc == LAUNCH_OK);
         int g = ui_sys_grant(d->principal);
-        console_puts("apps: "); console_puts(d->key); console_puts(registered[d->id] ? " registered" : " registration refused"); console_puts(g == 0 ? " ui=granted\n" : " ui=not granted\n");
+        int t = timersys_grant(d->principal);
+        console_puts("apps: "); console_puts(d->key); console_puts(registered[d->id] ? " registered" : " registration refused"); console_puts(g == 0 ? " ui=granted" : " ui=not granted"); console_puts(t == 0 ? " timer=granted" : " timer=not granted"); console_puts("\n");
     }
 }
 

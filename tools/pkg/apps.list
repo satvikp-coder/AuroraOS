@@ -3,3 +3,4 @@
 calc.elf tests/programs/calc.c
 notes.elf tests/programs/notes.c
 files.elf tests/programs/files.c
+clock.elf tests/programs/clock.c
