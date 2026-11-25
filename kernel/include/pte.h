@@ -23,4 +23,9 @@
 #define PTE_UXN      (1ULL << 54)
 #define ADDR_MASK    0x0000FFFFFFFFF000ULL
 
+/* Page table index macros for 4 KiB granule, 39-bit VA (level 1 starts at bit 30). */
+#define IDX1(v) (((v) >> 30) & 0x1FF)
+#define IDX2(v) (((v) >> 21) & 0x1FF)
+#define IDX3(v) (((v) >> 12) & 0x1FF)
+
 #endif

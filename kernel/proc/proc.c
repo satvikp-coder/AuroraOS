@@ -138,6 +138,8 @@ int proc_destroy(int pid)
     if (!p) return -1;
     if (!proc_transition_ok(p->state, PROC_UNUSED)) return -2;     /* e.g. RUNNING: refuse */
     ipc_cleanup(p);
+    ro_cleanup_proc(&p->as);
+    pmm_bounded_cleanup_proc((uint32_t)pid, &p->as);
     aspace_destroy(&p->as);
     kzero(p, sizeof *p);                                      /* state = UNUSED */
     return 0;

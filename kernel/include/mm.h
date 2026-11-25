@@ -7,6 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Forward declaration for struct aspace (defined in proc.h) */
+struct aspace;
+
 #define PAGE_SIZE  4096UL
 #define PAGE_SHIFT 12
 
@@ -66,6 +69,72 @@ struct pmm_stats {
     uint64_t alloc_failures, free_errors;
 };
 
+/* ---- Bounded large allocation region (MEM-03) ----------------------- */
+/* Maximum size for a single bounded allocation: 64 KiB = 16 pages. */
+#define BOUNDED_MAX_PAGES   16u
+#define BOUNDED_MAX_BYTES   (BOUNDED_MAX_PAGES * PAGE_SIZE)
+
+/* Per-process budget: maximum 4 bounded allocations (64 KiB each = 256 KiB). */
+#define BOUNDED_PROC_BUDGET_PAGES  (4u * BOUNDED_MAX_PAGES)
+
+/* Per-principal budget: same as process budget (shared across processes). */
+#define BOUNDED_PRINCIPAL_BUDGET_PAGES  (4u * BOUNDED_MAX_PAGES)
+
+/* Kernel reserve for bounded allocations: 16 pages = 64 KiB. */
+#define BOUNDED_RESERVE_PAGES  16u
+
+enum {
+    BOUNDED_OK = 0,
+    BOUNDED_ERR_ARG = -1,          /* invalid arguments (size, alignment, principal) */
+    BOUNDED_ERR_NOMEM = -2,        /* out of physical pages or budget exceeded */
+    BOUNDED_ERR_BUDGET = -3,       /* per-process or per-principal budget exceeded */
+    BOUNDED_ERR_NOT_FOUND = -4,    /* address not found in caller's allocations */
+    BOUNDED_ERR_PERM = -5,         /* permission check failed */
+    BOUNDED_ERR_STATE = -6,        /* allocator not initialized or invalid state */
+    BOUNDED_ERR_ALIGN = -7,        /* address not page-aligned */
+    BOUNDED_ERR_RANGE = -8,        /* address outside managed RAM */
+    BOUNDED_ERR_RESERVED = -9,     /* page is permanently reserved */
+    BOUNDED_ERR_DOUBLE = -10,      /* double-free or free of unallocated page */
+};
+
+struct bounded_region {
+    uintptr_t pa;              /* physical base address (page-aligned) */
+    uint64_t  va;              /* virtual address in process address space (page-aligned) */
+    uint32_t  pages;           /* number of pages in this region */
+    uint32_t  perm;            /* VMM_ATTR_* permissions for mapping */
+    uint32_t  principal;       /* owning principal */
+    uint32_t  pid;             /* owning process PID */
+    uint8_t   in_use;          /* 1 = active, 0 = free */
+};
+
+/* Allocate a bounded region: size bytes (rounded up to pages, max BOUNDED_MAX_PAGES),
+ * principal = owning principal (0 = kernel, PRINCIPAL_NONE = unprivileged),
+ * pid = owning process PID (0 for kernel allocations),
+ * va_out = receives the virtual address where the region is mapped.
+ * Returns physical base address, or 0 on failure. */
+uintptr_t pmm_alloc_bounded(uint64_t size, uint32_t principal, uint32_t pid, int perm, uint64_t *va_out);
+
+/* Free a bounded region by its physical base address. Only the owning process
+ * or kernel may free it. Returns BOUNDED_OK or error code. */
+int pmm_free_bounded(uintptr_t addr, uint32_t caller_principal);
+
+/* Return remaining budget (in pages) for a principal across all live processes.
+ * Returns 0 if principal has no budget or budget exhausted. */
+uint64_t pmm_region_budget(uint32_t principal);
+
+/* Get bounded region info by physical address. Returns 1 if found, 0 otherwise. */
+int pmm_bounded_lookup(uintptr_t addr, struct bounded_region *out);
+
+/* Initialize bounded allocator (called from pmm_init). */
+void pmm_bounded_init(void);
+
+/* Cleanup all bounded regions owned by a process (called on process exit/fault).
+ * Unmaps VAs from the provided address space before freeing physical pages. */
+void pmm_bounded_cleanup_proc(uint32_t pid, struct aspace *as);
+
+/* Count bounded pages currently allocated by a process. */
+uint32_t pmm_bounded_proc_pages(uint32_t pid);
+
 int       pmm_init(uintptr_t ram_base, uint64_t ram_size);
 int       pmm_reserve(uintptr_t start, uintptr_t end);   /* [start,end), rounded outward, clamped to RAM */
 int       pmm_reserve_range(uint64_t addr, uint64_t size); /* overflow-checked; -3 if malformed */
@@ -103,6 +172,45 @@ const uint64_t *vmm_kernel_l1(void);
 int      vmm_hw_translate_el0(uint64_t va, int write, uint64_t *pa);   /* as EL0 would see it */
 /* Hardware translation via AT: returns 0 and *pa on success, -1 if it would fault. */
 int      vmm_hw_translate(uint64_t va, int write, uint64_t *pa);
+
+/* ---- Read-only asset mapping (MEM-04) --------------------------------- */
+/* Asset region tracking. Assets are reserved physical pages pre-populated with data. */
+#define RO_MAX_ASSETS    32u
+#define RO_MAX_PAGES     64u   /* max pages per asset (256 KiB) */
+
+struct ro_asset {
+    uintptr_t pa;              /* physical base address (page-aligned) */
+    uint32_t  pages;           /* number of pages in this asset */
+    uint32_t  flags;           /* RO_ASSET_* flags */
+    uint8_t   in_use;          /* 1 = active, 0 = free */
+};
+#define RO_ASSET_NONE     0
+#define RO_ASSET_KERNEL   (1u << 0)  /* kernel-owned, cannot be freed by processes */
+
+/* Map physical pages read-only into kernel virtual address space.
+ * va, pa, size must be page-aligned. Returns 0 on success, VMM_ERR_* on failure. */
+int      mmu_map_ro(uint64_t va, uint64_t pa, uint64_t size);
+
+/* Unmap read-only region from kernel virtual address space.
+ * va, size must be page-aligned. Returns 0 on success, VMM_ERR_* on failure. */
+int      mmu_unmap_ro(uint64_t va, uint64_t size);
+
+/* Register a read-only asset region (kernel-only, called during init).
+ * pa must be page-aligned, size > 0. Returns asset_id (1..RO_MAX_ASSETS) or 0 on failure. */
+int      ro_register_asset(uintptr_t pa, uint32_t pages, uint32_t flags);
+
+/* Look up an asset by ID. Returns 1 if found, 0 otherwise. */
+int      ro_lookup_asset(int asset_id, struct ro_asset *out);
+
+/* Map a registered asset into a process address space read-only.
+ * Returns mapped VA on success, 0 on failure. */
+uint64_t ro_map_asset(struct aspace *as, int asset_id, uint64_t requested_va);
+
+/* Unmap an asset from a process address space. Returns 0 on success, error code on failure. */
+int      ro_unmap_asset(struct aspace *as, uint64_t va, uint32_t pages);
+
+/* Clean up all RO mappings for a process (called on exit/fault). */
+void     ro_cleanup_proc(struct aspace *as);
 
 /* Linker-provided section boundaries */
 extern uint8_t __image_start[], __text_start[], __text_end[], __rodata_start[], __rodata_end[],
