@@ -45,3 +45,9 @@ Nothing in this plan claims audio quality, latency or real-hardware behaviour.
 2. (Spec extract now in `docs/kernel/virtio-sound-spec-notes.md`; still to do: header + host test.) Read the virtio-snd section of the spec; write the message layouts into a header with a host test of the encoders/decoders.
 3. Sound driver. **Bring-up done:** `kernel/drivers/virtio_snd.c` + `kernel/include/vsnd.h` (discover, VERSION_1-only negotiation, 4 queues, config, one polled PCM_INFO, one `[snd]` line; hostile answers reset the device and boot continues), `tests/qemu/sound-tests.sh` (simulated faults are injected inside the driver by `AURORA_SND_FAULT` builds, not by the QEMU device). Still to do: playback only, `wav` backend test (section 5, items 1-3).
 4. Capability and indicator design review; only then capture.
+
+## 8. Offline speech and microphone state (issue #13)
+
+QEMU ARM64 `virt` exposes an input stream through `virtio-sound-device` when configured with two streams. The existing boot test verifies its direction through `PCM_INFO`. The WAV backend used by that test is output-only, and the current guest driver stops after stream discovery. Capturing samples therefore requires a capture-capable QEMU backend or a deterministic test source and an AuroraOS receive path.
+
+Before an application can receive samples, the guest needs kernel-mediated capture authorization, receive-buffer ownership and a compositor-owned indicator tied to the active capture state. Verify that denial leaves capture inactive and that stop, process exit and device failure all clear the indicator. Speech recognition then needs a bounded offline engine and a repeatable input fixture. Speech synthesis can be tested separately with PCM playback and the existing WAV test strategy.
