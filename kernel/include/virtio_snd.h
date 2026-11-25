@@ -20,6 +20,109 @@
 #define VSND_EBADMSG  -3                 /* device answered VIRTIO_SND_S_BAD_MSG */
 #define VSND_ENOTSUPP -4                 /* device answered VIRTIO_SND_S_NOT_SUPP */
 #define VSND_EIO      -5                 /* device answered VIRTIO_SND_S_IO_ERR */
+#define VSND_ETIMEOUT -6                 /* operation timed out */
+#define VSND_ENODEV   -7                 /* no device or device not live */
+#define VSND_ENOMEM   -8                 /* out of memory */
+#define VSND_ELEGACY  -9                 /* legacy transport not supported */
+#define VSND_EPERM    -10                /* caller lacks required audio capability */
+
+/* ---- audio capabilities ---- */
+#define AUDIO_CAP_PLAY   0x01u           /* permission to play audio (SET_PARAMS, START, play tone) */
+#define AUDIO_CAP_RECORD 0x02u           /* permission to record audio (future: RX queue) */
+
+/* ---- audio capability grant (host-testable: pass a caller-owned table) ---- */
+#ifndef VSND_MAX_AUDIO_GRANTS
+#define VSND_MAX_AUDIO_GRANTS 8u
+#endif
+
+struct vsnd_audio_grant {
+    uint32_t principal;   /* principal identity (0 = kernel, 0xFFFFFFFF = none, both rejected) */
+    uint8_t  caps;        /* bitmask of AUDIO_CAP_* */
+    uint8_t  used;        /* 1 = slot occupied */
+};
+
+/* Validate a principal identity. Kernel/none/reserved are never grantable. */
+static inline int vsnd_audio_principal_valid(uint32_t principal)
+{
+    if (!principal || principal == 0xFFFFFFFFu) return 0;
+    if ((principal & 0xFF000000u) == 0x7F000000u) return 0; /* reserved range */
+    return 1;
+}
+
+/* Validate a capability bitmask: must contain at least one known bit and no unknown bits. */
+static inline int vsnd_audio_caps_valid(uint8_t caps)
+{
+    if (!(caps & (AUDIO_CAP_PLAY | AUDIO_CAP_RECORD))) return 0;   /* no valid caps */
+    if (caps & ~(AUDIO_CAP_PLAY | AUDIO_CAP_RECORD)) return 0;      /* unknown bits */
+    return 1;
+}
+
+/* Check if `principal` holds `cap` in the grant table. Returns 1 if allowed, 0 if denied. */
+static inline int vsnd_audio_check_cap(const struct vsnd_audio_grant *grants, int ngrants,
+                                       uint32_t principal, uint8_t cap)
+{
+    if (!grants || ngrants <= 0 || !vsnd_audio_principal_valid(principal)) return 0;
+    if (cap != AUDIO_CAP_PLAY && cap != AUDIO_CAP_RECORD) return 0;
+    for (int i = 0; i < ngrants; i++) {
+        if (grants[i].used && grants[i].principal == principal) {
+            return (grants[i].caps & cap) != 0;
+        }
+    }
+    return 0;
+}
+
+/* Add `caps` to `principal`'s grant (create or merge). Returns 0 on success, -1 on error/full. */
+static inline int vsnd_audio_grant_add(struct vsnd_audio_grant *grants, int ngrants,
+                                       uint32_t principal, uint8_t caps)
+{
+    if (!grants || ngrants <= 0) return -1;
+    if (!vsnd_audio_principal_valid(principal)) return -1;
+    if (!vsnd_audio_caps_valid(caps)) return -1;
+
+    for (int i = 0; i < ngrants; i++) {
+        if (grants[i].used && grants[i].principal == principal) {
+            grants[i].caps |= caps;
+            return 0;
+        }
+    }
+    for (int i = 0; i < ngrants; i++) {
+        if (!grants[i].used) {
+            grants[i].used = 1;
+            grants[i].principal = principal;
+            grants[i].caps = caps;
+            return 0;
+        }
+    }
+    return -1;  /* table full */
+}
+
+/* Revoke all audio capabilities for `principal`. Returns number of grants revoked. */
+static inline int vsnd_audio_grant_revoke(struct vsnd_audio_grant *grants, int ngrants,
+                                          uint32_t principal)
+{
+    if (!grants || ngrants <= 0 || !vsnd_audio_principal_valid(principal)) return 0;
+    int n = 0;
+    for (int i = 0; i < ngrants; i++) {
+        if (grants[i].used && grants[i].principal == principal) {
+            grants[i].used = 0;
+            grants[i].principal = 0;
+            grants[i].caps = 0;
+            n++;
+        }
+    }
+    return n;
+}
+
+/* ---- fault injection kinds (for vsnd_test_fault) ---- */
+#define VSND_FAULT_NONE                0   /* disable fault injection */
+#define VSND_FAULT_MISSING_DEVICE      1   /* device appears missing (vsnd_present returns 0) */
+#define VSND_FAULT_UNSUPPORTED_STREAM  2   /* stream_id rejected as unsupported */
+#define VSND_FAULT_INVALID_FORMAT      3   /* SET_PARAMS uses invalid format/rate/channels */
+#define VSND_FAULT_MALFORMED_RESPONSE  4   /* device response is malformed */
+#define VSND_FAULT_TIMEOUT             5   /* control/TX queue operation times out */
+#define VSND_FAULT_OVERSIZED_COMPLETION 6  /* device reports used length > capability */
+#define VSND_FAULT_QUEUE_CORRUPTION    7   /* virtqueue returns impossible id/len */
+#define VSND_FAULT_DEVICE_RESET        8   /* device signals NEEDS_RESET/FAILED mid-operation */
 
 /* ---- our bounds on device-supplied counts (policy, not spec) ---- */
 #ifndef VSND_MAX_JACKS

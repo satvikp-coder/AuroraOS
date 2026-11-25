@@ -234,6 +234,124 @@ int main(void)
     info.channels_min = 2; p = good_params(); p.channels = 1;
     CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_EARG, "channels below channels_min");
 
+    /* ---- AUDIO-02: AUDIO_CAP_PLAY / AUDIO_CAP_RECORD capability constants ---- */
+    CHECK((AUDIO_CAP_PLAY & AUDIO_CAP_RECORD) == 0u, "PLAY and RECORD are distinct bits");
+    CHECK((AUDIO_CAP_PLAY | AUDIO_CAP_RECORD) == 0x03u, "PLAY|RECORD covers all known cap bits");
+    CHECK(vsnd_audio_caps_valid(AUDIO_CAP_PLAY) == 1, "PLAY alone is valid");
+    CHECK(vsnd_audio_caps_valid(AUDIO_CAP_RECORD) == 1, "RECORD alone is valid");
+    CHECK(vsnd_audio_caps_valid((uint8_t)(AUDIO_CAP_PLAY | AUDIO_CAP_RECORD)) == 1, "PLAY|RECORD combined is valid");
+    CHECK(vsnd_audio_caps_valid(0u) == 0, "no caps is invalid");
+    CHECK(vsnd_audio_caps_valid((uint8_t)0xFFu) == 0, "unknown cap bits rejected");
+
+    /* ---- AUDIO-02 / AUDIO-03: audio capability grant, check, deny, revoke (host-testable logic) ---- */
+    struct vsnd_audio_grant grants[VSND_MAX_AUDIO_GRANTS];
+    for (unsigned i = 0; i < VSND_MAX_AUDIO_GRANTS; i++) grants[i].used = 0;
+
+    /* Invalid principals are never grantable */
+    CHECK(vsnd_audio_principal_valid(0u) == 0, "principal 0 (kernel) invalid");
+    CHECK(vsnd_audio_principal_valid(0xFFFFFFFFu) == 0, "PRINCIPAL_NONE invalid");
+    CHECK(vsnd_audio_principal_valid(0x7F000003u) == 0, "reserved shell principal invalid");
+    CHECK(vsnd_audio_principal_valid(301u) == 1, "normal EL0 principal valid");
+
+    /* Granting to invalid principal fails */
+    CHECK(vsnd_audio_grant_add(grants, VSND_MAX_AUDIO_GRANTS, 0u, AUDIO_CAP_PLAY) == -1, "grant to kernel principal refused");
+    CHECK(vsnd_audio_grant_add(grants, VSND_MAX_AUDIO_GRANTS, 0xFFFFFFFFu, AUDIO_CAP_PLAY) == -1, "grant to PRINCIPAL_NONE refused");
+    CHECK(vsnd_audio_grant_add(grants, VSND_MAX_AUDIO_GRANTS, 301u, 0u) == -1, "grant with no caps refused");
+    CHECK(vsnd_audio_grant_add(grants, VSND_MAX_AUDIO_GRANTS, 301u, (uint8_t)0xFFu) == -1, "grant with unknown bits refused");
+
+    /* Denial before grant: principal has no capabilities */
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 301u, AUDIO_CAP_PLAY) == 0, "denied: no grant for principal 301");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 301u, AUDIO_CAP_RECORD) == 0, "denied: no RECORD for principal 301");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 999u, AUDIO_CAP_PLAY) == 0, "denied: unknown principal");
+
+    /* Grant PLAY to principal 301 */
+    CHECK(vsnd_audio_grant_add(grants, VSND_MAX_AUDIO_GRANTS, 301u, AUDIO_CAP_PLAY) == 0, "grant PLAY to principal 301");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 301u, AUDIO_CAP_PLAY) == 1, "allowed: PLAY after grant");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 301u, AUDIO_CAP_RECORD) == 0, "denied: RECORD not granted to 301");
+
+    /* Grant RECORD to principal 302 */
+    CHECK(vsnd_audio_grant_add(grants, VSND_MAX_AUDIO_GRANTS, 302u, AUDIO_CAP_RECORD) == 0, "grant RECORD to principal 302");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 302u, AUDIO_CAP_RECORD) == 1, "allowed: RECORD for principal 302");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 302u, AUDIO_CAP_PLAY) == 0, "denied: PLAY not granted to 302");
+
+    /* Merge: add PLAY to principal 302 which already has RECORD */
+    CHECK(vsnd_audio_grant_add(grants, VSND_MAX_AUDIO_GRANTS, 302u, AUDIO_CAP_PLAY) == 0, "merge PLAY onto principal 302");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 302u, AUDIO_CAP_PLAY) == 1, "allowed: PLAY after merge");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 302u, AUDIO_CAP_RECORD) == 1, "allowed: RECORD still held after merge");
+
+    /* Table full: fill remaining slots */
+    int full_count = 0;
+    for (unsigned i = 0; i < VSND_MAX_AUDIO_GRANTS; i++) {
+        if (!grants[i].used) {
+            if (vsnd_audio_grant_add(grants, VSND_MAX_AUDIO_GRANTS, 400u + i, AUDIO_CAP_PLAY) == 0) full_count++;
+        }
+    }
+    CHECK(full_count == 6, "table filled to capacity (2 used + 6 free = 8)");
+    CHECK(vsnd_audio_grant_add(grants, VSND_MAX_AUDIO_GRANTS, 999u, AUDIO_CAP_PLAY) == -1, "grant refused when table full");
+
+    /* Revoke: principal 301 loses PLAY */
+    CHECK(vsnd_audio_grant_revoke(grants, VSND_MAX_AUDIO_GRANTS, 301u) == 1, "revoked 1 grant for principal 301");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 301u, AUDIO_CAP_PLAY) == 0, "denied: PLAY after revoke");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 301u, AUDIO_CAP_RECORD) == 0, "denied: RECORD after revoke (never had it)");
+
+    /* Revoke non-existent principal returns 0 */
+    CHECK(vsnd_audio_grant_revoke(grants, VSND_MAX_AUDIO_GRANTS, 999u) == 0, "revoke unknown principal returns 0");
+
+    /* Revoke principal 302 (had PLAY|RECORD merged) */
+    CHECK(vsnd_audio_grant_revoke(grants, VSND_MAX_AUDIO_GRANTS, 302u) == 1, "revoked 1 grant for principal 302");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 302u, AUDIO_CAP_PLAY) == 0, "denied: PLAY after revoke of 302");
+    CHECK(vsnd_audio_check_cap(grants, VSND_MAX_AUDIO_GRANTS, 302u, AUDIO_CAP_RECORD) == 0, "denied: RECORD after revoke of 302");
+
+    /* ---- AUDIO-09: PCM format validation (sample rate, channels, format, buffer bounds) ---- */
+    /* Buffer bounds: buffer_bytes must be non-zero and a multiple of period_bytes */
+    p = good_params(); p.buffer_bytes = 0;
+    CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_EARG, "buffer_bytes 0 rejected");
+    p = good_params(); p.period_bytes = 0;
+    CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_EARG, "period_bytes 0 rejected");
+    p = good_params(); p.buffer_bytes = 1024; p.period_bytes = 1000;
+    CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_EARG, "buffer not multiple of period rejected");
+    p = good_params(); p.buffer_bytes = 1000; p.period_bytes = 1024;
+    CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_EARG, "period larger than buffer rejected");
+    p = good_params(); p.buffer_bytes = 4096; p.period_bytes = 1024;
+    CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_OK, "4096/1024 buffer/period accepted");
+
+    /* Format validation: every defined format index accepted at range check, undefined rejected */
+    for (uint32_t f = 0; f <= VSND_PCM_FMT_MAX; f++) {
+        p = good_params(); p.format = f;
+        CHECK(vsnd_check_set_params(&p, 0, 2) == VSND_OK, "format index in range accepted (no stream info)");
+    }
+    p = good_params(); p.format = VSND_PCM_FMT_MAX + 1;
+    CHECK(vsnd_check_set_params(&p, 0, 2) == VSND_EARG, "format index 25 rejected");
+    p = good_params(); p.format = 0xFFu;
+    CHECK(vsnd_check_set_params(&p, 0, 2) == VSND_EARG, "format index 255 rejected");
+
+    /* Rate validation: every defined rate index accepted at range check, undefined rejected */
+    for (uint32_t r = 0; r <= VSND_PCM_RATE_MAX; r++) {
+        p = good_params(); p.rate = r;
+        CHECK(vsnd_check_set_params(&p, 0, 2) == VSND_OK, "rate index in range accepted (no stream info)");
+    }
+    p = good_params(); p.rate = VSND_PCM_RATE_MAX + 1;
+    CHECK(vsnd_check_set_params(&p, 0, 2) == VSND_EARG, "rate index 14 rejected");
+    p = good_params(); p.rate = 0xFFu;
+    CHECK(vsnd_check_set_params(&p, 0, 2) == VSND_EARG, "rate index 255 rejected");
+
+    /* Channels validation: channels must be 1..channels_max and >= channels_min */
+    info.channels_min = 1;  /* restore after earlier "channels below channels_min" test */
+    p = good_params(); p.channels = 1;
+    CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_OK, "channels=1 within 1..2 accepted");
+    p = good_params(); p.channels = 2;
+    CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_OK, "channels=2 at channels_max accepted");
+    p = good_params(); p.channels = 0;
+    CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_EARG, "channels=0 rejected");
+
+    /* ---- AUDIO-01: PCM_INFO direction distinguishes playback (output) from capture (input) ---- */
+    put_info(b, 0, QEMU_FMTS, 0x3FFF, VIRTIO_SND_D_OUTPUT, 1, 2);
+    CHECK(vsnd_dec_pcm_info(b, 32, &info) == VSND_OK && info.direction == VIRTIO_SND_D_OUTPUT, "output stream direction decodes");
+    put_info(b, 0, QEMU_FMTS, 0x3FFF, VIRTIO_SND_D_INPUT, 1, 2);
+    CHECK(vsnd_dec_pcm_info(b, 32, &info) == VSND_OK && info.direction == VIRTIO_SND_D_INPUT, "input stream direction decodes");
+    put_info(b, 0, QEMU_FMTS, 0x3FFF, 7u, 1, 2);
+    CHECK(vsnd_dec_pcm_info(b, 32, &info) == VSND_EPROTO, "invalid direction 7 rejected");
+
     printf("virtio_snd_test: %d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;
 }

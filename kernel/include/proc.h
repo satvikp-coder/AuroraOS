@@ -149,6 +149,10 @@ int user_range_ok(uint64_t uva, size_t n);
 int copy_to_user(uint64_t uva, const void *src, size_t n);   /* same guarantees; needs write permission for EL0 */
 int user_writable(uint64_t uva, size_t n);
 
+/* ---- current process principal (for capability checks from kernel subsystems) ---- */
+/* Returns the principal of the currently running EL0 process, or PRINCIPAL_NONE if in kernel context (no process). */
+uint32_t proc_current_principal(void);
+
 /* ---- IPC (kernel/proc/ipc.c) ---- */
 int  proc_ipc_allow(int from, int to);                                /* kernel-only grant: 0, or -1 unless BOTH are live processes; bound to that recipient instance */
 int  ipc_send(struct proc *from, uint64_t dest, uint64_t ubuf, uint64_t len);   /* AE_OK or error; caller wakes a blocked receiver */
