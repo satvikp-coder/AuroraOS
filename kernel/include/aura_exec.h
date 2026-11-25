@@ -3,9 +3,9 @@
  *
  *   text -> aura_parse() -> aura_validate() -> bp_decide() (requester authorisation) -> ALLOW_NOW -> aura_execute_s0() -> shell_go()/shell_select_space() -> verified
  *
- * aura_execute_s0 is the ONLY code that turns an intent into an effect, and it can do exactly two things: show one of the five built-in screens, or select
- * one of the four built-in Spaces (and show Home). It has no shell-command, syscall, path or process interface. An intent is re-validated and its kind and
- * target are checked again here (defence in depth), and success is reported ONLY if the shell's state afterwards matches the request.
+ * aura_execute_s0 handles navigation, the shell timer and opening installed Notes through the shell's trusted launcher.
+ * The application identity is fixed by the registry. Launch and timer intents are reserved to the shell at the broker and refused by the queued client path.
+ * The executor revalidates the intent and reports success only when the requested effect is verified.
  * S1 and above never reach it: the policy answers REVIEW, HOLD or UNAVAILABLE and the outcome says nothing was changed.
  */
 #ifndef AURORA_AURA_EXEC_H

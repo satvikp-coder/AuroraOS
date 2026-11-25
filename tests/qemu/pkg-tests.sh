@@ -43,9 +43,9 @@ echo marker >> "$P/data/aurora.img"; S1=$(sha256sum "$P/data/aurora.img")
 L="$OUT/boot.log"; : > "$L"
 AURORA_SERIAL=file:"$L" "$P/run.sh" -display none -monitor none -qmp unix:"$OUT/boot.sock",server=on,wait=off &
 QPID=$!
-python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/boot.sock" --serial "$L" --tmp "$OUT" --scenario launch --timeout 400 > "$OUT/boot.check.log" 2>&1
+python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/boot.sock" --serial "$L" --tmp "$OUT" --scenario launch --check-aura-notes --timeout 400 > "$OUT/boot.check.log" 2>&1
 rc=$?; tail -4 "$OUT/boot.check.log"
-if [ "$rc" -eq 0 ]; then ok "the packaged kernel and disk boot and run the Calculator end to end (no hand provisioning)"; else bad "packaged boot checks failed (see $OUT/boot.check.log)"; fi
+if [ "$rc" -eq 0 ]; then ok "the packaged kernel and disk boot, run Calculator from Index and run Notes from Aura"; else bad "packaged boot checks failed (see $OUT/boot.check.log)"; fi
 stop_qemu
 echo "pkg-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]

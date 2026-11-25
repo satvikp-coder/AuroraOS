@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <aura_exec.h>
+#include <apps.h>
 
 static int passed, failed;
 #define CHECK(name, cond) do { if (cond) { passed++; } else { failed++; printf("  FAIL: %s (line %d)\n", name, __LINE__); } } while (0)
@@ -20,6 +21,10 @@ static struct aura_caps CAPS = { 1, 0, 0, 0, 0 };
 static struct bp_env ENV;
 static struct bp_replay RP;
 static uint64_t nonce;
+static int notes_available, notes_result, launches;
+static int available(uint32_t app) { return app == APP_NOTES && notes_available; }
+static int launch(uint32_t app) { if (app != APP_NOTES) return APPS_EUNKNOWN; launches++; return notes_result; }
+static const struct shell_launcher LAUNCHER = { available, launch, NULL };
 static void fresh(void)
 {
     memset(T, 0, sizeof T);
@@ -89,6 +94,32 @@ int main(void)
     CHECK("deleting is refused with a clear message and nothing is done", o.state == AX_UNAVAILABLE && strstr(o.msg, "Not done") != 0);
     fresh(); o = run(0, "open notes");
     CHECK("Notes: unavailable (no native Notes app)", o.state == AX_UNAVAILABLE && strstr(o.msg, "no Notes app") != 0);
+    CAPS.notes = 1; notes_available = 1; notes_result = APPS_OK; launches = 0;
+    shell_set_launcher(&sh, &LAUNCHER);
+    o = run(2, "open notes");
+    CHECK("a client with navigation rights cannot launch Notes", o.state == AX_DENIED && o.reason == BPR_NO_RIGHT && launches == 0);
+    struct aura_intent open_notes = o.intent;
+    aura_run_queued(&sh, &ENV, 2, T[2].gen, &open_notes, &o);
+    CHECK("a queued client launch is also denied", o.state == AX_DENIED && launches == 0);
+    o = run(0, "open notes later");
+    CHECK("extra words do not trigger a launch", o.state == AX_UNAVAILABLE && launches == 0);
+    sh.review_open = 1;
+    o = run(0, "open notes");
+    CHECK("an open trusted review blocks a launch", o.state == AX_FAILED && launches == 0);
+    sh.review_open = 0;
+    notes_available = 0;
+    o = run(0, "open notes");
+    CHECK("the executor rechecks installation", o.state == AX_FAILED && launches == 0);
+    notes_available = 1; notes_result = APPS_EFAILED;
+    o = run(0, "open notes");
+    CHECK("a loader failure stays on the current screen", o.state == AX_FAILED && sh.screen == SCR_HOME && launches == 1);
+    notes_result = APPS_OK;
+    o = run(0, "open notes");
+    CHECK("the trusted shell opens installed Notes and goes to Pages", o.state == AX_DONE && sh.screen == SCR_PAGES && launches == 2);
+    notes_result = APPS_EBUSY;
+    o = run(0, "open notes");
+    CHECK("an existing Notes instance is reachable on Pages", o.state == AX_DONE && sh.screen == SCR_PAGES && launches == 3);
+    CAPS.notes = 0;
     fresh(); o = run(0, "make text bigger");
     CHECK("S1 'make text bigger': shows it needs approval and that the trusted review is not available; nothing changed", o.state == AX_UNAVAILABLE && strstr(o.msg, "trusted review is not available") != 0 && sh.text_pct == 100 && o.intent.kind == AK_SET_SETTING && o.intent.arg == 1);
     fresh(); ENV.review_path = 1; ENV.trail = 1; o = run(0, "make text bigger");

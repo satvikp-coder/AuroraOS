@@ -9,7 +9,7 @@ void bp_replay_init(struct bp_replay *r)
 uint8_t bp_risk_of_kind(uint8_t kind)
 {
     switch (kind) {
-    case AK_OPEN_SCREEN: case AK_SELECT_SPACE: return 0;
+    case AK_OPEN_SCREEN: case AK_SELECT_SPACE: case AK_OPEN_NOTES: return 0;
     case AK_TIMER: return 0;
     case AK_SET_SETTING: return 1;
     case AK_DESTRUCTIVE: return 3;
@@ -72,6 +72,7 @@ void bp_decide(const struct bp_env *env, struct bp_replay *replay, const struct 
             res(out, BP_ALLOW_NOW, BPR_NONE, risk, principal); return;
         }
         if (!(rights & BP_RIGHT_NAVIGATE)) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
+        if (kind == AK_OPEN_NOTES && req->pid != BP_SHELL_PID) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
         if (!env->nav_service) { res(out, BP_UNAVAILABLE, BPR_NO_NAVIGATION, risk, principal); return; }
         res(out, BP_ALLOW_NOW, BPR_NONE, risk, principal); return;
     case AS_NEEDS_APPROVAL:

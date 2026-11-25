@@ -1,5 +1,6 @@
 /* kernel/ui/aura_exec.c - the S0 executor and the Aura pipeline (see aura_exec.h). No allocation, no libc. */
 #include <aura_exec.h>
+#include <apps.h>
 
 static const uint8_t SCREEN_OF[ASC_COUNT] = { SCR_HOME, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_CLOCK };
 
@@ -8,6 +9,14 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
     if (!sh || !in || !caps) return 0;
     if (!aura_validate(in, caps) || in->status != AS_ACTIONABLE || in->risk != 0) return 0;      /* only a validated S0 navigation */
     if (sh->about_open || sh->corner_open) return 0;                                            /* a modal owns the screen: never navigate behind it */
+    if (in->kind == AK_OPEN_NOTES) {
+        if (sh->review_open || !sh->launcher || !sh->launcher->available || !sh->launcher->launch ||
+            !sh->launcher->available(APP_NOTES)) return 0;
+        int rc = sh->launcher->launch(APP_NOTES);
+        if (rc != APPS_OK && rc != APPS_EBUSY) return 0;
+        shell_go(sh, SCR_PAGES);
+        return sh->screen == SCR_PAGES;
+    }
     if (in->kind == AK_TIMER) {                                                                 /* success only if the REAL timer service now shows what was asked */
         if (in->target == ATM_START) return shell_clock_start(sh, (uint32_t)in->arg);
         if (in->target == ATM_CANCEL) return shell_clock_cancel(sh);
@@ -112,7 +121,8 @@ void aura_run_queued(struct shell *sh, const struct bp_env *env, uint32_t pid, u
     out->intent = *in;
     struct bp_result d; d.decision = BP_DENY; d.reason = BPR_BAD_REQUESTER; d.risk = 0; d.principal = 0;
     uint64_t g = 0; uint32_t pr = 0, rt = 0;
-    if (env->lookup(pid, &g, &pr, &rt) && g != 0 && g == gen && (rt & BP_RIGHT_NAVIGATE) && in->kind != AK_TIMER && aura_validate(in, env->caps) && in->status == AS_ACTIONABLE) {
+    if (env->lookup(pid, &g, &pr, &rt) && g != 0 && g == gen && (rt & BP_RIGHT_NAVIGATE) &&
+        in->kind != AK_TIMER && in->kind != AK_OPEN_NOTES && aura_validate(in, env->caps) && in->status == AS_ACTIONABLE) {
         int ok = env->nav_service ? aura_execute_s0(sh, in, env->caps) : 0;
         d.decision = BP_ALLOW_NOW; d.reason = BPR_NONE; d.principal = pr;
         aura_outcome_from(out, &d, ok);

@@ -28,6 +28,7 @@
 
 enum aura_kind { AK_NONE = 0, AK_OPEN_SCREEN, AK_SELECT_SPACE, AK_SET_SETTING, AK_UNSUPPORTED, AK_DESTRUCTIVE, AK_CLARIFY, AK_UNKNOWN, AK_REFUSED,
                  AK_TIMER,   /* additive in schema v1 (a consumer that does not know it rejects the kind): start (target 0, arg = seconds 1..86400) or cancel (target 1) the shell's timer */
+                 AK_OPEN_NOTES,
                  AK_COUNT };
 enum aura_status { AS_ACTIONABLE = 0,      /* an S0 navigation the policy lets run without review (still the broker's decision) */
                    AS_NEEDS_APPROVAL,      /* S1 or higher: needs a preview and the documented approval before any effect */

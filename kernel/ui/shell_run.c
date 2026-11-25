@@ -150,7 +150,11 @@ static void s1_boot_recover(void) { int r = aura_s1_recover(&SH); if (r) console
 static int aura_glue(struct shell *s, const char *text, size_t len, uint8_t *state, char *msg, size_t cap)
 {
     struct aura_outcome o;
-    aura_run_text(s, broker_env(), broker_replay(), BP_SHELL_PID, BP_SHELL_GEN, ++shell_nonce, text, len, &o);
+    struct bp_env env = *broker_env();
+    struct aura_caps caps = *env.caps;
+    caps.notes = apps_available(APP_NOTES);
+    env.caps = &caps;
+    aura_run_text(s, &env, broker_replay(), BP_SHELL_PID, BP_SHELL_GEN, ++shell_nonce, text, len, &o);
     *state = o.state;
     size_t i = 0; for (; o.msg[i] && i + 1 < cap; i++) msg[i] = o.msg[i]; msg[i] = 0;
     console_puts("aura: shell ran kind="); console_puts(aura_kind_name(o.intent.kind)); console_puts(" decision="); console_puts(bp_decision_name(o.decision));
