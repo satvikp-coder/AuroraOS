@@ -3,7 +3,8 @@
 # verified (integrity-only, NOT authenticated) model volume through SYS_MODEL (11), streams them in reads of at most 4096 bytes and computes an int8
 # matrix-vector product with int32 accumulation and integer requantization (tests/programs/matvec_core.h, the code tests/kernel-host/matvec_test.c
 # exercises). The host computes the expected rows with an INDEPENDENT reference (tests/kernel-host/matvec_ref.h, via tests/tools/mktensor) and this
-# script compares them line for line with what EL0 printed. This is NOT a model and NOT a forward pass; the output is untrusted data nothing acts on.
+# script compares them line for line with what EL0 printed. Mode 1 also runs a synthetic
+# dense/ReLU/dense graph. No actions consume the results.
 # Disposable images under build/infer-tests/ only. The kernel is built with AURORA_INFER_TEST=1 (kernel/infertest.c).
 #   1. a volume of 11 tensor objects: 3 valid (37 x 300 random; 1024 x 4096 at the accumulator's worst case, saturating high; 4 x 4096 saturating
 #      low) and 8 hostile (header claims more rows than the object holds, truncated object, wrong kind, object shorter than the header, columns over
@@ -61,7 +62,7 @@ AURORA_INFER_TEST=1 BUILD_DIR="$OUT/kernel" ./build.sh >/dev/null 2>&1 || { bad 
 KERNEL="$OUT/kernel/kernel.bin"
 CC="${CROSS_COMPILE:-aarch64-linux-gnu-}gcc"
 PF="-O1 -ffreestanding -fno-builtin -nostdlib -static -no-pie -fno-pic -fno-pie -mgeneral-regs-only -fno-stack-protector -Wall -Wextra -Werror -Wl,-T,tests/programs/user.ld -Wl,-z,noexecstack -Wl,-z,max-page-size=4096 -Wl,--build-id=none"
-$CC $PF -o "$OUT/inferclient.elf" tests/programs/inferclient.c && ok "the EL0 matvec program compiles as a static AArch64 ET_EXEC with -mgeneral-regs-only (no floating point)" || { bad "inferclient failed to compile"; echo "infer-tests: $PASSES passed, $FAILS failed"; exit 1; }
+$CC $PF -o "$OUT/inferclient.elf" -I kernel/include tests/programs/inferclient.c kernel/proc/quant_ops.c && ok "the EL0 matvec program compiles as a static AArch64 ET_EXEC with -mgeneral-regs-only (no floating point)" || { bad "inferclient failed to compile"; echo "infer-tests: $PASSES passed, $FAILS failed"; exit 1; }
 cc -std=c11 -Wall -Wextra -O1 -I tests/tools/shim -I kernel/include -o "$OUT/mkafs" tests/tools/mkafs.c kernel/fs/afs.c && ok "mkafs compiled" || { bad "mkafs failed to compile"; exit 1; }
 cc -std=c11 -Wall -Wextra -O1 -I kernel/include -o "$OUT/mkmodel" tests/tools/mkmodel.c kernel/fs/modelstore.c kernel/crypto/sha256.c && ok "mkmodel compiled" || { bad "mkmodel failed to compile"; exit 1; }
 cc -std=c11 -Wall -Wextra -O1 -o "$OUT/mktensor" tests/tools/mktensor.c && ok "mktensor compiled" || { bad "mktensor failed to compile"; exit 1; }
@@ -120,6 +121,33 @@ for pair in "1 tensor" "2 maxdims" "11 neg"; do
     if cmp -s "$OUT/el0-$name.txt" "$OUT/$name.ref"; then ok "valid: EL0 result for '$name' equals the host reference ($(wc -l < "$OUT/$name.ref") rows, every acc and q)"
     else bad "valid: EL0 result for '$name' differs from the reference"; diff "$OUT/el0-$name.txt" "$OUT/$name.ref" | head -5; fi
 done
+# Evaluate the fixed graph from the independently generated tensor reference.
+# AWK int truncates toward zero, so adjust negative fractions explicitly.
+awk '
+    function scaled(acc, divisor,   q, truncated) {
+        q = (acc + divisor / 2) / divisor
+        truncated = int(q)
+        if (q < truncated) truncated--
+        return truncated < -128 ? -128 : truncated > 127 ? 127 : truncated
+    }
+    NR <= 3 { x[NR] = $5 }
+    END {
+        h0 = scaled(x[1] - 2*x[2] + 3*x[3], 2)
+        h1 = scaled(-3*x[1] + 2*x[2] - x[3], 2)
+        a0 = h0 > 0 ? h0 : 0
+        a1 = h1 > 0 ? h1 : 0
+        print "ic: graph 0 " scaled(2*a0 - 3*a1, 4)
+        print "ic: graph 1 " scaled(-a0 + 2*a1, 4)
+    }
+' "$OUT/tensor.ref" > "$OUT/graph.ref"
+grep '^ic: graph ' "$OUT/valid-mode1.txt" > "$OUT/el0-graph.txt"
+if cmp -s "$OUT/el0-graph.txt" "$OUT/graph.ref"; then
+    ok "valid: synthetic EL0 graph matches the independent host reference"
+else
+    bad "valid: synthetic EL0 graph differs from the host reference"
+    diff "$OUT/el0-graph.txt" "$OUT/graph.ref"
+fi
+count_is "$log" "\] ic: graph " 2 "valid: only the successful graph printed results"
 count_is "$OUT/valid-mode1.txt" "^ic: done 37 rows 300 cols$" 1 "valid: tensor (37 x 300, 3 reads of payload) completed"
 count_is "$OUT/valid-mode2.txt" "^ic: done 1024 rows 4096 cols$" 1 "valid: maxdims (1024 x 4096, the dimension limits) completed"
 count_is "$OUT/valid-mode1.txt" "^ic: object 0 tensor size 11580 kind 1$" 1 "valid: EL0 saw the tensor's verified size and kind"
