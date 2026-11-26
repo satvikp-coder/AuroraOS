@@ -1,5 +1,6 @@
 /*
- * kernel/proc/memsys.c - SYS_MEM: a bounded, quota-checked user heap (Cycle 22).
+ * kernel/proc/memsys.c - SYS_MEM: a bounded, quota-checked user heap (Cycle 22) and
+ * bounded large allocation region (MEM-03).
  *
  * A process may grow and shrink one contiguous heap at USER_HEAP_VA (kernel/include/uvlayout.h), in whole pages, up to USER_HEAP_MAX_PAGES (a per-process
  * page budget). The heap is bracketed by 16-page GUARDS that are never mapped (aspace_map refuses them), and it lies outside the ELF load window. Rules:
@@ -12,14 +13,47 @@
  *     heap's own, computed here from the page count.
  * Limits (kernel/include/heapacct.h): per process 32 pages, per PRINCIPAL 64 pages across all its live processes (a derived sum, never a stored counter), and the
  * 256-page kernel reserve. Everything the heap owns is released with the address space when the process is destroyed.
+ *
+ * Bounded large allocation region (MEM-03):
+ *   - Maximum single allocation: 64 KiB (16 pages)
+ *   - Per-process budget: 4 allocations (256 KiB total)
+ *   - Per-principal budget: 4 allocations (256 KiB total)
+ *   - Kernel reserve: 256 pages (1 MiB)
+ *   - Permissions: VMM_ATTR_NORMAL_RW or VMM_ATTR_NORMAL_RO (execute-never enforced via PXN/UXN)
+ *   - Mapped into process address space at a kernel-chosen VA (outside heap/ELF/stack regions)
+ *   - Cleaned up on process exit, fault, or explicit free
  */
 #include <proc.h>
 #include <mm.h>
+#include <pte.h>
 #include <heapacct.h>                   /* the pure policy: per-process, per-principal and kernel-reserve limits */
 
 #ifdef AURORA_SELFTEST_HOOKS
 int mem_test_fail_page = -1;                     /* test kernels only: make the Nth page of the next grow fail (to test the rollback), -1 = off */
 #endif
+
+/* Find a free virtual address in the user slot for mapping a bounded region.
+ * Returns a page-aligned VA or 0 if no space. */
+static uint64_t find_bounded_va(struct aspace *as, uint32_t pages)
+{
+    /* Use the first 64 pages beyond the regular process window.
+     * We need a contiguous run of 'pages' unmapped pages. */
+    uint64_t start = USER_VA_BASE + USER_WINDOW_BYTES;
+    uint64_t limit = start + BOUNDED_PROC_BUDGET_PAGES * PAGE_SIZE;
+    uint64_t va = start;
+
+    while (va + pages * PAGE_SIZE <= limit) {
+        uint8_t ok = 1;
+        for (uint32_t i = 0; i < pages; i++) {
+            uint64_t page_va = va + i * PAGE_SIZE;
+            if (uv_mappable(page_va) == 0) { ok = 0; break; }
+            if (aspace_is_mapped(as, page_va)) { ok = 0; break; }
+        }
+        if (ok) return va;
+        va += PAGE_SIZE;
+    }
+    return 0;
+}
 
 int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n)
 {
@@ -59,6 +93,97 @@ int64_t mem_syscall(struct proc *p, uint64_t op, uint64_t n)
             (void)aspace_unmap(&p->as, uv_heap_page_va(p->heap_pages));
         }
         return (int64_t)p->heap_pages;
+    }
+    case MEMOP_BOUNDED_ALLOC: {
+        /* x1 = size in bytes (n), x2 = perm (passed via n's upper bits or a register).
+         * Since we only have 'n' as argument, we encode: n = size | (perm << 48). */
+        uint64_t size = n & 0xFFFFFFFFFFFFULL;
+        int perm = (int)((n >> 48) & 0xFF);
+        if (size == 0 || size > BOUNDED_MAX_BYTES) return AE_EINVAL;
+        if (perm != VMM_ATTR_NORMAL_RW && perm != VMM_ATTR_NORMAL_RO) return AE_EINVAL;
+
+        uint32_t pages = (uint32_t)((size + PAGE_SIZE - 1) >> PAGE_SHIFT);
+        if (pages > BOUNDED_MAX_PAGES) return AE_EINVAL;
+
+        /* Check per-process budget. */
+        if (p->bounded_pages + pages > BOUNDED_PROC_BUDGET_PAGES) return AE_ENOMEM;
+
+        /* Check per-principal budget via PMM. */
+        uint64_t principal_budget = pmm_region_budget(p->principal);
+        if (principal_budget < pages) return AE_ENOMEM;
+
+        /* Check global reserve via PMM. */
+        struct pmm_stats st; pmm_get_stats(&st);
+        if (st.free_pages < pages + BOUNDED_RESERVE_PAGES) return AE_ENOMEM;
+
+        /* Find a virtual address to map it. */
+        uint64_t va = find_bounded_va(&p->as, pages);
+        if (!va) return AE_ENOMEM;
+
+        /* Allocate the bounded physical pages. */
+        uintptr_t pa = pmm_alloc_bounded(size, p->principal, (uint32_t)p->pid, perm, &va);
+        if (!pa) return AE_ENOMEM;
+
+        /* Map ALL charged physical pages into the process address space, atomically.
+         * Use aspace_map_at to map the specific physical pages we allocated. */
+        int user_perm = (perm == VMM_ATTR_NORMAL_RO) ? UPERM_RO : UPERM_RW;
+        uint32_t mapped = 0;
+        for (uint32_t i = 0; i < pages; i++) {
+            uint64_t page_va = va + i * PAGE_SIZE;
+            uint64_t page_pa = pa + i * PAGE_SIZE;
+            if (aspace_map_at(&p->as, page_va, page_pa, user_perm) != 0) break;
+            mapped++;
+        }
+        if (mapped < pages) {
+            /* Atomic rollback: unmap what we mapped, free the physical pages. */
+            while (mapped--) (void)aspace_unmap_at(&p->as, va + mapped * PAGE_SIZE);
+            (void)pmm_free_bounded(pa, 0);  /* kernel principal for cleanup */
+            return AE_ENOMEM;
+        }
+
+        /* Update process tracking. */
+        p->bounded_pages += pages;
+        p->bounded_count++;
+
+        /* Return the virtual address (not the physical address) to EL0.
+         * EL0 must never learn physical addresses. */
+        return (int64_t)va;
+    }
+    case MEMOP_BOUNDED_FREE: {
+        uint64_t va = n;
+        if (va == 0) return AE_EINVAL;
+        if (va & (PAGE_SIZE - 1)) return AE_EINVAL;  /* must be page-aligned */
+
+        /* Look up the region by VA to verify ownership. EL0 passes the VA it received. */
+        struct bounded_region br;
+        if (!pmm_bounded_lookup_by_va(va, (uint32_t)p->pid, &br)) return AE_EFAULT;
+        if (br.pid != (uint32_t)p->pid) return AE_EPERM;
+
+        /* Unmap from process address space using stored VA.
+         * Use aspace_unmap_at which does NOT free the physical pages. */
+        uint32_t pages = br.pages;
+        for (uint32_t i = 0; i < pages; i++) {
+            (void)aspace_unmap_at(&p->as, br.va + i * PAGE_SIZE);
+        }
+
+        /* Free the bounded region (permission check uses process's principal).
+         * This frees the physical pages and clears the region entry. */
+        int rc = pmm_free_bounded(br.pa, p->principal);
+        if (rc != BOUNDED_OK) {
+            if (rc == BOUNDED_ERR_PERM) return AE_EPERM;
+            if (rc == BOUNDED_ERR_NOT_FOUND) return AE_EFAULT;
+            return AE_EFAULT;
+        }
+
+        /* Update process tracking. */
+        if (p->bounded_pages >= pages) p->bounded_pages -= pages;
+        if (p->bounded_count > 0) p->bounded_count--;
+
+        return 0;
+    }
+    case MEMOP_BOUNDED_INFO: {
+        uint64_t budget = pmm_region_budget(p->principal);
+        return (int64_t)(((budget & 0xFFFFFFFFULL) << 32) | (p->bounded_pages & 0xFFFFFFFFULL));
     }
     default: return AE_EINVAL;
     }

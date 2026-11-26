@@ -31,6 +31,20 @@ SECTIONS
         . = ALIGN(8);
         __bss_start = .;
         *(.bss) *(.bss.*) *(COMMON)
+
+        /* PMM bitmap arrays: sized for PMM_MAX_PAGES (1 GiB / 4 KiB = 262144 pages)
+         * Each bitmap needs PMM_MAX_PAGES/64 = 4096 uint64_t words = 32 KiB.
+         * At runtime, pmm_init() only uses the first bm_words entries based on actual RAM. */
+        . = ALIGN(8);
+        __pmm_used_bm_start = .;
+        . += 4096 * 8;  /* PMM_MAX_PAGES/64 * 8 bytes */
+        __pmm_used_bm_end = .;
+
+        . = ALIGN(8);
+        __pmm_rsv_bm_start = .;
+        . += 4096 * 8;  /* PMM_MAX_PAGES/64 * 8 bytes */
+        __pmm_rsv_bm_end = .;
+
         . = ALIGN(8);
         __bss_end = .;
     }

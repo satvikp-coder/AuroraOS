@@ -9,6 +9,7 @@
 #include <console.h>
 #include <mm.h>
 #include <proc.h>
+#include <pte.h>
 #include <proctest.h>
 #include <timer.h>
 
@@ -110,7 +111,25 @@ void proctest_run(void)
     check("syscalls: 5 writes + 5 yields + exit were counted, and 5 'A' lines were printed by the kernel", pa->syscalls == 11 && tl == 5 && tr[0] == 'A' && tr[4] == 'A');
     check("scheduler: control returned to the kernel context with the master page table (ASID 0) active", get_ttbr0() == vmm_kernel_l1_pa() && !sched_active());
     destroy_all();
-    check("process destruction returns every page (tables and user pages)", free_pages() == pages0);
+    int before_bounded = free_pages() == pages0;
+    int first = proc_create(1, 0, "bound-a"), second = proc_create(1, 0, "bound-b");
+    struct proc *p1 = proc_get(first), *p2 = proc_get(second);
+    int bounded_ok = p1 && p2;
+    if (bounded_ok) {
+        uint64_t request = (2u * PAGE_SIZE) | ((uint64_t)VMM_ATTR_NORMAL_RW << 48);
+        int64_t va1 = mem_syscall(p1, MEMOP_BOUNDED_ALLOC, request);
+        int64_t va2 = mem_syscall(p2, MEMOP_BOUNDED_ALLOC, request);
+        bounded_ok = va1 > 0 && va1 == va2 &&
+                     aspace_is_mapped(&p1->as, (uint64_t)va1 + PAGE_SIZE) == 1 &&
+                     aspace_is_mapped(&p2->as, (uint64_t)va2 + PAGE_SIZE) == 1 &&
+                     mem_syscall(p2, MEMOP_BOUNDED_FREE, (uint64_t)va2) == 0 &&
+                     aspace_is_mapped(&p2->as, (uint64_t)va2) == 0 &&
+                     aspace_is_mapped(&p2->as, (uint64_t)va2 + PAGE_SIZE) == 0 &&
+                     aspace_is_mapped(&p1->as, (uint64_t)va1 + PAGE_SIZE) == 1;
+    }
+    destroy_all();
+    check("bounded memory: two processes can use the same VA, free by owner and reclaim all backing and tables",
+          before_bounded && bounded_ok && free_pages() == pages0);
 
     /* ---- two processes, cooperative round robin ---- */
     sched_trace_reset();
@@ -276,8 +295,10 @@ void proctest_run(void)
         while (head) { uintptr_t nx = *(volatile uint64_t *)head; pmm_free_page(head); head = nx; }
         (void)held;
         check("under page exhaustion aspace_map fails ATOMICALLY: no table or page was consumed, ownership and the L1 entry are unchanged", atomic && free_pages() == free_before);
+        uint64_t bookkeeping_pages = as.pages ? 1u : 0u;
         if (rc_create == 0) aspace_destroy(&as);
-        check("destroying the address space frees every page it owned", free_pages() == free_before + used_pages);
+        check("destroying the address space frees its mappings, tables and ownership array",
+              free_pages() == free_before + used_pages + bookkeeping_pages);
 
         /* process creation under exhaustion: either complete success or nothing left behind */
         int clean = 1;
@@ -907,8 +928,8 @@ void proctest_run(void)
             int t = proc_create(67, 2, "tryall"), o = proc_create(64, 0, "other");
             r = sched_run(2000);
             struct proc *T = proc_get(t);
-            check("ipc authorisation: no system call lets a process grant itself permission (numbers 12-40 all -ENOSYS; number 8 is the file system call, 9 the settings call, which both refuse a process that has no identity, 10 the memory call, which only ever manages the caller's own heap, and 11 the model call, which is -EPERM for anyone but PRINCIPAL_INFER) and its send to an unauthorised pid is -EPERM",
-                  r == SCHED_DEADLOCK && o == 2 && ud(T, 0x20) == 29 && (int64_t)ud(T, 0x30) == AE_EPERM && (int64_t)ud(T, 0x28) == AE_EPERM && T->state == PROC_TERMINATED && proc_get(o)->mbox.count == 0);
+            check("ipc authorisation: no system call lets a process grant itself permission (numbers 13-40 all -ENOSYS; number 8 is the file system call, 9 the settings call, which both refuse a process that has no identity, 10 the memory call for the caller, 11 the model call restricted to PRINCIPAL_INFER, and 12 the read-only asset call) and its send to an unauthorised pid is -EPERM",
+                  r == SCHED_DEADLOCK && o == 2 && ud(T, 0x20) == 28 && (int64_t)ud(T, 0x30) == AE_EPERM && (int64_t)ud(T, 0x28) == AE_EPERM && T->state == PROC_TERMINATED && proc_get(o)->mbox.count == 0);
             destroy_all();
             int f1 = proc_create(66, 2, "flags"), f2 = proc_create(66, 3, "flags"), f3 = proc_create(66, 1, "flags");
             sched_run(2000);

@@ -77,7 +77,8 @@ int main(void)
     /* Nothing private is in the snapshot: fill every private field with a marker and look for it in the output bytes. */
     clear(); mk(1, PROC_READY, "m", 1);
     tab[0].code_pa = 0xAAAAAAAAAAAAAAAAULL; tab[0].data_pa = 0xBBBBBBBBBBBBBBBBULL; tab[0].stack_pa = 0xCCCCCCCCCCCCCCCCULL; tab[0].entry = 0xDDDDDDDDDDDDDDDDULL;
-    tab[0].principal = 0xEEEEEEEEu; tab[0].fault_far = 0x1111111111111111ULL; tab[0].fault_elr = 0x2222222222222222ULL; tab[0].as.l1_pa = 0x3333333333333333ULL; tab[0].as.pages[0] = 0x4444444444444444ULL;
+    tab[0].principal = 0xEEEEEEEEu; tab[0].fault_far = 0x1111111111111111ULL; tab[0].fault_elr = 0x2222222222222222ULL; tab[0].as.l1_pa = 0x3333333333333333ULL; uint64_t pages[] = { 0x4444444444444444ULL };
+    tab[0].as.pages = pages;
     tab[0].ipc_grant_gen[2] = 0x5555555555555555ULL; tab[0].ctx.x[0] = 0x6666666666666666ULL;
     memset(&s, 0, sizeof s); procsnap_take(&s, get);
     const unsigned char *b = (const unsigned char *)&s; int leak = 0; static const unsigned char marks[] = { 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66 };
