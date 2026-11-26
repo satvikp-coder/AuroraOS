@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <aura_cmd.h>
+#include <apps.h>
 
 static int passed, failed;
 #define CHECK(name, cond) do { if (cond) { passed++; } else { failed++; printf("  FAIL: %s (line %d)\n", name, __LINE__); } } while (0)
@@ -96,6 +97,20 @@ static const struct exp TABLE[] = {
 
 int main(void)
 {
+    const struct aura_caps installed = { .notes = 1, .calculator = 1, .files = 1 };
+    const struct aura_caps missing = { 0 };
+    const char *const app_commands[] = { "open calculator", "open notes", "open files" };
+    for (uint8_t app = APP_CALCULATOR; app < APP_COUNT; app++) {
+        const char *text = app_commands[app - APP_CALCULATOR];
+        struct aura_intent intent = run_caps(&installed, text, strlen(text));
+        CHECK("installed app command has the registry target",
+              intent.kind == AK_OPEN_APP && intent.target == app && aura_validate(&intent, &installed));
+        CHECK("an actionable app intent requires availability", !aura_validate(&intent, &missing));
+        intent = run_caps(&missing, text, strlen(text));
+        CHECK("missing app reports a canonical unsupported intent",
+              intent.status == AS_UNSUPPORTED && aura_validate(&intent, &missing));
+    }
+
     printf("aura_cmd tests\n");
 
     /* ---- the table ---- */

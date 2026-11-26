@@ -37,7 +37,7 @@ enum aura_status { AS_ACTIONABLE = 0,      /* an S0 navigation the policy lets r
                    AS_REJECTED,            /* invalid input or out-of-range value, or a request the native OS cannot honour yet */
                    AS_COUNT };
 enum aura_reason { AR_NONE = 0, AR_EMPTY, AR_TOO_LONG, AR_BAD_ENCODING, AR_INJECTION, AR_MULTIPLE, AR_AMBIGUOUS, AR_MISSING_ARG, AR_RANGE, AR_NOT_UNDERSTOOD,
-                   AR_NO_TIMER, AR_NO_HARDWARE, AR_NO_NOTES, AR_NO_APP, AR_NO_MESSAGING, AR_NO_PAGES, AR_NEEDS_BROKER, AR_COUNT };
+                   AR_NO_TIMER, AR_NO_HARDWARE, AR_NO_NOTES, AR_NO_MESSAGING, AR_NO_PAGES, AR_NEEDS_BROKER, AR_NO_APP, AR_COUNT };
 enum aura_screen { ASC_HOME = 0, ASC_SPACES, ASC_INDEX, ASC_SETTINGS, ASC_PAGES, ASC_CLOCK, ASC_COUNT };      /* AK_OPEN_SCREEN targets */
 enum aura_arg { AA_NONE = 0, AA_ABS, AA_REL };
 
@@ -48,14 +48,9 @@ enum aura_arg { AA_NONE = 0, AA_ABS, AA_REL };
 #define ATM_MIN_S 1
 #define ATM_MAX_S 86400
 
-/* registry setting ids (docs/kernel/settings.md): 1 theme, 2 text scale, 3 reduced motion, 4 focus mode, 5 aura mode, 6 notifications, 7 space */
+/* registry setting ids (docs/kernel/settings.md): 1 theme, 2 text scale */
 #define ASET_THEME 1
 #define ASET_TEXT_SCALE 2
-#define ASET_REDUCED_MOTION 3
-#define ASET_FOCUS_MODE 4
-#define ASET_AURA_MODE 5
-#define ASET_NOTIFICATIONS 6
-#define ASET_SPACE 7
 
 struct aura_intent {
     uint8_t version;          /* AURA_INTENT_VERSION */

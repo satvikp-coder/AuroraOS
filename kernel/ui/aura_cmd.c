@@ -1,5 +1,6 @@
 /* kernel/ui/aura_cmd.c - Aura Quick Commands parser and intent validator. See kernel/include/aura_cmd.h. Pure C, no libc, bounded everywhere. */
 #include <aura_cmd.h>
+#include <apps.h>
 
 #define MAXT 12
 #define TOKLEN 16
@@ -172,25 +173,27 @@ static int open_app(const struct toks *tk, int lo, int hi, const struct aura_cap
     if (p < hi && eq(tk->t[p], "the")) p++;
     if (p >= hi) { fin(o, AK_CLARIFY, AS_CLARIFY, AR_MISSING_ARG, 0, 0, AA_NONE, 0, "Open what?"); return 1; }
 
-    int app_id = -1;
-    const char *app_label = 0;
-    int has_cap = 0;
-
-    if (has_any(tk, p, hi, NOTES)) { app_id = 2; app_label = "Notes"; has_cap = caps->notes; }
-    else if (has_any(tk, p, hi, CALCULATOR)) { app_id = 1; app_label = "Calculator"; has_cap = caps->calculator; }
-    else if (has_any(tk, p, hi, FILES_APP)) { app_id = 3; app_label = "Files"; has_cap = caps->files; }
-    else { return 0; }
+    uint8_t app_id;
+    const char *preview;
+    int available;
+    if (eq(tk->t[p], "notes")) { app_id = APP_NOTES; preview = "Open Notes"; available = caps->notes; }
+    else if (has_any(tk, p, p + 1, CALCULATOR)) { app_id = APP_CALCULATOR; preview = "Open Calculator"; available = caps->calculator; }
+    else if (has_any(tk, p, p + 1, FILES_APP)) { app_id = APP_FILES; preview = "Open Files"; available = caps->files; }
+    else return 0;
 
     p++;
     if (p < hi && eq(tk->t[p], "app")) p++;
     if (p != hi) return 0;
 
-    if (!has_cap) return 0;  /* let the generic NOTES-unsupported handler below produce AR_NO_NOTES */
-
-    char prev[AURA_PREVIEW_MAX]; int i = 0; const char *pre = "Open "; for (; pre[i]; i++) prev[i] = pre[i];
-    for (int k = 0; app_label[k] && i < AURA_PREVIEW_MAX - 1; k++) prev[i++] = app_label[k];
-    prev[i] = 0;
-    fin(o, AK_OPEN_APP, AS_ACTIONABLE, AR_NONE, 0, app_id, AA_NONE, 0, prev);
+    if (!available) {
+        if (app_id == APP_NOTES)
+            fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_NOTES, 0, 0, AA_NONE, 0, "Unsupported: no Notes app");
+        else
+            fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_APP, 0, 0, AA_NONE, 0,
+                app_id == APP_CALCULATOR ? "Unsupported: no Calculator" : "Unsupported: no Files");
+        return 1;
+    }
+    fin(o, AK_OPEN_APP, AS_ACTIONABLE, AR_NONE, 0, app_id, AA_NONE, 0, preview);
     return 1;
 }
 
@@ -436,7 +439,8 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     char want[AURA_PREVIEW_MAX];
     switch (x->kind) {
     case AK_OPEN_APP:
-        return (x->target == 1 || x->target == 2 || x->target == 3) &&
+        return ((x->target == APP_CALCULATOR && caps->calculator) || (x->target == APP_NOTES && caps->notes) ||
+                (x->target == APP_FILES && caps->files)) &&
                x->status == AS_ACTIONABLE && x->reason == AR_NONE && x->risk == 0 &&
                x->arg_kind == AA_NONE && x->arg == 0 &&
                str_eq_n(x->preview, x->target == 1 ? "Open Calculator" : x->target == 2 ? "Open Notes" : "Open Files");
@@ -482,6 +486,8 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
         case AR_NO_TIMER: return !caps->timer && x->risk == 0 && str_eq_n(x->preview, "Unsupported: no timer service");
         case AR_NO_HARDWARE: return x->risk == 1 && str_eq_n(x->preview, "Unsupported: no driver for that");
         case AR_NO_NOTES: return x->risk == 0 && str_eq_n(x->preview, caps->notes ? "Unsupported: only opening Notes is available" : "Unsupported: no Notes app");
+        case AR_NO_APP: return x->risk == 0 && ((!caps->calculator && str_eq_n(x->preview, "Unsupported: no Calculator")) ||
+                                                   (!caps->files && str_eq_n(x->preview, "Unsupported: no Files")));
         case AR_NO_MESSAGING: return x->risk == 3 && str_eq_n(x->preview, "Unsupported: no messaging service");
         case AR_NO_PAGES: return !caps->pages && x->risk == 0 && str_eq_n(x->preview, "Unsupported: Pages is not available yet");
         default: return 0;
@@ -510,7 +516,7 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
 
 static const char *const KN[AK_COUNT] = { "none", "open_screen", "select_space", "set_setting", "unsupported", "destructive", "clarify", "unknown", "refused", "timer", "open_app" };
 static const char *const SN[AS_COUNT] = { "actionable", "needs_approval", "unsupported", "clarify", "rejected" };
-static const char *const RN[AR_COUNT] = { "none", "empty", "too_long", "bad_encoding", "injection", "multiple", "ambiguous", "missing_arg", "range", "not_understood", "no_timer", "no_hardware", "no_notes", "no_messaging", "no_pages", "needs_broker" };
+static const char *const RN[AR_COUNT] = { "none", "empty", "too_long", "bad_encoding", "injection", "multiple", "ambiguous", "missing_arg", "range", "not_understood", "no_timer", "no_hardware", "no_notes", "no_messaging", "no_pages", "needs_broker", "no_app" };
 const char *aura_kind_name(uint8_t k) { return k < AK_COUNT ? KN[k] : "?"; }
 const char *aura_status_name(uint8_t s) { return s < AS_COUNT ? SN[s] : "?"; }
 const char *aura_reason_name(uint8_t r) { return r < AR_COUNT ? RN[r] : "?"; }

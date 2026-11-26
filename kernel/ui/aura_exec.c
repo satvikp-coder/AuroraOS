@@ -8,14 +8,16 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
 {
     if (!sh || !in || !caps) return 0;
     if (!aura_validate(in, caps) || in->status != AS_ACTIONABLE || in->risk != 0) return 0;      /* only a validated S0 navigation */
-    if (sh->about_open || sh->corner_open || sh->review_open) return 0;                         /* a modal owns the screen: never navigate behind it */
+    if (sh->about_open || sh->corner_open) return 0;                                            /* a modal owns the screen: never navigate behind it */
     if (in->kind == AK_OPEN_APP) {
-        if (!sh->launcher || !sh->launcher->launch) return 0;
+        if (sh->review_open) return 0;                    /* a modal owns the screen: never launch behind it (#161) */
+        if (!sh->launcher || !sh->launcher->available || !sh->launcher->launch) return 0;
         if (in->target < 1 || in->target > 3) return 0;  /* calculator=1, notes=2, files=3 */
         if (!sh->launcher->available(in->target)) return 0;
         int rc = sh->launcher->launch(in->target);
-        if (rc == 0 || rc == APPS_EBUSY) shell_go(sh, SCR_PAGES);  /* opened apps appear on Pages; EBUSY = already running */
-        return rc == 0 || rc == APPS_EBUSY;  /* APPS_OK = 0, EBUSY = already open */
+        if (rc != APPS_OK && rc != APPS_EBUSY) return 0;  /* EBUSY = an instance is already running: still a success */
+        shell_go(sh, SCR_PAGES);
+        return sh->screen == SCR_PAGES;
     }
     if (in->kind == AK_TIMER) {                                                                 /* success only if the REAL timer service now shows what was asked */
         if (in->target == ATM_START) return shell_clock_start(sh, (uint32_t)in->arg);
@@ -153,18 +155,6 @@ int aura_s1_resolve(const struct aura_intent *in, uint32_t cur, int32_t *next)
     } else if (in->target == ASET_THEME) {
         if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 2) return -1;
         *next = in->arg;
-    } else if (in->target == ASET_REDUCED_MOTION) {
-        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 1) return -1;
-        *next = in->arg;
-    } else if (in->target == ASET_FOCUS_MODE) {
-        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 3) return -1;
-        *next = in->arg;
-    } else if (in->target == ASET_AURA_MODE) {
-        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 2) return -1;
-        *next = in->arg;
-    } else if (in->target == ASET_NOTIFICATIONS) {
-        if (in->arg_kind != AA_ABS || in->arg < 0 || in->arg > 2) return -1;
-        *next = in->arg;
     } else return -1;
     return (uint32_t)*next == cur ? -2 : 0;
 }
@@ -277,17 +267,6 @@ int aura_s1_undo_text(struct shell *sh, char *out, size_t cap, char *why, size_t
         char d[8]; int k = 0; if (!v) d[k++] = '0'; while (v && k < 7) { d[k++] = (char)('0' + v % 10); v /= 10; } while (k) *w++ = d[--k];
     } else if (post.target == ASET_THEME && v <= 2) {
         const char *a = v == 0 ? "set theme to auto" : v == 1 ? "set theme to light" : "set theme to dark"; while (*a) *w++ = *a++;
-    } else if (post.target == ASET_REDUCED_MOTION && v <= 1) {
-        const char *a = v == 0 ? "set reduced motion off" : "set reduced motion on"; while (*a) *w++ = *a++;
-    } else if (post.target == ASET_FOCUS_MODE && v <= 3) {
-        static const char *const N[] = { "set focus mode to off", "set focus mode to work", "set focus mode to rest", "set focus mode to sleep" };
-        const char *a = N[v]; while (*a) *w++ = *a++;
-    } else if (post.target == ASET_AURA_MODE && v <= 2) {
-        static const char *const N[] = { "set aura mode to off", "set aura mode to suggest", "set aura mode to act with review" };
-        const char *a = N[v]; while (*a) *w++ = *a++;
-    } else if (post.target == ASET_NOTIFICATIONS && v <= 2) {
-        static const char *const N[] = { "set notifications to all", "set notifications to priority only", "set notifications to none" };
-        const char *a = N[v]; while (*a) *w++ = *a++;
     } else return 0;
     *w = 0; return 1;
 }
