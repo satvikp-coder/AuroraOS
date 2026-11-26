@@ -85,6 +85,31 @@ int main(void)
         if (bad) printf("    random run diverged: %d\n", bad);
         CHECK("200,000 random key sequences match the independent oracle and never leave the bounds", bad == 0);
     }
+    {
+        unsigned char saved[CALC_SAVE_SIZE];
+        struct calc source, restored;
+        calc_clear(&source);
+        CHECK("only a completed result can be saved", !calc_encode_result(&source, saved));
+        source.acc = -CALC_LIMIT;
+        source.after_equals = 1;
+        CHECK("encode a negative result", calc_encode_result(&source, saved));
+        CHECK("decode a negative result with no pending operation",
+              calc_decode_result(&restored, saved, sizeof saved) &&
+              restored.acc == -CALC_LIMIT && restored.after_equals && !restored.op);
+        CHECK("short and oversized records fail without altering the result",
+              !calc_decode_result(&restored, saved, sizeof saved - 1) &&
+              !calc_decode_result(&restored, saved, sizeof saved + 1) &&
+              restored.acc == -CALC_LIMIT);
+        int valid = 1;
+        for (int i = 0; i < CALC_SAVE_SIZE; ++i) {
+            for (int bit = 0; bit < 8; ++bit) {
+                saved[i] ^= 1u << bit;
+                if (calc_decode_result(&restored, saved, sizeof saved)) valid = 0;
+                saved[i] ^= 1u << bit;
+            }
+        }
+        CHECK("all single-bit changes are rejected", valid);
+    }
     printf("calculator: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;
 }

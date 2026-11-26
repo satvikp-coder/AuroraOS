@@ -44,6 +44,9 @@ def main():
         return b"".join(bytes(d[(y * w + x0) * 3:(y * w + x1) * 3]) for y in range(y0, y1))
     def key(k, d): return {"type": "key", "data": {"down": d, "key": {"type": "qcode", "data": k}}}
     def tap(k): q.cmd("input-send-event", events=[key(k, True), key(k, False)]); time.sleep(0.25)
+    def ctrl(k):
+        q.cmd("input-send-event", events=[key("ctrl", True), key(k, True), key(k, False), key("ctrl", False)])
+        time.sleep(0.25)
     def typ(t):
         for ch in t: tap("spc" if ch == " " else ch)
         time.sleep(0.4)
@@ -83,6 +86,10 @@ def main():
         tap("kp_add"); tap("8"); tap("kp_enter")
         check("12 + 8 = 20: the process saw real keys and computed it", wait_for(lambda: any("calc display=20" in l for l in user(pid)), 30))
         check("SCREEN: its surface changed on the real display", region(shot(), sx, sy, sx + sw, sy + sh_) != region(before, sx, sy, sx + sw, sy + sh_))
+        if a.check_aura_notes:
+            ctrl("s")
+            check("Ctrl+S verifies the completed result on disk", wait_for(lambda:
+                  any("Result saved" in l for l in user(pid)), 15))
         tap("c")
         check("C clears it (display 0 again)", wait_for(lambda: [l for l in user(pid) if "calc display=" in l][-1:] and "calc display=0" in [l for l in user(pid) if "calc display=" in l][-1], 20))
         tap("1"); tap("slash"); tap("0"); tap("kp_enter")
@@ -106,6 +113,14 @@ def main():
         check("the new instance starts at 0: no stale display or state from the old one", wait_for(lambda: any("calc display=0" in l for l in since_relaunch()), 30) and not any("calc display=20" in l or "Divide" in l for l in since_relaunch()))
         check("exactly one new surface was created for it (the old one is gone)", len([s for s in surfaces() if s[1] == pid2]) == 2 and "ui: client gone pid=%d surfaces dropped=1" % pid in log())
         if a.check_aura_notes:
+            fresh = next((surface for surface in surfaces() if surface[1] == pid2), None)
+            if fresh:
+                _, _, rx, ry, rw, rh = fresh
+                click(rx + rw // 2, ry + rh // 2)
+                ctrl("r")
+            check("Ctrl+R explicitly recalls the saved result after relaunch", fresh is not None and wait_for(lambda:
+                  any("Saved result restored" in l for l in since_relaunch()) and
+                  any("calc display=20" in l for l in since_relaunch()), 20))
             check("the packaged shell can return Home and open Aura", tab_to(SID_DOCK_HOME) and (tap("ret") or True) and
                   wait_for(lambda: screen_now() == "Home", 15) and tab_to(SID_APP_AURA) and (tap("ret") or True) and
                   wait_for(lambda: screen_now() == "Aura", 15))

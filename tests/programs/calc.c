@@ -43,11 +43,79 @@ static void refresh(void)
     line[n] = 0; say(line);                                        /* one line, so a test can read exactly what this process shows */
 }
 
+/* AuroraFS lookup can return visible foreign files. Only the Calculator's own
+ * file is eligible for reading or replacement. */
+static const char SAVE_FILE[] = "calculator.state";
+static i64 own_save(void)
+{
+    struct { u64 id; u32 size, owner, perm, reserved; char name[32]; } st;
+    i64 id = fs_lookup(SAVE_FILE);
+    if (id < 0) return id;
+    i64 rc = sc(SYS_FS, 5, id, (i64)&st, 0, 0);
+    if (rc < 0) return rc;
+    return st.owner == 601u ? id : EFS_ENOENT;
+}
+
+static void show_status(const char *message)
+{
+    send_text(3, 0, message);
+    commit();
+    say(message);
+}
+
+static int restore_result(void)
+{
+    u8 data[CALC_SAVE_SIZE + 1];
+    i64 id = own_save();
+    if (id >= 0 && fs_read(id, 0, data, sizeof data) == CALC_SAVE_SIZE &&
+        calc_decode_result(&C, data, CALC_SAVE_SIZE)) {
+        show_status("Saved result restored");
+        return 1;
+    }
+    show_status("No readable saved result");
+    return 0;
+}
+
+static void save_result(void)
+{
+    u8 data[CALC_SAVE_SIZE], back[CALC_SAVE_SIZE + 1];
+    if (!calc_encode_result(&C, data)) {
+        show_status("Press equals before saving");
+        return;
+    }
+    i64 id = own_save();
+    if (id == EFS_ENOENT) id = fs_create(SAVE_FILE, 3);
+    else if (id >= 0) {
+        struct calc previous;
+        i64 len = fs_read(id, 0, back, sizeof back);
+        if (len != 0 && (len != CALC_SAVE_SIZE ||
+            !calc_decode_result(&previous, back, CALC_SAVE_SIZE))) {
+            show_status("Saved format is unreadable");
+            return;
+        }
+    }
+    if (id < 0 || fs_write(id, 0, data, sizeof data) != CALC_SAVE_SIZE ||
+        fs_read(id, 0, back, sizeof back) != CALC_SAVE_SIZE) {
+        show_status("Result save could not be verified");
+        return;
+    }
+    for (int i = 0; i < CALC_SAVE_SIZE; i++) if (data[i] != back[i]) {
+        show_status("Result save could not be verified");
+        return;
+    }
+    show_status("Result saved");
+}
+
 /* evdev code -> action; returns 1 if consumed */
 static int on_key(u32 code, u32 mods)
 {
     int shift = (mods & 1u) != 0;                     /* MOD_SHIFT (the input layer folds left and right Shift into one bit) */
     static const char DIG[] = { 0, 0, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0' };   /* KEY_1..KEY_0 = 2..11 */
+    if (mods & 2u) {
+        if (code == 31) save_result();                           /* Ctrl+S */
+        if (code == 19) return restore_result();                 /* Ctrl+R */
+        return 0;
+    }
     if (code >= 2 && code <= 11) { if (shift && code == 9) calc_op(&C, '*'); else calc_digit(&C, DIG[code] - '0'); return 1; }
     switch (code) {
     case 79: calc_digit(&C, 1); return 1; case 80: calc_digit(&C, 2); return 1; case 81: calc_digit(&C, 3); return 1;     /* keypad 1 2 3 */
@@ -76,6 +144,7 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
     send_rect(0, 0, 8, 8, 240, 24); send_text(0, 1, "Calculator");
     send_rect(1, 2, 8, 36, 240, 20); send_text(1, 0, " ");
     send_rect(2, 1, 8, 60, 240, 28); calc_clear(&C);
+    send_rect(3, 2, 8, 96, 240, 20); send_text(3, 0, "Ctrl+S save  Ctrl+R recall");
     say("calc started"); refresh();
     for (;;) {
         u8 ev[16]; i64 got = ui_poll(ev, sizeof ev);
