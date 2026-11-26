@@ -10,7 +10,17 @@ bad() { FAILS=$((FAILS + 1));   echo "  FAIL: $1"; }
 QPID=""; stop_qemu() { if [ -n "$QPID" ]; then kill "$QPID" 2>/dev/null; wait "$QPID" 2>/dev/null; QPID=""; fi; }
 trap stop_qemu EXIT; trap 'stop_qemu; exit 130' INT TERM
 
-PKG_DIR="$OUT/p1" ./scripts/package-qemu.sh > "$OUT/p1.log" 2>&1 && ok "the package builds" || { bad "package build failed (see $OUT/p1.log)"; tail -5 "$OUT/p1.log"; echo "pkg-tests: $PASSES passed, $FAILS failed"; exit 1; }
+PKG_DIR="$OUT/p1" ./scripts/package-qemu.sh > "$OUT/p1.log" 2>&1 && ok "the package builds" || { bad "package build failed (see $OUT/p1.log)"; tail -5 "$OUT/p1.log"; L="$OUT/clock-restart.log"; : > "$L"
+AURORA_SERIAL=file:"$L" "$P/run.sh" -display none -monitor none -qmp unix:"$OUT/restart.sock",server=on,wait=off &
+QPID=$!
+if python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/restart.sock" --serial "$L" --tmp "$OUT" --scenario clock-restart > "$OUT/clock-restart.check.log" 2>&1; then
+    ok "Clock restores the selected preset after reboot"
+else
+    cat "$OUT/clock-restart.check.log"
+    bad "Clock preset restart checks failed"
+fi
+stop_qemu
+echo "pkg-tests: $PASSES passed, $FAILS failed"; exit 1; }
 PKG_DIR="$OUT/p2" ./scripts/package-qemu.sh > "$OUT/p2.log" 2>&1 || bad "second package build failed"
 H1=$(cd "$OUT/p1" && sha256sum kernel.bin aurora-fresh.img apps/*.elf); H2=$(cd "$OUT/p2" && sha256sum kernel.bin aurora-fresh.img apps/*.elf)
 if [ "$H1" = "$H2" ]; then ok "two builds are byte-identical (kernel, disk image, executables)"; else bad "the builds differ"; echo "$H1"; echo "$H2"; fi

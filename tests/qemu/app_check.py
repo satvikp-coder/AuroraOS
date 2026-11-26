@@ -131,6 +131,8 @@ def main():
                     click(cx + cw // 2, cy + min(ch // 2, 40))
                     tap("5")
                     check("5 selects the five-minute preset", wait_for(lambda: any("clock preset=1" in l for l in user(clock_pid)), 15))
+                    tap("p")
+                    check("P saves the selected preset", wait_for(lambda: any("clock saved preset=1" in l for l in user(clock_pid)), 15))
                     tap("s")
                     check("S starts the timer through SYS_TIMER", wait_for(lambda: any("clock timer started id=" in l for l in user(clock_pid)), 15))
                     check("the countdown advances while the timer runs", wait_for(lambda:
@@ -139,6 +141,16 @@ def main():
                     check("C cancels and releases the timer", wait_for(lambda: any("clock cancelled" in l for l in user(clock_pid)), 15))
                     tap("q")
                     check("Q exits Clock", wait_for(lambda: "apps: instance gone clock" in log(), 30))
+    elif sc == "clock-restart":
+        check("Index opens after reboot", open_index())
+        typ("clock app"); tap("ret")
+        clock = lambda: re.search(r"apps: launched clock pid=(\d+) principal=604", log())
+        check("Clock relaunches from the installed disk", wait_for(clock, 30))
+        launched_clock = clock()
+        if launched_clock:
+            pid = int(launched_clock.group(1))
+            check("Clock restores the saved preset", wait_for(lambda: any("clock restored preset=1" in l for l in user(pid)), 20))
+            check("Clock leaves the countdown stopped", not any("clock timer started" in l for l in user(pid)))
     elif sc == "refused":
         # An installed Calculator that is damaged: the kernel must refuse it with a specific reason, create no process, and leave the other applications usable.
         check("boot registered the Calculator", "apps: calculator registered" in log())
