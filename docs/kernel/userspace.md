@@ -183,4 +183,20 @@ There is **no stored counter**: a principal's usage is the sum of `heap_pages` o
 
 Tests: `tests/kernel-host/heapacct_test.c` runs the real policy against an independent reference model that keeps STORED counters (200,000 random create/destroy/grow/shrink/fault/set-principal operations: 0 disagreements, charged pages equal live pages for every principal after every operation, a granted grow never leaves fewer than 256 pages free; four deliberate mutations of the policy are all caught). `kernel/proctest.c` runs the same rules on real processes: two processes of one principal share 64, a third is refused, another principal is independent, destroying one process releases only its own charge, a reused slot starts clean, no-principal processes share one budget, a grow that fails part-way (a test-kernel-only injection hook) rolls back completely and leaves no charge, a faulted process keeps its charge until destroyed, and every page returns. Mutation-checked: making memsys ignore principals fails the QEMU suite.
 
-Not provided on purpose: any way to name a physical address, map the framebuffer or another process's memory, change a page's permissions, or map executable memory. `ASPACE_MAX_PAGES` grew from 24 to 56 (the fixed pages and tables plus the heap budget). Not done yet: a per-principal (rather than per-process) budget, demand paging, guard pages between heap and other regions beyond the unmapped gaps that already exist, and file-backed or shared mappings.
+The heap API manages private anonymous pages. Demand paging and file-backed mappings are outside this API.
+
+### Bounded allocations outside the heap
+
+`SYS_MEM` also supports separate, fixed-size regions starting beyond the 2 MiB process window. The kernel finds an unused span and maps zero-filled pages there. The returned address is a virtual address in the caller's address space.
+
+| Operation (`x0`) | Argument (`x1`) | Result (`x0`) |
+| --- | --- | --- |
+| `MEMOP_BOUNDED_ALLOC` (10) | Size in bytes in bits 0–47, permission in bits 48–55 (1 for read/write, 2 for read-only) | Base virtual address, or a negative error |
+| `MEMOP_BOUNDED_FREE` (11) | Base virtual address returned by allocation | Zero, or a negative error |
+| `MEMOP_BOUNDED_INFO` (12) | Unused | Remaining principal pages in bits 32–63 and pages allocated by this process in bits 0–31 |
+
+A region occupies at most 16 pages (64 KiB). A process and a principal each have a limit of four regions totaling at most 64 pages (256 KiB), separate from their heap budgets. The kernel uses the principal assigned to the process and retains a 256-page reserve. Both permission choices disable execution. Failed mappings release the backing pages, and successful mappings are released by explicit free, exit, or fault. The process test checks that two processes can own separate regions at the same virtual address and that freeing one leaves the other mapped.
+
+### Read-only asset mapping
+
+`SYS_RO_MAP` (12) exposes kernel-registered, reserved asset pages as read-only and non-executable EL0 mappings. `ROOP_MAP` takes an asset ID in `x1` and an optional requested virtual address in `x2`. `ROOP_INFO` returns the asset's page count and flags. `ROOP_UNMAP` takes a virtual address in `x1` and a page count in `x2`. This ABI is present in the kernel. The current build registers no assets at boot, so there is no asset ID for applications to use yet.

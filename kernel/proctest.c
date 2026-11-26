@@ -87,6 +87,42 @@ static int timer_hist_sane(void)
     return 1;
 }
 
+/* Use the existing syscall entry point and real address spaces for the region checks. */
+static int bounded_memory_checks(void)
+{
+    int first = proc_create(1, 0, "bound-a");
+    int second = proc_create(1, 0, "bound-b");
+    int third = proc_create(1, 0, "bound-c");
+    struct proc *p1 = proc_get(first), *p2 = proc_get(second), *p3 = proc_get(third);
+    if (!p1 || !p2 || !p3 || proc_set_principal(first, 151) ||
+        proc_set_principal(second, 151) || proc_set_principal(third, 152)) return 0;
+
+    const uint64_t rw = (uint64_t)VMM_ATTR_NORMAL_RW << 48;
+    const uint64_t request = 2u * PAGE_SIZE | rw;
+    int64_t va1 = mem_syscall(p1, MEMOP_BOUNDED_ALLOC, request);
+    int64_t va2 = mem_syscall(p2, MEMOP_BOUNDED_ALLOC, request);
+    if (va1 <= 0 || va1 != va2 ||
+        !aspace_is_mapped(&p1->as, (uint64_t)va1 + PAGE_SIZE) ||
+        !aspace_is_mapped(&p2->as, (uint64_t)va2 + PAGE_SIZE) ||
+        mem_syscall(p3, MEMOP_BOUNDED_FREE, (uint64_t)va1) != AE_EFAULT ||
+        mem_syscall(p2, MEMOP_BOUNDED_FREE, (uint64_t)va2) != 0 ||
+        aspace_is_mapped(&p2->as, (uint64_t)va2) ||
+        aspace_is_mapped(&p2->as, (uint64_t)va2 + PAGE_SIZE) ||
+        !aspace_is_mapped(&p1->as, (uint64_t)va1 + PAGE_SIZE)) return 0;
+
+    /* Reach the four-region limit with only five pages. Check both owners of
+     * the shared principal, and ensure that an independent principal can grow. */
+    for (int i = 0; i < 3; i++)
+        if (mem_syscall(p1, MEMOP_BOUNDED_ALLOC, PAGE_SIZE | rw) <= 0) return 0;
+    const uint64_t before = free_pages();
+    if (mem_syscall(p1, MEMOP_BOUNDED_ALLOC, PAGE_SIZE | rw) != AE_ENOMEM ||
+        mem_syscall(p2, MEMOP_BOUNDED_ALLOC, PAGE_SIZE | rw) != AE_ENOMEM ||
+        free_pages() != before) return 0;
+    if (mem_syscall(p3, MEMOP_BOUNDED_ALLOC, PAGE_SIZE | rw) <= 0 ||
+        mem_syscall(p1, MEMOP_BOUNDED_FREE, (uint64_t)va1) != 0) return 0;
+    return mem_syscall(p2, MEMOP_BOUNDED_ALLOC, request) > 0;
+}
+
 void proctest_run(void)
 {
     const uint64_t pages0 = free_pages();
@@ -112,23 +148,9 @@ void proctest_run(void)
     check("scheduler: control returned to the kernel context with the master page table (ASID 0) active", get_ttbr0() == vmm_kernel_l1_pa() && !sched_active());
     destroy_all();
     int before_bounded = free_pages() == pages0;
-    int first = proc_create(1, 0, "bound-a"), second = proc_create(1, 0, "bound-b");
-    struct proc *p1 = proc_get(first), *p2 = proc_get(second);
-    int bounded_ok = p1 && p2;
-    if (bounded_ok) {
-        uint64_t request = (2u * PAGE_SIZE) | ((uint64_t)VMM_ATTR_NORMAL_RW << 48);
-        int64_t va1 = mem_syscall(p1, MEMOP_BOUNDED_ALLOC, request);
-        int64_t va2 = mem_syscall(p2, MEMOP_BOUNDED_ALLOC, request);
-        bounded_ok = va1 > 0 && va1 == va2 &&
-                     aspace_is_mapped(&p1->as, (uint64_t)va1 + PAGE_SIZE) == 1 &&
-                     aspace_is_mapped(&p2->as, (uint64_t)va2 + PAGE_SIZE) == 1 &&
-                     mem_syscall(p2, MEMOP_BOUNDED_FREE, (uint64_t)va2) == 0 &&
-                     aspace_is_mapped(&p2->as, (uint64_t)va2) == 0 &&
-                     aspace_is_mapped(&p2->as, (uint64_t)va2 + PAGE_SIZE) == 0 &&
-                     aspace_is_mapped(&p1->as, (uint64_t)va1 + PAGE_SIZE) == 1;
-    }
+    int bounded_ok = bounded_memory_checks();
     destroy_all();
-    check("bounded memory: two processes can use the same VA, free by owner and reclaim all backing and tables",
+    check("bounded memory: isolate equal VAs, enforce shared quotas, and reclaim backing and tables",
           before_bounded && bounded_ok && free_pages() == pages0);
 
     /* ---- two processes, cooperative round robin ---- */
