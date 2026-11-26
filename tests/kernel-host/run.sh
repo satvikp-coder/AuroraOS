@@ -103,5 +103,7 @@ cc $CFLAGS -o "$OUT/tokenizer_test" "$ROOT/tests/kernel-host/tokenizer_test.c" "
 
 cc $CFLAGS -o "$OUT/tensor_test" "$ROOT/tests/kernel-host/tensor_test.c" "$ROOT/kernel/proc/tensor.c"
 cc $CFLAGS -o "$OUT/quant_ops_test" "$ROOT/tests/kernel-host/quant_ops_test.c" "$ROOT/kernel/proc/quant_ops.c"
+cc $CFLAGS -o "$OUT/ai_pipeline_test" "$ROOT/tests/kernel-host/ai_pipeline_test.c" "$ROOT/kernel/proc/tokenizer.c" "$ROOT/kernel/proc/tensor.c" "$ROOT/kernel/proc/quant_ops.c"
 "$OUT/tensor_test"
 "$OUT/quant_ops_test"
+"$OUT/ai_pipeline_test"
