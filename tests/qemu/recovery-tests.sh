@@ -138,14 +138,18 @@ cp -r "$PKG" "$OUT/bundle"; rm -rf "$OUT/bundle/data"
 if (cd "$OUT/bundle" && ./verify-bundle.sh > "$OUT/verify-ok.log" 2>&1); then ok "verify: the untouched bundle verifies"; else bad "verify: the untouched bundle was rejected (see $OUT/verify-ok.log)"; fi
 tamper() {       # $1 name, $2 shell command run inside a fresh copy of the bundle
     rm -rf "$OUT/t"; cp -r "$OUT/bundle" "$OUT/t"
-    (cd "$OUT/t" && sh -c "$2") 2>/dev/null
-    if (cd "$OUT/t" && ./verify-bundle.sh > "$OUT/verify-$1.log" 2>&1); then bad "verify: $1 was NOT detected"; else ok "verify: $1 is detected"; fi
+    if ! (cd "$OUT/t" && sh -c "$2"); then bad "verify: could not apply $1"; return; fi
+    label=$(printf '%s' "$1" | tr -c '[:alnum:]' '-')
+    if (cd "$OUT/t" && ./verify-bundle.sh > "$OUT/verify-$label.log" 2>&1); then bad "verify: $1 was NOT detected"; else ok "verify: $1 is detected"; fi
 }
 tamper "a modified kernel"        "printf x >> kernel.bin"
 tamper "a modified disk template" "printf x >> aurora-fresh.img"
 tamper "a modified application"   "printf x >> apps/calc.elf"
 tamper "a deleted application"    "rm apps/calc.elf"
 tamper "an unlisted extra file in apps/" "printf x > apps/extra.elf"
+tamper "a missing launcher digest" "sed -i '/  run[.]sh$/d' manifest.txt"
+tamper "a duplicate digest" "sed -i '/  kernel[.]bin$/p' manifest.txt"
+tamper "a digest outside the bundle" "sed -i 's|  apps/calc.elf$|  ../bundle/apps/calc.elf|' manifest.txt; rm apps/calc.elf"
 # KNOWN LIMIT, asserted so it cannot be forgotten: the manifest is a list of SHA-256 digests, not a signature. Whoever can change the kernel AND the manifest
 # together produces a bundle that verifies. Checksums detect accidents and partial tampering; authenticity needs a signature checked against a key held elsewhere.
 rm -rf "$OUT/t"; cp -r "$OUT/bundle" "$OUT/t"
