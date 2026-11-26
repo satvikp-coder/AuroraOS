@@ -108,7 +108,7 @@ static void load(void)
 /* Stage the older verified save in the editor. Ctrl+S is the only disk write. */
 static void load_previous(void)
 {
-    if (dirty) { status = "Save edits before loading a previous save"; return; }
+    if (dirty) { status = "Save edits before loading a prior save"; return; }
     if (locked || cur_slot < 0) { status = "No previous save available"; return; }
     struct note previous;
     u32 sequence = 0;

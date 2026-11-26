@@ -139,13 +139,24 @@ def main():
         edited = last_text(1)
         ctrl("r")
         check("Ctrl+R preserves unsaved edits", wait_for(lambda:
-              last_status(1) == "Save edits before loading a previous save" and last_text(1) == edited, 20))
+              last_status(1) == "Save edits before loading a prior save" and last_text(1) == edited, 20))
         ctrl("s")
         check("saving LONGER text works (seq 3, back in slot a)", wait_for(lambda: has(1, "notes save ok seq=3"), 25))
         check("exit", quit_notes(1))
     elif sc == "fourth":
         check("Notes launches", launch(1))
         check("the longer text loads after another restart", wait_for(lambda: has(1, "notes load ok slot=0"), 20) and (last_text(1) or "").startswith("AuroraOS is my independent operating kernel and more words"))
+        focus_surface(1)
+        ctrl("r")
+        shorter = "AuroraOS is my independent operating |"
+        check("the previous save can be staged after a restart", wait_for(lambda: last_text(1) == shorter, 20))
+        ctrl("s")
+        check("saving the staged text creates a new latest save", wait_for(lambda: has(1, "notes save ok seq=4"), 20))
+        check("exit", quit_notes(1))
+    elif sc == "restored":
+        check("Notes launches after saving the previous version", launch(1))
+        check("the explicitly restored text survives reboot", wait_for(lambda:
+              has(1, "notes load ok slot=1") and last_text(1) == "AuroraOS is my independent operating |", 20))
         check("no panic", "KERNEL PANIC" not in log())
     elif sc == "rodisk":
         check("Notes launches from a read-only disk", launch(1))
