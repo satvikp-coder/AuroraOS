@@ -94,6 +94,62 @@ static void refresh(void)
     send_text(1, 0, up); send_text(2, 1, val); send_text(3, 0, st); commit();
 }
 
+/* Persist only the preset. Timer IDs and deadlines belong to this process. */
+#define CLOCK_PRINCIPAL 604u
+static const char STATE_FILE[] = "clock.state";
+
+static i64 preset_file(void)
+{
+    struct { u64 id; u32 size, owner, perm, reserved; char name[32]; } st;
+    i64 id = fs_lookup(STATE_FILE);
+    if (id < 0) return id;
+    i64 rc = sc(SYS_FS, 5, id, (i64)&st, 0, 0);
+    if (rc < 0) return rc;
+    return st.owner == CLOCK_PRINCIPAL ? id : EFS_ENOENT;
+}
+
+static int read_preset(i64 id)
+{
+    u8 record[9];
+    if (fs_read(id, 0, record, sizeof record) != 8 ||
+        record[0] != 'A' || record[1] != 'C' || record[2] != 'L' || record[3] != 'K' ||
+        record[4] != 1 || record[5] >= 3 ||
+        (unsigned)record[5] + record[6] != 255 || record[7] != 0) return -1;
+    return record[5];
+}
+
+static void load_preset(void)
+{
+    i64 id = preset_file();
+    if (id < 0) return;
+    int value = read_preset(id);
+    if (value >= 0) {
+        preset = value;
+        sayn("clock restored preset=", (u64)preset);
+    }
+}
+
+static void save_preset(void)
+{
+    i64 id = preset_file();
+    if (id == EFS_ENOENT) id = fs_create(STATE_FILE, 3);
+    else if (id >= 0) {
+        u8 first;
+        i64 got = fs_read(id, 0, &first, 1);
+        if (got < 0 || (got > 0 && read_preset(id) < 0)) id = -1;
+    }
+    u8 record[8] = { 'A', 'C', 'L', 'K', 1, (u8)preset, (u8)(255 - preset), 0 };
+    if (id >= 0 && fs_write(id, 0, record, sizeof record) == (i64)sizeof record &&
+        read_preset(id) == preset) {
+        send_text(5, 0, "Preset saved");
+        sayn("clock saved preset=", (u64)preset);
+    } else {
+        send_text(5, 0, "Could not save preset");
+        say("clock preset save refused");
+    }
+    commit();
+}
+
 static void start_timer(void)
 {
     if (running || timer_id >= 0) return;
@@ -140,6 +196,8 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
     send_rect(2, 1, 8, 62, 700, 28);
     send_rect(3, 2, 8, 96, 700, 20);
     send_rect(4, 2, 8, 122, 700, 20); send_text(4, 0, "1 5 2 preset   S start   C cancel   Q quit");
+    send_rect(5, 2, 8, 148, 700, 20); send_text(5, 0, "P saves the preset");
+    load_preset();
     say("clock started");
     refresh();
     for (;;) {
@@ -161,6 +219,7 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
             if (!running && (code == 2 || code == 6 || code == 3)) { preset = code == 2 ? 0 : code == 6 ? 1 : 2; done = 0; sayn("clock preset=", (u64)preset); refresh(); continue; }
             switch (code) {
             case 31: start_timer(); break;                                  /* S */
+            case 25: save_preset(); break;                                  /* P */
             case 46: cancel_timer(); break;                                 /* C */
             default: break;
             }
