@@ -146,6 +146,9 @@ tamper "a modified disk template" "printf x >> aurora-fresh.img"
 tamper "a modified application"   "printf x >> apps/calc.elf"
 tamper "a deleted application"    "rm apps/calc.elf"
 tamper "an unlisted extra file in apps/" "printf x > apps/extra.elf"
+tamper "a missing launcher digest" "sed -i '/  run[.]sh$/d' manifest.txt"
+tamper "a duplicate digest" "sed -i '/  kernel[.]bin$/p' manifest.txt"
+tamper "a digest outside the bundle" "sed -i 's|  apps/calc.elf$|  ../bundle/apps/calc.elf|' manifest.txt; rm apps/calc.elf"
 # KNOWN LIMIT, asserted so it cannot be forgotten: the manifest is a list of SHA-256 digests, not a signature. Whoever can change the kernel AND the manifest
 # together produces a bundle that verifies. Checksums detect accidents and partial tampering; authenticity needs a signature checked against a key held elsewhere.
 rm -rf "$OUT/t"; cp -r "$OUT/bundle" "$OUT/t"

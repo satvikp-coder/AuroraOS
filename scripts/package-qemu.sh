@@ -65,12 +65,23 @@ cat > "$PKG/verify-bundle.sh" <<'EOS'
 D="$(cd "$(dirname "$0")" && pwd)"; cd "$D" || exit 2
 fail() { echo "verify-bundle: FAIL: $1" >&2; exit 1; }
 [ -f manifest.txt ] || fail "manifest.txt is missing"
-awk '/^sha256:/ { f = 1; next } f && /^$/ { exit } f { print }' manifest.txt > "${TMPDIR:-/tmp}/aurora-manifest.$$" || fail "cannot read the manifest"
-L="${TMPDIR:-/tmp}/aurora-manifest.$$"; trap 'rm -f "$L"' EXIT
-[ -s "$L" ] || fail "the manifest lists no files"
-for must in kernel.bin aurora-fresh.img; do grep -q "  $must\$" "$L" || fail "the manifest does not list $must"; done
-sha256sum -c --quiet "$L" || fail "a listed file is missing or does not match its SHA-256"
-for f in apps/*; do [ -e "$f" ] || continue; grep -q "  $f\$" "$L" || fail "$f is in the bundle but not in the manifest"; done
+L=$(mktemp "${TMPDIR:-/tmp}/aurora-manifest.XXXXXX") || fail "cannot create a temporary file"
+trap 'rm -f "$L"' EXIT
+awk '/^sha256:/ { f = 1; next } f && /^$/ { exit } f { print }' manifest.txt > "$L" || fail "cannot read the manifest"
+awk '
+    length($1) != 64 || $1 ~ /[^0-9a-f]/ || NF != 2 { exit 1 }
+    $0 != ($1 "  " $2) || seen[$2]++ { exit 1 }
+    $2 !~ /^(kernel[.]bin|aurora-fresh[.]img|fresh-install[.]sh|run[.]sh|verify-bundle[.]sh|apps\/[A-Za-z0-9_-]+[.]elf)$/ { exit 1 }
+' "$L" || fail "invalid or duplicate manifest entry"
+listed() { awk -v path="$1" '$2 == path { found = 1 } END { exit !found }' "$L"; }
+for must in kernel.bin aurora-fresh.img fresh-install.sh run.sh verify-bundle.sh; do
+    listed "$must" || fail "the manifest does not list $must"
+done
+for f in apps/*; do
+    [ -e "$f" ] || continue
+    listed "$f" || fail "$f is in the bundle but not in the manifest"
+done
+sha256sum -c --strict --quiet "$L" || fail "a listed file is missing or does not match its SHA-256"
 echo "verify-bundle: OK: $(wc -l < "$L" | tr -d ' ') files match manifest.txt"
 echo "verify-bundle: this is an integrity check, not authentication: the manifest itself is not signed"
 EOS
