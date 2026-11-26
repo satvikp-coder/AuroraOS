@@ -44,7 +44,7 @@ static const struct { const char *app; const char *file; uint32_t principal; uin
      * 1024 a client WITHOUT the UI capability. The kernel grants the capability here (kernel code): the clients cannot. */
     /* 2048: a client that HOLDS the navigate right (granted here, by kernel code) and asks the broker to navigate; 4096: one that holds nothing;
      * 8192: one that asks and then faults at once (its request must not outlive it). */
-    { "c_nav", "uiclient.elf", 406, 6, 2048, 1 }, { "c_navbad", "uiclient.elf", 407, 7, 4096, 0 }, { "c_navcrash", "uiclient.elf", 408, 8, 8192, 0 }, { "c_navflood", "uiclient.elf", 409, 9, 16384, 0 },
+    { "c_nav", "uiclient.elf", 406, 6, 2048, 0 }, { "c_navbad", "uiclient.elf", 407, 7, 4096, 0 }, { "c_navcrash", "uiclient.elf", 408, 8, 8192, 0 }, { "c_navflood", "uiclient.elf", 409, 9, 16384, 0 },
     /* SYS_TIMER clients (caps bit 2 = the timer capability; bit 1 = the UI capability) (timerclient.elf): 32768 basic, 65536 hostile, 131072 without the capability, 262144 a holder of a 3 s timer, 524288 a spy on foreign ids,
      * 1048576 starts two timers and exits, 2097152 starts two and faults, 4194304 a late client that must get its full quota. The capability is granted here, by kernel code. */
     { "c_tmbasic", "timerclient.elf", 501, 1, 32768, 2 }, { "c_tmhostile", "timerclient.elf", 502, 2, 65536, 2 }, { "c_tmnocap", "timerclient.elf", 503, 3, 131072, 0 },

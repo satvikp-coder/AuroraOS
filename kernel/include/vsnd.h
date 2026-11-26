@@ -7,7 +7,7 @@
  * Kernel virtio-sound driver (kernel/drivers/virtio_snd.c): DEVICE BRING-UP + PCM PLAYBACK.
  * Finds a modern virtio-mmio sound device (ID 25) through the device tree, negotiates VIRTIO_F_VERSION_1 only, sets up the four queues,
  * reads the configuration and asks the device for PCM_INFO of every stream.
- * PCM playback: SET_PARAMS / START / STOP on the control queue; sine-wave tone generation submitted on the TX queue.
+ * PCM playback: SET_PARAMS / PREPARE / START / STOP / RELEASE on the control queue; sine-wave tone generation submitted on the TX queue.
  * Message layouts and decoders live in virtio_snd.h. Everything the device supplies is treated as hostile; a failing device is reset and
  * marked failed and boot continues.
  */
@@ -23,14 +23,20 @@ uint32_t vsnd_streams(void);               /* stream count from config space (0 
 int vsnd_set_params(uint32_t stream_id, uint32_t format, uint32_t rate, uint32_t channels,
                     uint32_t buffer_bytes, uint32_t period_bytes, uint32_t features);
 
-/* Start/stop playback on a configured stream. */
+/* Transition a configured playback stream. */
+int vsnd_prepare(uint32_t stream_id);
+int vsnd_release(uint32_t stream_id);
 int vsnd_start(uint32_t stream_id);
 int vsnd_stop(uint32_t stream_id);
 
-/* Generate and play a sine wave tone at the given frequency (Hz) on an output stream for the given duration in milliseconds. */
+/* Submit a 1–21 ms tone at 1–24000 Hz to a started stereo S16/48 kHz stream. The tone length must fit its configured period. */
 int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms);
 
 /* Audio capability management (kernel code only). */
 int vsnd_grant_audio(uint32_t principal, uint8_t caps);   /* grant audio capabilities to a principal; 0 on success, -1 on error */
 int vsnd_revoke_audio(uint32_t principal);                 /* revoke all audio capabilities for a principal; returns count revoked */
+
+#ifdef AURORA_SND_PLAY_TEST
+int vsnd_playback_selftest(void);
+#endif
 #endif

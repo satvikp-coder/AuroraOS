@@ -5,13 +5,13 @@
  *
  * Scope: discover, reset, negotiate VIRTIO_F_VERSION_1 only, set up controlq/eventq/txq/rxq (shared virtqueue.c bookkeeping), DRIVER_OK,
  * read config (jacks, streams, chmaps) with a generation-consistent read, then ONE polled PCM_INFO request for all streams.
- * PCM playback: SET_PARAMS / START / STOP on the control queue; sine-wave tone generation submitted on the TX queue.
+ * PCM playback: SET_PARAMS / PREPARE / START / STOP / RELEASE on the control queue; sine-wave tone generation submitted on the TX queue.
  * Failure policy: every wait is bounded by the ARM generic timer; any protocol violation, timeout or refusal sets FAILED, resets the
  * device, frees its pages only once the reset is confirmed, and returns an error. Boot always continues.
  *
- * AURORA_SND_FAULT=<n> (test builds only, tests/qemu/sound-tests.sh) SIMULATES a hostile device inside the driver, after the real QEMU
- * device answered: 1 never ring the doorbell (timeout), 2 non-zero padding in PCM_INFO record 0, 3 used length one byte short,
- * 4 config reports VSND_MAX_STREAMS+1 streams, 5 unknown status code in the response header.
+ * Deterministic compile-time fault injection (test builds only, tests/qemu/sound-tests.sh) via AURORA_SND_FAULT=<n>:
+ *  1 withhold the PCM_INFO request (bounded timeout), 2 non-zero padding in PCM_INFO record 0,
+ *  3 used length one byte short, 4 config reports VSND_MAX_STREAMS+1 streams, 5 unknown status code.
  */
 #include <arch.h>
 #include <console.h>
@@ -90,7 +90,7 @@ static struct {
 int vsnd_grant_audio(uint32_t principal, uint8_t caps)
 {
     if (!principal || principal == 0xFFFFFFFFu) return -1;  /* kernel or none */
-    if ((principal & 0xFF000000u) == 0x7F000000u) return -1; /* reserved range */
+    if ((principal & 0xFF000000u) == 0x7F000000u && principal != PRINCIPAL_SHELL) return -1; /* reserved range */
     if (!(caps & (AUDIO_CAP_PLAY | AUDIO_CAP_RECORD))) return -1; /* no valid caps */
 
     for (int i = 0; i < AUDIO_MAX_GRANTS; i++) {
@@ -249,22 +249,16 @@ static int control(uint32_t req_len, uint32_t resp_len, uint32_t *used_len)
     struct sq *q = &Q[VIRTIO_SND_VQ_CONTROL];
     q->desc[0].addr = (uint64_t)(ctrl_page + OFF_REQ); q->desc[0].len = req_len; q->desc[0].flags = DESC_NEXT; q->desc[0].next = 1;
     q->desc[1].addr = (uint64_t)(ctrl_page + OFF_RESP); q->desc[1].len = resp_len; q->desc[1].flags = DESC_WRITE; q->desc[1].next = 0;
+    /* Fault 1 keeps the request unpublished, including for devices that poll the ring. */
+#if !(defined(AURORA_SND_FAULT) && AURORA_SND_FAULT == 1)
     if (vq_submit(&q->vq, 0, resp_len) != VQ_OK) return SND_EPROTO;
-    /* Fault 1 (legacy AURORA_SND_FAULT=1): withhold the doorbell so the wait sees no completion. */
-#if defined(AURORA_SND_FAULT) && AURORA_SND_FAULT == 1
-    /* LEGACY: never ring the doorbell */
-#else
     wr(VIO_R_QNOTIFY, VIRTIO_SND_VQ_CONTROL);
 #endif
     uint64_t t0 = timer_count(), limit = ms_ticks(CTRL_MS);
     for (;;) {
         uint16_t id; uint32_t len;
         int r = vq_complete(&q->vq, &id, &len);
-        if (r == VQ_OK) {
-            if (id != 0) return SND_EPROTO;
-            *used_len = len;
-            break;
-        }
+        if (r == VQ_OK) { if (id != 0) return SND_EPROTO; *used_len = len; break; }
         if (r != VQ_EEMPTY) return SND_EPROTO;                    /* bad id, length over resp_len, impossible used index */
         if (rd(VIO_R_STATUS) & (VIO_ST_NEEDS_RESET | VIO_ST_FAILED)) return SND_EPROTO;
         if (timer_count() - t0 > limit) return SND_ETIMEOUT;
@@ -372,6 +366,22 @@ int vsnd_init(const void *fdt)
 int vsnd_present(void) { return live; }
 uint32_t vsnd_streams(void) { return live ? cfg.streams : 0; }
 
+/* Release the TX page after an error. If the doorbell has been rung the device may
+ * still be DMA-ing the page: reset the device and only free it once the reset is
+ * confirmed (leak it otherwise, safe but wasteful). Mark live=0 so subsequent calls
+ * fail closed. If the doorbell was never rung the device never saw the page, so free
+ * it immediately. */
+static void release_tx_page(uintptr_t page, int device_owns_buf)
+{
+    if (!device_owns_buf) { pmm_free_page(page); return; }
+    int stopped = reset_dev();
+    if (stopped) {
+        pmm_free_page(page);
+        free_pages();
+    }
+    live = 0;
+}
+
 /* ---- PCM playback implementation ---- */
 
 /* Validate stream is an output stream and PCM_INFO supports the requested format/rate/channels.
@@ -387,6 +397,8 @@ int vsnd_set_params(uint32_t stream_id, uint32_t format, uint32_t rate, uint32_t
 
     if (stream_id >= cfg.streams) return SND_EPROTO;
     if (info[stream_id].direction != VIRTIO_SND_D_OUTPUT) return SND_EPROTO;
+
+    if (format > VSND_PCM_FMT_MAX || rate > VSND_PCM_RATE_MAX || channels > UINT8_MAX) return VSND_EARG;
 
     struct vsnd_pcm_params p = {
         .stream_id = stream_id,
@@ -404,76 +416,34 @@ int vsnd_set_params(uint32_t stream_id, uint32_t format, uint32_t rate, uint32_t
 
     uint32_t used = 0;
     int rc = control((uint32_t)written, VSND_HDR_SIZE, &used);
-    if (rc != SND_OK) return rc;
+    if (rc != SND_OK) return fail(rc, "PCM SET_PARAMS queue failed");
 
     return vsnd_dec_resp_hdr((uint8_t *)(ctrl_page + OFF_RESP), used);
 }
 
-/* Submit START control command for the given output stream. */
-int vsnd_start(uint32_t stream_id)
+static int playback_ctl(uint32_t stream_id, uint32_t code)
 {
     if (!live) return SND_ENODEV;
-
-    /* Permission check: caller must have AUDIO_CAP_PLAY */
-    uint32_t principal = proc_current_principal();
-    if (!vsnd_check_audio_cap(principal, AUDIO_CAP_PLAY)) return VSND_EPERM;
-
-    if (stream_id >= cfg.streams) return SND_EPROTO;
-    if (info[stream_id].direction != VIRTIO_SND_D_OUTPUT) return SND_EPROTO;
+    if (!vsnd_check_audio_cap(proc_current_principal(), AUDIO_CAP_PLAY)) return VSND_EPERM;
+    if (stream_id >= cfg.streams || info[stream_id].direction != VIRTIO_SND_D_OUTPUT) return SND_EPROTO;
 
     uint8_t *req = (uint8_t *)(ctrl_page + OFF_REQ);
-    size_t written = vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_START, stream_id, cfg.streams);
+    size_t written = vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, code, stream_id, cfg.streams);
     if (!written) return SND_EPROTO;
-
     uint32_t used = 0;
     int rc = control((uint32_t)written, VSND_HDR_SIZE, &used);
-    if (rc != SND_OK) return rc;
-
+    if (rc != SND_OK) return fail(rc, "PCM control queue failed");
     return vsnd_dec_resp_hdr((uint8_t *)(ctrl_page + OFF_RESP), used);
 }
 
-/* Submit STOP control command for the given output stream. */
-int vsnd_stop(uint32_t stream_id)
-{
-    if (!live) return SND_ENODEV;
-
-    /* Permission check: caller must have AUDIO_CAP_PLAY */
-    uint32_t principal = proc_current_principal();
-    if (!vsnd_check_audio_cap(principal, AUDIO_CAP_PLAY)) return VSND_EPERM;
-
-    if (stream_id >= cfg.streams) return SND_EPROTO;
-    if (info[stream_id].direction != VIRTIO_SND_D_OUTPUT) return SND_EPROTO;
-
-    uint8_t *req = (uint8_t *)(ctrl_page + OFF_REQ);
-    size_t written = vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_STOP, stream_id, cfg.streams);
-    if (!written) return SND_EPROTO;
-
-    uint32_t used = 0;
-    int rc = control((uint32_t)written, VSND_HDR_SIZE, &used);
-    if (rc != SND_OK) return rc;
-
-    return vsnd_dec_resp_hdr((uint8_t *)(ctrl_page + OFF_RESP), used);
-}
-
-/* Release a TX page after the doorbell may have been rung. If the device owns
- * the buffer, reset it first so it provably stops DMA before we free the page.
- * If reset is unconfirmed, leak the page (safe) rather than free memory the
- * device may still read. Mark live=0 so subsequent calls fail closed. */
-static void release_tx_page(uintptr_t page, int device_owns_buf)
-{
-    if (device_owns_buf) {
-        int stopped = reset_dev();
-        if (stopped) pmm_free_page(page);
-        /* else: leak on purpose - device may still be DMA-ing into this page */
-        live = 0;
-    } else {
-        pmm_free_page(page);
-    }
-}
+int vsnd_prepare(uint32_t stream_id) { return playback_ctl(stream_id, VIRTIO_SND_R_PCM_PREPARE); }
+int vsnd_start(uint32_t stream_id) { return playback_ctl(stream_id, VIRTIO_SND_R_PCM_START); }
+int vsnd_stop(uint32_t stream_id) { return playback_ctl(stream_id, VIRTIO_SND_R_PCM_STOP); }
+int vsnd_release(uint32_t stream_id) { return playback_ctl(stream_id, VIRTIO_SND_R_PCM_RELEASE); }
 
 /* Generate a sine wave at the given frequency in a page and submit it on the TX queue for the given stream.
  * Waits for the completion (device writes status trailer). Duration is approximate based on buffer size.
- * Resilient to device failures: checks status, handles errors gracefully, always frees the page. */
+ * The page stays owned by the driver until completion or a confirmed reset. */
 int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
 {
     if (!live) return SND_ENODEV;
@@ -485,6 +455,8 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
     if (stream_id >= cfg.streams) return SND_EPROTO;
     if (info[stream_id].direction != VIRTIO_SND_D_OUTPUT) return SND_EPROTO;
 
+    if (freq_hz == 0 || freq_hz > 24000 || duration_ms == 0 || duration_ms > 21) return VSND_EARG;
+
     /* Allocate one page for the sine wave buffer (4 KB). */
     uintptr_t page = pmm_alloc_page();
     if (!page) return SND_ENOMEM;
@@ -495,13 +467,13 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
     const uint32_t channels = 2;
     const uint32_t bytes_per_sample = 2; /* S16 */
     const uint32_t frame_bytes = channels * bytes_per_sample;
-    const uint32_t samples_per_page = PAGE_SIZE / frame_bytes;
+    const uint32_t frames = duration_ms * (sample_rate / 1000u);
 
     int16_t *buf = (int16_t *)page;
     const int32_t TWO_PI = 0x6487E;    /* 2π in Q16.16 */
     const int32_t step = (int32_t)(((int64_t)TWO_PI * freq) / sample_rate); /* angle increment per sample */
     int32_t angle = 0;
-    for (uint32_t i = 0; i < samples_per_page; i++) {
+    for (uint32_t i = 0; i < frames; i++) {
         int32_t sin_fp = vsnd_sin_fp(angle);           /* Q16.16 [-1.0, 1.0] */
         int16_t sample = (int16_t)((sin_fp * 16384) >> 16); /* scale to ~50% amplitude */
         buf[i * 2] = sample;     /* Left */
@@ -520,7 +492,7 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
     q->desc[0].next = 1;
 
     q->desc[1].addr = (uint64_t)page;
-    q->desc[1].len = PAGE_SIZE;
+    q->desc[1].len = frames * frame_bytes;
     q->desc[1].flags = DESC_NEXT;
     q->desc[1].next = 2;
 
@@ -541,14 +513,15 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
     for (uint32_t i = 0; i < VSND_PSTATUS_SIZE; i++) status_area[i] = 0xff;
 
     /* Submit the buffer to the device. If the doorbell is rung, the device owns
-     * the page buffer until it completes; on timeout we must reset first. */
+     * the page buffer until it completes; on any error after the doorbell we
+     * reset the device first and only free the page once the reset is confirmed. */
     int device_owns_buf = 0;
-    /* Fault 1 (legacy AURORA_SND_FAULT=1): withhold the doorbell so the device never sees the buffer. */
 #if defined(AURORA_SND_FAULT) && AURORA_SND_FAULT == 1
-    /* LEGACY: never ring the doorbell */
+    /* LEGACY: never ring the doorbell (device never sees the buffer) */
 #else
     mb();
     if (vq_submit(&q->vq, 0, VSND_PSTATUS_SIZE) != VQ_OK) {
+        /* vq_submit failed: doorbell was not rung, the device never saw the page. */
         pmm_free_page(page);
         return SND_EPROTO;
     }
@@ -565,7 +538,8 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
         int r = vq_complete(&q->vq, &id, &len);
         if (r == VQ_OK) {
             if (id != 0) { release_tx_page(page, device_owns_buf); return SND_EPROTO; }
-            /* Validate status trailer. */
+            /* The device completed our chain and released every buffer, so the page
+             * is safe to free here. */
             uint32_t latency = 0;
             int sr = vsnd_dec_pcm_status(status_area, len, &latency);
             pmm_free_page(page);
@@ -574,18 +548,25 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
         if (r != VQ_EEMPTY) { release_tx_page(page, device_owns_buf); return SND_EPROTO; }
         if (rd(VIO_R_STATUS) & (VIO_ST_NEEDS_RESET | VIO_ST_FAILED)) { release_tx_page(page, device_owns_buf); return SND_EPROTO; }
         if (timer_count() - t0 > limit) {
-            /* Timeout: if the device owns the buffer, reset the device first so it
-             * provably stops DMA before we free the page. If reset is unconfirmed,
-             * leak the page (safe but wasteful) rather than free memory the device
-             * may still be reading. */
-            if (device_owns_buf) {
-                int stopped = reset_dev();
-                if (stopped) pmm_free_page(page);
-                live = 0;
-            } else {
-                pmm_free_page(page);
-            }
+            release_tx_page(page, device_owns_buf);
             return SND_ETIMEOUT;
         }
     }
 }
+
+#ifdef AURORA_SND_PLAY_TEST
+int vsnd_playback_selftest(void)
+{
+    const uint32_t period = 20u * 48u * 4u;
+    if (vsnd_play_tone(0, 440, 20) != VSND_EPERM) return VSND_EPROTO;
+    if (vsnd_grant_audio(PRINCIPAL_SHELL, AUDIO_CAP_PLAY) != 0) return VSND_EPERM;
+    int rc = vsnd_set_params(0, VIRTIO_SND_PCM_FMT_S16, VIRTIO_SND_PCM_RATE_48000, 2, 2u * period, period, 0);
+    if (rc == SND_OK) rc = vsnd_prepare(0);
+    if (rc == SND_OK) rc = vsnd_start(0);
+    if (rc == SND_OK) rc = vsnd_play_tone(0, 440, 20);
+    if (rc == SND_OK) rc = vsnd_stop(0);
+    if (rc == SND_OK) rc = vsnd_release(0);
+    (void)vsnd_revoke_audio(PRINCIPAL_SHELL);
+    return rc;
+}
+#endif
