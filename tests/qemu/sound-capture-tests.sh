@@ -64,7 +64,7 @@ feed_pid=$!
 qemu-system-aarch64 -machine virt,highmem=off -cpu cortex-a53 -smp 1 -m 256M \
     -kernel "$out/kernel/kernel.bin" -nodefaults -display none -monitor none -nic none \
     -serial "file:$out/serial.log" -global virtio-mmio.force-legacy=false \
-    -audiodev "pa,id=fixture,server=$PULSE_SERVER,in.name=aurora_fixture,out.name=aurora_silence,in.frequency=16000,in.channels=1,in.format=s16,in.latency=20000" \
+    -audiodev "pa,id=fixture,server=$PULSE_SERVER,in.name=aurora_fixture,out.name=aurora_silence,in.mixing-engine=off,in.fixed-settings=off,in.latency=20000" \
     -device virtio-sound-device,audiodev=fixture,streams=2 >"$out/qemu.log" 2>&1 &
 qemu_pid=$!
 for i in $(seq 1 240); do
