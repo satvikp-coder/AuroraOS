@@ -94,4 +94,34 @@ static inline void calc_pending(const struct calc *c, char *out, int cap)
     while (k && n + 1 < cap) out[n++] = d[--k];
     if (n + 3 < cap) { out[n++] = ' '; out[n++] = c->op; out[n] = 0; }
 }
+/* Save only a completed result. CALC v1 stores a sign and five LE magnitude bytes with their complements. */
+#define CALC_SAVE_SIZE 16
+static inline int calc_encode_result(const struct calc *c, unsigned char *out)
+{
+    if (!c->after_equals || c->err || c->acc < -CALC_LIMIT || c->acc > CALC_LIMIT) return 0;
+    out[0] = 'C'; out[1] = 'A'; out[2] = 'L'; out[3] = 'C'; out[4] = 1;
+    out[5] = c->acc < 0 ? 0xff : 0;
+    unsigned long long magnitude = (unsigned long long)(out[5] ? -c->acc : c->acc);
+    for (int i = 0; i < 5; i++) {
+        out[6 + i] = (unsigned char)(magnitude >> (8 * i));
+        out[11 + i] = (unsigned char)~out[6 + i];
+    }
+    return 1;
+}
+
+static inline int calc_decode_result(struct calc *c, const unsigned char *in, int len)
+{
+    if (len != CALC_SAVE_SIZE || in[0] != 'C' || in[1] != 'A' || in[2] != 'L' ||
+        in[3] != 'C' || in[4] != 1 || (in[5] != 0 && in[5] != 0xff)) return 0;
+    unsigned long long magnitude = 0;
+    for (int i = 0; i < 5; i++) {
+        if ((unsigned)in[6 + i] + in[11 + i] != 255) return 0;
+        magnitude |= (unsigned long long)in[6 + i] << (8 * i);
+    }
+    if (magnitude > CALC_LIMIT || (!magnitude && in[5])) return 0;
+    calc_clear(c);
+    c->acc = in[5] ? -(cc_i64)magnitude : (cc_i64)magnitude;
+    c->after_equals = 1;
+    return 1;
+}
 #endif
