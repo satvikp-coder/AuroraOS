@@ -17,7 +17,7 @@ static int lookup(uint32_t pid, uint64_t *gen, uint32_t *principal, uint32_t *ri
     if (pid > 8 || !T[pid].live) return 0;
     *gen = T[pid].gen; *principal = T[pid].principal; *rights = T[pid].rights; return 1;
 }
-static struct aura_caps CAPS = { 1, 0, 0, 0, 0 };
+static struct aura_caps CAPS = { 1, 0, 0, 0, 0, 0, 0 };
 static struct bp_env ENV;
 static struct bp_replay RP;
 static uint64_t nonce;

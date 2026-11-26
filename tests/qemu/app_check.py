@@ -111,7 +111,7 @@ def main():
                   wait_for(lambda: screen_now() == "Aura", 15))
             typ("open notes"); tap("ret")
             check("Aura executes the typed Notes launch and opens Pages", wait_for(lambda:
-                  "kind=open_notes decision=allow_now reason=none state=1 [Done: Open Notes] screen=Pages" in log(), 30))
+                  "kind=open_app decision=allow_now reason=none state=1 [Done: Open Notes] screen=Pages" in log(), 30))
             notes = re.search(r"apps: launched notes pid=(\d+) principal=602", log())
             check("the packaged Notes process uses the registry identity and draws a client surface", notes is not None and
                   wait_for(lambda: any(s[1] == int(notes.group(1)) for s in surfaces()), 30))
