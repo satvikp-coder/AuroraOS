@@ -9,7 +9,7 @@
 static int passed, failed;
 #define CHECK(name, cond) do { if (cond) { passed++; } else { failed++; printf("  FAIL: %s (line %d)\n", name, __LINE__); } } while (0)
 
-static const struct aura_caps CT = { 1, 1, 0, 0, 0, 0, 0 }, CN = { 1, 0, 0, 0, 0, 0, 0 };
+static const struct aura_caps CT = { 1, 1, 0, 0, 0, 0, 0, 0 }, CN = { 1, 0, 0, 0, 0, 0, 0, 0 };
 static struct aura_intent P(const char *t, const struct aura_caps *c) { struct aura_intent o; aura_parse(t, strlen(t), c, &o); return o; }
 static int is_start(const char *t, int secs) { struct aura_intent o = P(t, &CT); return o.kind == AK_TIMER && o.status == AS_ACTIONABLE && o.target == ATM_START && o.arg_kind == AA_ABS && o.arg == secs && o.risk == 0 && aura_validate(&o, &CT); }
 static int is_clarify(const char *t) { struct aura_intent o = P(t, &CT); return o.kind == AK_CLARIFY && o.status == AS_CLARIFY && aura_validate(&o, &CT); }

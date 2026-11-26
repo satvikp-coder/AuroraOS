@@ -157,8 +157,11 @@ def main():
                     tap("q")
                     check("Q exits Clock", wait_for(lambda: "apps: instance gone clock" in log(), 30))
     elif sc == "clock-restart":
-        check("Index opens after reboot", open_index())
-        typ("clock app"); tap("ret")
+        check("Aura opens after reboot", tab_to(SID_APP_AURA) and (tap("ret") or True) and
+              wait_for(lambda: screen_now() == "Aura", 15))
+        typ("open clock app"); tap("ret")
+        check("Aura opens the installed Clock through the broker", wait_for(lambda:
+              "kind=open_app decision=allow_now reason=none state=1 [Done: Open Clock app] screen=Pages" in log(), 30))
         clock = lambda: re.search(r"apps: launched clock pid=(\d+) principal=604", log())
         check("Clock relaunches from the installed disk", wait_for(clock, 30))
         launched_clock = clock()

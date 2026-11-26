@@ -179,6 +179,7 @@ static int open_app(const struct toks *tk, int lo, int hi, const struct aura_cap
     if (eq(tk->t[p], "notes")) { app_id = APP_NOTES; preview = "Open Notes"; available = caps->notes; }
     else if (has_any(tk, p, p + 1, CALCULATOR)) { app_id = APP_CALCULATOR; preview = "Open Calculator"; available = caps->calculator; }
     else if (has_any(tk, p, p + 1, FILES_APP)) { app_id = APP_FILES; preview = "Open Files"; available = caps->files; }
+    else if (eq(tk->t[p], "clock") && p + 2 == hi && eq(tk->t[p + 1], "app")) { app_id = APP_CLOCK; preview = "Open Clock app"; available = caps->clock_app; }
     else return 0;
 
     p++;
@@ -190,7 +191,8 @@ static int open_app(const struct toks *tk, int lo, int hi, const struct aura_cap
             fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_NOTES, 0, 0, AA_NONE, 0, "Unsupported: no Notes app");
         else
             fin(o, AK_UNSUPPORTED, AS_UNSUPPORTED, AR_NO_APP, 0, 0, AA_NONE, 0,
-                app_id == APP_CALCULATOR ? "Unsupported: no Calculator" : "Unsupported: no Files");
+                app_id == APP_CALCULATOR ? "Unsupported: no Calculator" :
+                app_id == APP_FILES ? "Unsupported: no Files" : "Unsupported: no Clock app");
         return 1;
     }
     fin(o, AK_OPEN_APP, AS_ACTIONABLE, AR_NONE, 0, app_id, AA_NONE, 0, preview);
@@ -387,7 +389,7 @@ static void strip(const struct toks *tk, int *lo, int *hi)
 
 int aura_parse(const char *text, size_t len, const struct aura_caps *caps_in, struct aura_intent *o)
 {
-    static const struct aura_caps none = { 0, 0, 0, 0, 0, 0, 0 };
+    static const struct aura_caps none = { 0, 0, 0, 0, 0, 0, 0, 0 };
     const struct aura_caps *caps = caps_in ? caps_in : &none;
     struct toks tk;
     fin(o, AK_UNKNOWN, AS_REJECTED, AR_NOT_UNDERSTOOD, 0, 0, AA_NONE, 0, "Not a command I know");
@@ -430,7 +432,7 @@ static int str_eq_n(const char *a, const char *b) { int i = 0; for (; i < AURA_P
 
 int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
 {
-    static const struct aura_caps none = { 0, 0, 0, 0, 0, 0, 0 };
+    static const struct aura_caps none = { 0, 0, 0, 0, 0, 0, 0, 0 };
     const struct aura_caps *caps = caps_in ? caps_in : &none;
     if (!x || x->version != AURA_INTENT_VERSION || x->kind == AK_NONE || x->kind >= AK_COUNT || x->status >= AS_COUNT || x->reason >= AR_COUNT || x->arg_kind > AA_REL || x->risk > 3) return 0;
     int terminated = 0; for (int i = 0; i < AURA_PREVIEW_MAX; i++) if (x->preview[i] == 0) { terminated = 1; break; }
@@ -440,10 +442,11 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
     switch (x->kind) {
     case AK_OPEN_APP:
         return ((x->target == APP_CALCULATOR && caps->calculator) || (x->target == APP_NOTES && caps->notes) ||
-                (x->target == APP_FILES && caps->files)) &&
+                (x->target == APP_FILES && caps->files) || (x->target == APP_CLOCK && caps->clock_app)) &&
                x->status == AS_ACTIONABLE && x->reason == AR_NONE && x->risk == 0 &&
                x->arg_kind == AA_NONE && x->arg == 0 &&
-               str_eq_n(x->preview, x->target == 1 ? "Open Calculator" : x->target == 2 ? "Open Notes" : "Open Files");
+               str_eq_n(x->preview, x->target == APP_CALCULATOR ? "Open Calculator" :
+                        x->target == APP_NOTES ? "Open Notes" : x->target == APP_FILES ? "Open Files" : "Open Clock app");
     case AK_OPEN_SCREEN: {
         static const char *const N[] = { "Open Home", "Open Spaces", "Open Index", "Open Settings", "Open Pages", "Open Clock" };
         if (x->target >= 6 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
@@ -487,7 +490,8 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
         case AR_NO_HARDWARE: return x->risk == 1 && str_eq_n(x->preview, "Unsupported: no driver for that");
         case AR_NO_NOTES: return x->risk == 0 && str_eq_n(x->preview, caps->notes ? "Unsupported: only opening Notes is available" : "Unsupported: no Notes app");
         case AR_NO_APP: return x->risk == 0 && ((!caps->calculator && str_eq_n(x->preview, "Unsupported: no Calculator")) ||
-                                                   (!caps->files && str_eq_n(x->preview, "Unsupported: no Files")));
+                                                   (!caps->files && str_eq_n(x->preview, "Unsupported: no Files")) ||
+                                                   (!caps->clock_app && str_eq_n(x->preview, "Unsupported: no Clock app")));
         case AR_NO_MESSAGING: return x->risk == 3 && str_eq_n(x->preview, "Unsupported: no messaging service");
         case AR_NO_PAGES: return !caps->pages && x->risk == 0 && str_eq_n(x->preview, "Unsupported: Pages is not available yet");
         default: return 0;

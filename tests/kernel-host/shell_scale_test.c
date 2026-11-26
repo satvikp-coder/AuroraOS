@@ -147,7 +147,7 @@ static int t_query(int id, uint8_t *st, uint64_t *rem) { if (id != t_id) return 
 static int t_cancel(int id) { if (id != t_id) return -403; t_state = 3; return 0; }
 static int t_release(int id) { if (id != t_id) return -403; t_id = -1; t_state = 0; return 0; }
 static const struct shell_timers TIMERS = { t_start, t_query, t_cancel, t_release };
-static const struct aura_caps RV_CAPS = { 1, 1, 0, 0, 0, 0, 0 };
+static const struct aura_caps RV_CAPS = { 1, 1, 0, 0, 0, 0, 0, 0 };
 #define NSTATES 22
 static const char *SN2[NSTATES] = { "home", "spaces", "index", "index-s", "index-long", "about", "corner", "no-results", "limited-input", "settings", "settings-refusal",
     "pages-empty", "pages-full", "trail-recording", "trail-rollback", "trail-nodisk", "clock-idle", "clock-running", "clock-no-service", "hold", "aura-result", "review-modal" };
