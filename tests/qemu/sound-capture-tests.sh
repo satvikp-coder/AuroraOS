@@ -28,21 +28,27 @@ trap 'exit 1' HUP INT TERM
 
 # The test image looks for at least 64 samples of each polarity. Feed
 # repeating 20 ms positive/negative blocks once QEMU opens the private source.
-timeout 90 python3 - "$AURORA_PCM_FIFO" <<'PY' &
+: >"$out/serial.log"
+timeout 90 python3 - "$AURORA_PCM_FIFO" "$out/serial.log" <<'PY' >"$out/fixture-feed.log" 2>&1 &
+from pathlib import Path
 import struct
 import subprocess
 import sys
 import time
 
-# This isolated server has no other recording client. Wait for QEMU to open
-# the input stream rather than draining the FIFO before the guest starts.
+# QEMU opens an input voice during device realization. Wait for the guest
+# START acknowledgement so the fixture cannot drain during kernel boot.
+serial = Path(sys.argv[2])
 for _ in range(400):
-    if subprocess.check_output(["pactl", "list", "short", "source-outputs"]).strip():
+    if b"sound capture input started" in serial.read_bytes() and subprocess.check_output(
+        ["pactl", "list", "short", "source-outputs"]
+    ).strip():
         break
     time.sleep(0.1)
 else:
-    raise SystemExit("QEMU never opened the fixture source")
+    raise SystemExit("Guest START or QEMU input connection did not appear")
 
+print("Feeding the private source after guest START", flush=True)
 cycle = struct.pack("<h", 0x1234) * 320 + struct.pack("<h", -0x1234) * 320
 try:
     with open(sys.argv[1], "wb") as pipe:
@@ -53,7 +59,6 @@ except BrokenPipeError:
 PY
 feed_pid=$!
 
-: >"$out/serial.log"
 qemu-system-aarch64 -machine virt,highmem=off -cpu cortex-a53 -smp 1 -m 256M \
     -kernel "$out/kernel/kernel.bin" -nodefaults -display none -monitor none -nic none \
     -serial "file:$out/serial.log" -global virtio-mmio.force-legacy=false \
@@ -71,6 +76,6 @@ for i in $(seq 1 240); do
     sleep 0.25
 done
 tail -25 "$out/serial.log"
-cat "$out/qemu.log"
+cat "$out/qemu.log" "$out/fixture-feed.log"
 echo "FAIL: expected guest RX markers and completed boot" >&2
 exit 1

@@ -584,9 +584,15 @@ static int capture_command(size_t request)
 {
     uint32_t used = 0;
     if (!request) return SND_EPROTO;
+    uint32_t code = vsnd_get_le32((uint8_t *)(ctrl_page + OFF_REQ));
     int rc = control((uint32_t)request, VSND_HDR_SIZE, &used);
-    if (rc != SND_OK) return rc;
-    return vsnd_dec_resp_hdr((uint8_t *)(ctrl_page + OFF_RESP), used);
+    if (rc == SND_OK) rc = vsnd_dec_resp_hdr((uint8_t *)(ctrl_page + OFF_RESP), used);
+    if (rc != SND_OK) {
+        console_puts("sound capture control failed, opcode=");
+        puthex(code);
+        console_puts("\n");
+    }
+    return rc;
 }
 
 static int capture_probe(void)
@@ -628,6 +634,7 @@ static int capture_probe(void)
         if (period == 0) {
             rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_START, stream, cfg.streams));
             if (rc != SND_OK) goto fail;
+            console_puts("sound capture input started\n");
         }
 
         uint16_t id;
@@ -640,8 +647,14 @@ static int capture_probe(void)
                 rc = SND_EPROTO;
                 goto fail;
             }
-            if (timer_count() - t0 > ms_ticks(750) ||
-                timer_count() - capture_start > ms_ticks(6000)) { rc = SND_ETIMEOUT; goto fail; }
+            if (timer_count() - t0 > ms_ticks(period == 0 ? 3000 : 750) ||
+                timer_count() - capture_start > ms_ticks(6000)) {
+                console_puts("sound capture RX timed out, period=");
+                console_dec(period);
+                console_puts("\n");
+                rc = SND_ETIMEOUT;
+                goto fail;
+            }
         }
         if (id != 0 || vsnd_rx_frames(used, RX_PERIOD, &bytes) != VSND_OK || bytes != RX_PERIOD) {
             rc = SND_EPROTO;
