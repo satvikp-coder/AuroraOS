@@ -100,7 +100,7 @@ int main(void)
     const struct aura_caps installed = { .notes = 1, .calculator = 1, .files = 1 };
     const struct aura_caps missing = { 0 };
     const char *const app_commands[] = { "open calculator", "open notes", "open files" };
-    for (uint8_t app = APP_CALCULATOR; app < APP_COUNT; app++) {
+    for (uint8_t app = APP_CALCULATOR; app <= APP_FILES; app++) {
         const char *text = app_commands[app - APP_CALCULATOR];
         struct aura_intent intent = run_caps(&installed, text, strlen(text));
         CHECK("installed app command has the registry target",

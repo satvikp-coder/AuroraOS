@@ -115,6 +115,30 @@ def main():
             notes = re.search(r"apps: launched notes pid=(\d+) principal=602", log())
             check("the packaged Notes process uses the registry identity and draws a client surface", notes is not None and
                   wait_for(lambda: any(s[1] == int(notes.group(1)) for s in surfaces()), 30))
+            check("Index opens for packaged Clock", open_index())
+            typ("clock app"); tap("ret")
+            def clock_launch():
+                return re.search(r"apps: launched clock pid=(\d+) principal=604", log())
+            check("the installer-owned Clock launches under its own identity", wait_for(clock_launch, 30))
+            clock = clock_launch()
+            if clock:
+                clock_pid = int(clock.group(1))
+                check("Clock presents a surface on Pages", wait_for(lambda: screen_now() == "Pages" and
+                      any(s[1] == clock_pid for s in surfaces()), 30))
+                surface = next((s for s in surfaces() if s[1] == clock_pid), None)
+                if surface:
+                    _, _, cx, cy, cw, ch = surface
+                    click(cx + cw // 2, cy + min(ch // 2, 40))
+                    tap("5")
+                    check("5 selects the five-minute preset", wait_for(lambda: any("clock preset=1" in l for l in user(clock_pid)), 15))
+                    tap("s")
+                    check("S starts the timer through SYS_TIMER", wait_for(lambda: any("clock timer started id=" in l for l in user(clock_pid)), 15))
+                    check("the countdown advances while the timer runs", wait_for(lambda:
+                          any(re.search(r"clock remaining seconds=29[0-9]$", l.rstrip()) for l in user(clock_pid)), 15))
+                    tap("c")
+                    check("C cancels and releases the timer", wait_for(lambda: any("clock cancelled" in l for l in user(clock_pid)), 15))
+                    tap("q")
+                    check("Q exits Clock", wait_for(lambda: "apps: instance gone clock" in log(), 30))
     elif sc == "refused":
         # An installed Calculator that is damaged: the kernel must refuse it with a specific reason, create no process, and leave the other applications usable.
         check("boot registered the Calculator", "apps: calculator registered" in log())
