@@ -12,7 +12,7 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
     if (in->kind == AK_OPEN_APP) {
         if (sh->review_open) return 0;                    /* a modal owns the screen: never launch behind it (#161) */
         if (!sh->launcher || !sh->launcher->available || !sh->launcher->launch) return 0;
-        if (in->target < 1 || in->target > 3) return 0;  /* calculator=1, notes=2, files=3 */
+        if (in->target <= APP_NONE || in->target >= APP_COUNT) return 0;
         if (!sh->launcher->available(in->target)) return 0;
         int rc = sh->launcher->launch(in->target);
         if (rc != APPS_OK && rc != APPS_EBUSY) return 0;  /* EBUSY = an instance is already running: still a success */
