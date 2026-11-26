@@ -58,6 +58,7 @@ boot first persist.img "" first
 boot second persist.img "" second
 boot third persist.img "" third
 boot fourth persist.img "" fourth
+boot restored persist.img "" restored
 boot rodisk ro.img ",readonly=on" rodisk
 boot nodisk none "" nodisk
 boot corrupt corrupt.img "" corrupt
