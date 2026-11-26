@@ -1,13 +1,15 @@
 #!/bin/sh
 # run-qemu.sh — Launch AuroraOS in QEMU ARM64 virt
 #
-# Usage: ./run-qemu.sh [kernel-image]
+# Usage: ./run-qemu.sh [kernel-image] [memory-size]
 #
-# Defaults to build/kernel.bin if no argument given.
+# Defaults to build/kernel.bin and 512M if no arguments given.
+# Memory size examples: 256M, 512M, 1G
 
 set -e
 
 KERNEL="${1:-build/kernel.bin}"
+MEMORY="${2:-512M}"
 
 if [ ! -f "$KERNEL" ]; then
     echo "error: kernel image not found: $KERNEL" >&2
@@ -17,6 +19,7 @@ fi
 
 echo "[qemu] Booting AuroraOS on ARM64 virt..."
 echo "[qemu] Kernel: $KERNEL"
+echo "[qemu] Memory: $MEMORY"
 echo "[qemu] Press Ctrl-A then X to quit QEMU."
 echo ""
 
@@ -24,7 +27,7 @@ qemu-system-aarch64 \
     -machine virt,highmem=off \
     -cpu cortex-a53 \
     -smp 1 \
-    -m 512M \
+    -m "$MEMORY" \
     -kernel "$KERNEL" \
     -nographic \
     -serial stdio \
