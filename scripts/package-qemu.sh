@@ -43,9 +43,29 @@ cc -std=c11 -Wall -Wextra -O1 -I tests/tools/shim -I kernel/include -o "$PKG/obj
 cat > "$PKG/fresh-install.sh" <<'EOS'
 #!/bin/sh
 # Creates data/aurora.img from the pristine template. Refuses to overwrite an existing disk (it would erase saved data) unless --force is given.
-D="$(cd "$(dirname "$0")" && pwd)"; mkdir -p "$D/data"
-if [ -e "$D/data/aurora.img" ] && [ "$1" != "--force" ]; then echo "fresh-install: $D/data/aurora.img already exists; run with --force to ERASE it and start over" >&2; exit 1; fi
-cp "$D/aurora-fresh.img" "$D/data/aurora.img" && echo "fresh-install: created $D/data/aurora.img"
+D=$(cd "$(dirname "$0")" && pwd) || exit 1
+data="$D/data"
+disk="$data/aurora.img"
+mkdir -p "$data" || exit 1
+if [ -L "$data" ]; then echo "fresh-install: data must be a local directory" >&2; exit 1; fi
+refuse_existing() {
+    echo "fresh-install: $disk already exists; run with --force to ERASE it and start over" >&2
+    exit 1
+}
+if [ "${1:-}" != "--force" ] && { [ -e "$disk" ] || [ -L "$disk" ]; }; then refuse_existing; fi
+stage=$(mktemp "$data/.aurora.img.XXXXXX") || exit 1
+trap 'rm -f -- "$stage"' EXIT
+trap 'exit 1' HUP INT TERM
+cp -- "$D/aurora-fresh.img" "$stage" || exit 1
+if [ "${1:-}" = "--force" ]; then
+    mv -fT -- "$stage" "$disk" || exit 1
+else
+    if ! ln -T -- "$stage" "$disk"; then
+        if [ -e "$disk" ] || [ -L "$disk" ]; then refuse_existing; fi
+        exit 1
+    fi
+fi
+echo "fresh-install: created $disk"
 EOS
 cat > "$PKG/run.sh" <<'EOS'
 #!/bin/sh
