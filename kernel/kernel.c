@@ -204,6 +204,16 @@ void kernel_main(uint64_t dtb)
         }
         console_puts("sound playback self-test passed\n");
 #endif
+#ifdef AURORA_SND_RX_TEST
+        int capture = vsnd_capture_selftest();
+        if (capture != 0) {
+            console_puts("sound capture SELFTEST FAILED: ");
+            console_hex((uint64_t)(int64_t)capture);
+            console_puts("\n");
+            halt_forever();
+        }
+        console_puts("sound capture self-test passed\n");
+#endif
         blktest_run();
         if (blktest_summary()) { console_puts("BLOCK SELFTEST FAILED\n"); halt_forever(); }
         fstest_run();

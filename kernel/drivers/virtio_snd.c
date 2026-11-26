@@ -366,12 +366,12 @@ int vsnd_init(const void *fdt)
 int vsnd_present(void) { return live; }
 uint32_t vsnd_streams(void) { return live ? cfg.streams : 0; }
 
-/* Release the TX page after an error. If the doorbell has been rung the device may
+/* Release the PCM page after an error. If the doorbell has been rung the device may
  * still be DMA-ing the page: reset the device and only free it once the reset is
  * confirmed (leak it otherwise, safe but wasteful). Mark live=0 so subsequent calls
  * fail closed. If the doorbell was never rung the device never saw the page, so free
  * it immediately. */
-static void release_tx_page(uintptr_t page, int device_owns_buf)
+static void release_pcm_page(uintptr_t page, int device_owns_buf)
 {
     if (!device_owns_buf) { pmm_free_page(page); return; }
     int stopped = reset_dev();
@@ -457,6 +457,8 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
 
     if (freq_hz == 0 || freq_hz > 24000 || duration_ms == 0 || duration_ms > 21) return VSND_EARG;
 
+    if (Q[VIRTIO_SND_VQ_TX].vq.qn < 3u) return SND_EPROTO;
+
     /* Allocate one page for the sine wave buffer (4 KB). */
     uintptr_t page = pmm_alloc_page();
     if (!page) return SND_ENOMEM;
@@ -537,7 +539,7 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
         uint16_t id; uint32_t len;
         int r = vq_complete(&q->vq, &id, &len);
         if (r == VQ_OK) {
-            if (id != 0) { release_tx_page(page, device_owns_buf); return SND_EPROTO; }
+            if (id != 0) { release_pcm_page(page, device_owns_buf); return SND_EPROTO; }
             /* The device completed our chain and released every buffer, so the page
              * is safe to free here. */
             uint32_t latency = 0;
@@ -545,10 +547,10 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
             pmm_free_page(page);
             return sr;
         }
-        if (r != VQ_EEMPTY) { release_tx_page(page, device_owns_buf); return SND_EPROTO; }
-        if (rd(VIO_R_STATUS) & (VIO_ST_NEEDS_RESET | VIO_ST_FAILED)) { release_tx_page(page, device_owns_buf); return SND_EPROTO; }
+        if (r != VQ_EEMPTY) { release_pcm_page(page, device_owns_buf); return SND_EPROTO; }
+        if (rd(VIO_R_STATUS) & (VIO_ST_NEEDS_RESET | VIO_ST_FAILED)) { release_pcm_page(page, device_owns_buf); return SND_EPROTO; }
         if (timer_count() - t0 > limit) {
-            release_tx_page(page, device_owns_buf);
+            release_pcm_page(page, device_owns_buf);
             return SND_ETIMEOUT;
         }
     }
@@ -567,6 +569,115 @@ int vsnd_playback_selftest(void)
     if (rc == SND_OK) rc = vsnd_stop(0);
     if (rc == SND_OK) rc = vsnd_release(0);
     (void)vsnd_revoke_audio(PRINCIPAL_SHELL);
+    return rc;
+}
+#endif
+
+#ifdef AURORA_SND_RX_TEST
+/* This fixed-format probe is callable only in the test image. It never exposes
+ * sample bytes or a recording interface to applications. */
+#define RX_PERIOD 640u                  /* 20 ms at 16 kHz, S16LE, mono */
+#define RX_DATA_OFF 16u
+#define RX_STATUS_OFF (RX_DATA_OFF + RX_PERIOD)
+
+static int capture_command(size_t request)
+{
+    uint32_t used = 0;
+    if (!request) return SND_EPROTO;
+    int rc = control((uint32_t)request, VSND_HDR_SIZE, &used);
+    if (rc != SND_OK) return rc;
+    return vsnd_dec_resp_hdr((uint8_t *)(ctrl_page + OFF_RESP), used);
+}
+
+static int capture_probe(void)
+{
+    if (!vsnd_check_audio_cap(proc_current_principal(), AUDIO_CAP_RECORD)) return VSND_EPERM;
+    if (!live) return SND_ENODEV;
+    struct sq *q = &Q[VIRTIO_SND_VQ_RX];
+    if (q->vq.qn < 3u) return SND_EPROTO;
+    uint32_t stream = 0;
+    while (stream < cfg.streams && info[stream].direction != VIRTIO_SND_D_INPUT) stream++;
+    if (stream == cfg.streams) return VSND_ENODEV;
+    struct vsnd_pcm_params params = {
+        .stream_id = stream, .buffer_bytes = 2u * RX_PERIOD, .period_bytes = RX_PERIOD,
+        .channels = 1, .format = VIRTIO_SND_PCM_FMT_S16, .rate = VIRTIO_SND_PCM_RATE_16000,
+    };
+    uintptr_t page = pmm_alloc_page();
+    if (!page) return SND_ENOMEM;
+    uint8_t *req = (uint8_t *)(ctrl_page + OFF_REQ);
+    uint8_t *samples = (uint8_t *)(page + RX_DATA_OFF);
+    uint8_t *status = (uint8_t *)(page + RX_STATUS_OFF);
+    int rc = capture_command(vsnd_enc_pcm_set_params(req, VSND_SETP_SIZE, &params, &info[stream], cfg.streams));
+    if (rc != SND_OK) goto fail;
+    rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_PREPARE, stream, cfg.streams));
+    if (rc != SND_OK) goto fail;
+    if (!vsnd_enc_pcm_xfer((uint8_t *)page, VSND_XFER_SIZE, stream, cfg.streams)) { rc = SND_EPROTO; goto fail; }
+
+    q->desc[0] = (struct desc){ .addr = page, .len = VSND_XFER_SIZE, .flags = DESC_NEXT, .next = 1 };
+    q->desc[1] = (struct desc){ .addr = page + RX_DATA_OFF, .len = RX_PERIOD,
+                                  .flags = DESC_NEXT | DESC_WRITE, .next = 2 };
+    q->desc[2] = (struct desc){ .addr = page + RX_STATUS_OFF, .len = VSND_PSTATUS_SIZE, .flags = DESC_WRITE };
+    unsigned positive = 0, negative = 0;
+    uint64_t capture_start = timer_count();
+    for (unsigned period = 0; period < 100u; period++) {
+        for (unsigned i = 0; i < RX_PERIOD; i++) samples[i] = 0;
+        for (unsigned i = 0; i < VSND_PSTATUS_SIZE; i++) status[i] = 0xff;
+        mb();
+        if (vq_submit(&q->vq, 0, RX_PERIOD + VSND_PSTATUS_SIZE) != VQ_OK) { rc = SND_EPROTO; goto fail; }
+        wr(VIO_R_QNOTIFY, VIRTIO_SND_VQ_RX);
+        if (period == 0) {
+            rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_START, stream, cfg.streams));
+            if (rc != SND_OK) goto fail;
+        }
+
+        uint16_t id;
+        uint32_t used, bytes;
+        uint64_t t0 = timer_count();
+        for (;;) {
+            int result = vq_complete(&q->vq, &id, &used);
+            if (result == VQ_OK) break;
+            if (result != VQ_EEMPTY || (rd(VIO_R_STATUS) & (VIO_ST_NEEDS_RESET | VIO_ST_FAILED))) {
+                rc = SND_EPROTO;
+                goto fail;
+            }
+            if (timer_count() - t0 > ms_ticks(750) ||
+                timer_count() - capture_start > ms_ticks(6000)) { rc = SND_ETIMEOUT; goto fail; }
+        }
+        if (id != 0 || vsnd_rx_frames(used, RX_PERIOD, &bytes) != VSND_OK || bytes != RX_PERIOD) {
+            rc = SND_EPROTO;
+            goto fail;
+        }
+        rc = vsnd_dec_pcm_status(status, VSND_PSTATUS_SIZE, 0);
+        if (rc != SND_OK) goto fail;
+        for (uint32_t i = 0; i < bytes; i += 2u) {
+            unsigned sample = (unsigned)samples[i] | ((unsigned)samples[i + 1] << 8);
+            positive += sample == 0x1234u;
+            negative += sample == 0xedccu;
+        }
+        if (positive >= 64 && negative >= 64) break;
+    }
+
+    rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_STOP, stream, cfg.streams));
+    if (rc == SND_OK)
+        rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_RELEASE, stream, cfg.streams));
+    if (rc != SND_OK) goto fail;
+    pmm_free_page(page);
+    return positive >= 64 && negative >= 64 ? SND_OK : VSND_EIO;
+
+fail:
+    /* A published RX descriptor may be visible even before its notification.
+     * Reset and confirm that DMA has stopped before freeing any of its memory. */
+    release_pcm_page(page, 1);
+    return rc;
+}
+
+int vsnd_capture_selftest(void)
+{
+    if (capture_probe() != VSND_EPERM) return SND_EPROTO;
+    if (vsnd_grant_audio(PRINCIPAL_SHELL, AUDIO_CAP_RECORD) != 0) return VSND_EPERM;
+    int rc = capture_probe();
+    (void)vsnd_revoke_audio(PRINCIPAL_SHELL);
+    if (capture_probe() != VSND_EPERM) return SND_EPROTO;
     return rc;
 }
 #endif

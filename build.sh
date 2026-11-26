@@ -1,5 +1,5 @@
 #!/bin/sh
-# build.sh — Build the AuroraOS ARM64 kernel
+# build.sh â€” Build the AuroraOS ARM64 kernel
 #
 # Toolchain: aarch64-linux-gnu-gcc (freestanding; no libc is linked).
 # Target: QEMU ARM64 "virt" machine.
@@ -102,6 +102,7 @@ if [ -n "$AURORA_GFX_TEXT" ]; then
     CFLAGS="$CFLAGS -DAURORA_GFX_TEXT=1"        # draw the G4 text diagnostic image (needs a ramfb display)
 fi
 if [ "$AURORA_SND_PLAY_TEST" = 1 ]; then CFLAGS="$CFLAGS -DAURORA_SND_PLAY_TEST"; fi
+if [ "$AURORA_SND_RX_TEST" = 1 ]; then CFLAGS="$CFLAGS -DAURORA_SND_RX_TEST"; fi
 if [ -n "$AURORA_SND_FAULT" ]; then
     CFLAGS="$CFLAGS -DAURORA_SND_FAULT=$AURORA_SND_FAULT"   # test kernel: the sound driver SIMULATES a hostile device answer (tests/qemu/sound-tests.sh)
 fi

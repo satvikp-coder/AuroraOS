@@ -41,6 +41,12 @@ while ! pactl list short sources 2>/dev/null | awk '$2 == "aurora_fixture" { fou
     waited=$((waited + 1))
 done
 
+if [ "$#" -gt 0 ]; then
+    export AURORA_PCM_FIFO="$fixture/input.pcm"
+    "$@"
+    exit
+fi
+
 parec --device=aurora_fixture --raw --format=s16le --rate=16000 --channels=1 --latency-msec=50 > "$fixture/recorded.pcm" &
 reader_pid=$!
 timeout 10 python3 - "$fixture" <<'PY'

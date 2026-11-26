@@ -29,7 +29,7 @@ int vsnd_release(uint32_t stream_id);
 int vsnd_start(uint32_t stream_id);
 int vsnd_stop(uint32_t stream_id);
 
-/* Submit a 1–21 ms tone at 1–24000 Hz to a started stereo S16/48 kHz stream. The tone length must fit its configured period. */
+/* Submit a 1â€“21 ms tone at 1â€“24000 Hz to a started stereo S16/48 kHz stream. The tone length must fit its configured period. */
 int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms);
 
 /* Audio capability management (kernel code only). */
@@ -38,5 +38,8 @@ int vsnd_revoke_audio(uint32_t principal);                 /* revoke all audio c
 
 #ifdef AURORA_SND_PLAY_TEST
 int vsnd_playback_selftest(void);
+#endif
+#ifdef AURORA_SND_RX_TEST
+int vsnd_capture_selftest(void);
 #endif
 #endif
