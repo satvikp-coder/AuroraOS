@@ -73,6 +73,24 @@ int main(void)
     CHECK("a b c yields 5 byte tokens", rc == 5 &&
           out[0] == 4u && out[1] == 7u && out[2] == 5u && out[3] == 7u && out[4] == 6u);
 
+    /* ---- byte-token round trip: bytes not in the vocab ---- */
+    /* 'z' (0x7A) has no single-byte vocab entry, so byte_id computes a byte token. */
+    rc = encode_all("z", 1, out, TOK_MAX_TOKENS, 0, 0);
+    CHECK("encode byte z (not in vocab) yields byte token", rc == 1 &&
+          out[0] == TOK_BYTE_ID_BASE + 0x7Au);
+    rc = tokenizer_decode(&TOK, out, (size_t)rc, dec, sizeof dec);
+    CHECK("decode byte z round trip", rc == 1 && (unsigned char)dec[0] == 'z');
+
+    const char raw[] = { 0, 1, 4, 'a' };
+    rc = encode_all(raw, sizeof raw, out, TOK_MAX_TOKENS, 0, 0);
+    CHECK("fallback bytes and vocabulary IDs coexist", rc == 4 && out[0] == TOK_BYTE_ID_BASE);
+    rc = tokenizer_decode(&TOK, out, 4, dec, sizeof dec);
+    CHECK("NUL and control bytes round trip", rc == 4 && memcmp(dec, raw, sizeof raw) == 0);
+    const struct tok_entry invalid[] = { { "x", TOK_BYTE_ID_BASE } };
+    tokenizer_init(&TOK, invalid, 1, NULL, 0);
+    CHECK("vocabulary cannot overlap the fallback range", encode_all("x", 1, out, 4, 0, 0) == TOK_E_OVERFLOW);
+    setup();
+
     /* ---- BOS/EOS ---- */
     rc = encode_all("ab", 2, out, TOK_MAX_TOKENS, 1, 1);
     CHECK("ab with BOS/EOS returns 3 tokens", rc == 3 &&
@@ -120,11 +138,15 @@ int main(void)
 
     /* Above U+10FFFF: 0xF4 0x90 0x80 0x80 */
     rc = encode_all("\xF4\x90\x80\x80", 4, out, TOK_MAX_TOKENS, 0, 0);
-    CHECK("reject above U+10FFFF", rc == TOK_E_BAD_UTF8);
+    CHECK("reject above U+10FFFF (F4 90..)", rc == TOK_E_BAD_UTF8);
+
+    /* Above U+10FFFF: 0xF5 0x80 0x80 0x80 (lead byte 0xF5-0xF7 always invalid) */
+    rc = encode_all("\xF5\x80\x80\x80", 4, out, TOK_MAX_TOKENS, 0, 0);
+    CHECK("reject above U+10FFFF (F5 lead)", rc == TOK_E_BAD_UTF8);
 
     /* Valid multi-byte UTF-8: U+4E2D (CJK) as 0xE4 0xB8 0xAD */
     rc = encode_all("\xE4\xB8\xAD", 3, out, TOK_MAX_TOKENS, 0, 0);
-    CHECK("accept valid 3-byte UTF-8", (rc != TOK_E_BAD_UTF8) && (rc > 0));
+    CHECK("accept valid 3-byte UTF-8", rc > 0);
 
     /* ---- buffer bounds: input too long ---- */
     char long_in[300];

@@ -24,7 +24,10 @@
 #define TOK_MAX_TOKENS  128u   /* max output token IDs */
 #define TOK_MAX_PIECE    16u   /* max bytes in a single vocab piece (incl. NUL) */
 #define TOK_VOCAB_BYTES 256u   /* one token per byte value */
-#define TOK_ID_FIRST     4u    /* first non-special token id */
+#define TOK_ID_FIRST     4u    /* first vocabulary token id */
+#define TOK_BYTE_ID_BASE 65536u /* 256 reserved fallback IDs, disjoint from vocabulary IDs */
+#define TOK_MAX_VOCAB   512u
+#define TOK_MAX_MERGES  512u
 
 /* ---- special token ids ---- */
 #define TOK_ID_BOS 0u   /* beginning of sequence */
@@ -32,7 +35,7 @@
 #define TOK_ID_PAD 2u   /* padding */
 #define TOK_ID_UNK 3u   /* unknown / out-of-vocabulary piece */
 
-/* A vocab entry: a piece of text and its id. Pieces are NUL-terminated. */
+/* A vocab entry: a piece of text and its id. Pieces are NUL-terminated within TOK_MAX_PIECE. IDs are in [TOK_ID_FIRST, TOK_BYTE_ID_BASE). */
 struct tok_entry {
     const char *piece;
     uint32_t id;
@@ -55,9 +58,10 @@ struct tokenizer {
     size_t      merge_count;            /* number of entries in merges */
     uint32_t    scratch[TOK_MAX_INPUT]; /* working token-Id sequence (one slot per input byte) */
     size_t      scratch_len;
+    int         valid;
 };
 
-/* Initialise *t with the given tables. Must be called before encode/decode. */
+/* Initialise *t with persistent immutable tables. Invalid tables disable encode/decode and piece lookup. */
 void tokenizer_init(struct tokenizer *t,
                     const struct tok_entry *vocab, size_t vocab_size,
                     const struct tok_merge *merges, size_t merge_count);
@@ -71,10 +75,9 @@ int tokenizer_encode(struct tokenizer *t, const char *in, size_t in_len,
                      uint32_t *out, size_t out_cap, int add_bos, int add_eos);
 
 /* Decode: convert `n` token IDs from `ids` back into text in `out` (capacity
- * `out_cap`). PAD is skipped; UNK writes the replacement byte 0xFFFD; a byte
+ * `out_cap`). PAD is skipped; UNK writes the UTF-8 replacement character U+FFFD; a byte
  * token writes that byte; a multi-byte piece writes its text. Returns bytes
- * written (excluding NUL), or a negative error. Never writes past out and never
- * NUL-terminates past out. */
+ * written or a negative error. The output is a byte buffer without a trailing terminator. */
 int tokenizer_decode(struct tokenizer *t, const uint32_t *ids, size_t n,
                      char *out, size_t out_cap);
 
@@ -90,6 +93,7 @@ uint32_t tokenizer_special_id(const char *name);
 enum {
     TOK_E_TOO_LONG = -1,   /* input exceeds TOK_MAX_INPUT or output would exceed out_cap */
     TOK_E_BAD_UTF8 = -2,   /* input is not valid UTF-8 */
+    TOK_E_UNKNOWN = -4,    /* token ID is outside the vocabulary and fallback range */
     TOK_E_OVERFLOW = -3,   /* internal bounded limit exceeded */
 };
 

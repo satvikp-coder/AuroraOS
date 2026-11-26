@@ -5,7 +5,12 @@
 #include <tokenizer.h>
 
 /* ---- tiny helpers (no libc) ---- */
-static int toklen(const char *s) { int n = 0; while (s[n]) n++; return n; }
+static int toklen(const char *s)
+{
+    if (!s) return -1;
+    for (int n = 0; n < (int)TOK_MAX_PIECE; n++) if (!s[n]) return n;
+    return -1;
+}
 static int teq(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 
 /* ---- UTF-8 validation ---- */
@@ -17,7 +22,6 @@ static int utf8_len(const uint8_t *p, size_t avail)
     if (avail == 0) return 0;
     uint8_t c = p[0];
     if (c < 0x80) return 1;                      /* ASCII */
-    if (c > 0xF4) return 0;                      /* above U+10FFFF / invalid lead */
     if ((c & 0xE0) == 0xC0) {                    /* 2 bytes: U+0080..U+07FF */
         if (avail < 2) return 0;
         if ((p[1] & 0xC0) != 0x80) return 0;
@@ -35,6 +39,7 @@ static int utf8_len(const uint8_t *p, size_t avail)
         if (avail < 4) return 0;
         if ((p[1] & 0xC0) != 0x80 || (p[2] & 0xC0) != 0x80 || (p[3] & 0xC0) != 0x80) return 0;
         if (c == 0xF0 && p[1] < 0x90) return 0;  /* overlong: U+0000..U+FFFF in 4 bytes */
+        if (c > 0xF4) return 0;                  /* 0xF5-0xF7: above U+10FFFF */
         if (c == 0xF4 && p[1] >= 0x90) return 0; /* above U+10FFFF */
         return 4;
     }
@@ -51,18 +56,26 @@ void tokenizer_init(struct tokenizer *t,
     t->merges = merges;
     t->merge_count = merge_count;
     t->scratch_len = 0;
+    t->valid = 0;
+    if (vocab_size > TOK_MAX_VOCAB || merge_count > TOK_MAX_MERGES ||
+        (vocab_size && !vocab) || (merge_count && !merges)) return;
+    for (size_t i = 0; i < vocab_size; i++) {
+        if (vocab[i].id < TOK_ID_FIRST || vocab[i].id >= TOK_BYTE_ID_BASE || toklen(vocab[i].piece) <= 0) return;
+        for (size_t j = 0; j < i; j++) if (vocab[j].id == vocab[i].id) return;
+    }
+    t->valid = 1;
 }
 
 /* Find the piece id for a byte token (0..255).
- * If the vocab has a single-byte piece for `b` return its id; otherwise the
- * byte token id is TOK_ID_FIRST + b, so every byte value round-trips. */
+ * If the vocab has a single-byte entry for `b` use its id; otherwise compute
+ * a byte-token id in [TOK_BYTE_ID_BASE, TOK_BYTE_ID_BASE + TOK_VOCAB_BYTES) so every byte round-trips. */
 static uint32_t byte_id(const struct tokenizer *t, uint8_t b)
 {
     for (size_t i = 0; i < t->vocab_size; i++) {
         const char *p = t->vocab[i].piece;
         if (p && p[0] && p[0] == (char)b && p[1] == 0) return t->vocab[i].id;
     }
-    return TOK_ID_FIRST + b;
+    return TOK_BYTE_ID_BASE + b;
 }
 
 /* Given two adjacent token ids l, r, find the merge output, or TOK_ID_UNK if none.
@@ -86,7 +99,7 @@ static uint32_t merge_find(const struct tokenizer *t, uint32_t l, uint32_t r, ui
 int tokenizer_encode(struct tokenizer *t, const char *in, size_t in_len,
                      uint32_t *out, size_t out_cap, int add_bos, int add_eos)
 {
-    if (!t || !in || !out) return TOK_E_OVERFLOW;
+    if (!t || !t->valid || !in || !out) return TOK_E_OVERFLOW;
     if (in_len > TOK_MAX_INPUT) return TOK_E_TOO_LONG;
 
     /* Validate UTF-8 over the whole input. */
@@ -129,7 +142,7 @@ int tokenizer_encode(struct tokenizer *t, const char *in, size_t in_len,
     size_t need = t->scratch_len;
     if (add_bos) need++;
     if (add_eos) need++;
-    if (need > out_cap) return TOK_E_TOO_LONG;
+    if (need > TOK_MAX_TOKENS || need > out_cap) return TOK_E_TOO_LONG;
 
     size_t w = 0;
     if (add_bos) out[w++] = TOK_ID_BOS;
@@ -141,7 +154,8 @@ int tokenizer_encode(struct tokenizer *t, const char *in, size_t in_len,
 int tokenizer_decode(struct tokenizer *t, const uint32_t *ids, size_t n,
                      char *out, size_t out_cap)
 {
-    if (!t || !ids || !out) return TOK_E_OVERFLOW;
+    if (!t || !t->valid || !ids || !out) return TOK_E_OVERFLOW;
+    if (n > TOK_MAX_TOKENS) return TOK_E_TOO_LONG;
     size_t w = 0;
     for (size_t i = 0; i < n; i++) {
         uint32_t id = ids[i];
@@ -161,15 +175,11 @@ int tokenizer_decode(struct tokenizer *t, const uint32_t *ids, size_t n,
             int l = toklen(piece);
             if (w + (size_t)l > out_cap) return TOK_E_TOO_LONG;
             for (int j = 0; j < l; j++) { out[w++] = piece[j]; }
-        } else if (id >= TOK_ID_FIRST && id < TOK_ID_FIRST + 256u) {
-            /* Byte token: ids in [TOK_ID_FIRST, TOK_ID_FIRST+256) that are not
-             * multi-byte pieces map back to a single byte value. */
-            if (w + 1 > out_cap) return TOK_E_TOO_LONG;
-            out[w++] = (char)((id - TOK_ID_FIRST) & 0xFF);
         } else {
-            /* Unknown id: write the Unicode replacement character U+FFFD. */
-            if (w + 3 > out_cap) return TOK_E_TOO_LONG;
-            out[w++] = (char)0xEF; out[w++] = (char)0xBF; out[w++] = (char)0xBD;
+            /* Only the reserved fallback byte range is valid here. */
+            if (id < TOK_BYTE_ID_BASE || id >= TOK_BYTE_ID_BASE + TOK_VOCAB_BYTES) return TOK_E_UNKNOWN;
+            if (w + 1 > out_cap) return TOK_E_TOO_LONG;
+            out[w++] = (char)(id - TOK_BYTE_ID_BASE);
         }
     }
     return (int)w;
@@ -177,7 +187,13 @@ int tokenizer_decode(struct tokenizer *t, const uint32_t *ids, size_t n,
 
 int tokenizer_piece(struct tokenizer *t, uint32_t id, char *out, size_t out_cap)
 {
-    if (!t || !out) return TOK_E_OVERFLOW;
+    if (!t || !t->valid || !out) return TOK_E_OVERFLOW;
+    if (id >= TOK_BYTE_ID_BASE && id < TOK_BYTE_ID_BASE + TOK_VOCAB_BYTES) {
+        if (out_cap < 2) return TOK_E_TOO_LONG;
+        out[0] = (char)(id - TOK_BYTE_ID_BASE);
+        out[1] = 0;
+        return 1;
+    }
     if (id == TOK_ID_BOS) { const char *s = "<bos>"; int l = toklen(s);
         if ((size_t)l + 1 > out_cap) return TOK_E_TOO_LONG;
         for (int i = 0; i < l; i++) { out[i] = s[i]; } out[l] = 0; return l; }
