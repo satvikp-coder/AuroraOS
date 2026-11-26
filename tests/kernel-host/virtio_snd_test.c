@@ -169,6 +169,20 @@ int main(void)
     CHECK(vsnd_rx_frames(7, 1024, &fr) == VSND_EPROTO && vsnd_rx_frames(0, 1024, &fr) == VSND_EPROTO, "rx below status size");
     CHECK(vsnd_rx_frames(0xFFFFFFFFu, 1024, &fr) == VSND_EPROTO, "rx huge length");
 
+    /* ---- rx capture bounds & hostile descriptors ---- */
+    fr = 77;
+    CHECK(vsnd_rx_frames(VSND_PSTATUS_SIZE, 0, &fr) == VSND_OK && fr == 0, "rx zero-cap status-only");
+    CHECK(vsnd_rx_frames(VSND_PSTATUS_SIZE + 1, 0, &fr) == VSND_EPROTO && fr == 0, "rx 1 byte over zero-cap");
+    CHECK(vsnd_rx_frames(VSND_PSTATUS_SIZE + 640, 640, &fr) == VSND_OK && fr == 640, "rx exact 640B capture period");
+    CHECK(vsnd_rx_frames(VSND_PSTATUS_SIZE + 640, 640, 0) == VSND_EARG, "rx null frames out-pointer");
+    CHECK(vsnd_rx_frames(0xFFFFFFFFu, 0xFFFFFFFFu - VSND_PSTATUS_SIZE, &fr) == VSND_OK &&
+          fr == 0xFFFFFFFFu - VSND_PSTATUS_SIZE, "rx max non-overflowing used length");
+    le32(b, VIRTIO_SND_S_IO_ERR); le32(b + 4, 128);
+    {
+        uint32_t lat = 0;
+        CHECK(vsnd_dec_pcm_status(b, VSND_PSTATUS_SIZE, &lat) == VSND_EIO && lat == 128, "rx io_err status");
+    }
+
     /* ---- events ---- */
     struct vsnd_config ecfg = { .jacks = 1, .streams = 2, .chmaps = 0 };
     struct vsnd_event ev = { 0, 0 };
