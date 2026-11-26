@@ -100,3 +100,8 @@ python3 "$ROOT/tests/aura-eval/selftest.py"
 "$OUT/virtio_snd_test"
 cc $CFLAGS -o "$OUT/tokenizer_test" "$ROOT/tests/kernel-host/tokenizer_test.c" "$ROOT/kernel/proc/tokenizer.c"
 "$OUT/tokenizer_test"
+
+cc $CFLAGS -o "$OUT/tensor_test" "$ROOT/tests/kernel-host/tensor_test.c" "$ROOT/kernel/proc/tensor.c"
+cc $CFLAGS -o "$OUT/quant_ops_test" "$ROOT/tests/kernel-host/quant_ops_test.c" "$ROOT/kernel/proc/quant_ops.c"
+"$OUT/tensor_test"
+"$OUT/quant_ops_test"
