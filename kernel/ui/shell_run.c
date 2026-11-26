@@ -360,7 +360,7 @@ void shell_loop(struct input_state *in)
         { static uint64_t rt_next; static int rt_n;
           uint64_t nowm = timersys_now_ms();
           if (!SH.review_open && rt_n < 4 && SH.caps.keyboard && nowm > 4000 && nowm >= rt_next) {
-              static const struct aura_caps RC = { 1, 1, 0, 0, 0 };
+              static const struct aura_caps RC = { 1, 1, 0, 0, 0, 0, 0 };
               struct rv_request q; uint8_t *qz = (uint8_t *)&q; for (unsigned i = 0; i < sizeof q; i++) qz[i] = 0;
               aura_parse("make text bigger", 16, &RC, &q.intent);
               q.pid = BP_SHELL_PID; q.gen = BP_SHELL_GEN; q.principal = PRINCIPAL_SHELL; q.nonce = (uint64_t)rt_n + 1; q.prior = (int32_t)SH.text_pct; q.next = 125;
