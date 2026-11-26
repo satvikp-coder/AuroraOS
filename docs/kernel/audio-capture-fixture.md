@@ -1,6 +1,6 @@
 # Synthetic PCM capture fixture
 
-The local host probe sends generated PCM through a private PulseAudio server. It verifies an input source for future AuroraOS capture tests without opening a hardware audio device. The current guest configures the virtio-sound RX queue during discovery and still needs a capture implementation.
+The local host probe sends generated PCM through a private PulseAudio server. It verifies an input source for AuroraOS capture tests without opening a hardware audio device. The optional QEMU probe below verifies synthetic PCM in a guest RX queue.
 
 ## Run the host probe
 
@@ -14,18 +14,16 @@ The script starts a separate PulseAudio process with a Unix socket in a private 
 
 [PulseAudio module documentation](https://www.freedesktop.org/projects/pulseaudio/Documentation/User/Modules/)
 
-## Connect a future guest capture test
+## Run the guest RX probe
 
-The same module setup can supply an audio source for a future end-to-end test on QEMU builds with the PulseAudio backend. Launch QEMU while that server is running and leave the source writer paused until the guest has started capture. Use the private server socket and named source and sink explicitly.
+Use the same Linux dependencies as the host probe, plus the AArch64 cross-toolchain and a QEMU build that includes the PulseAudio backend. The guest probe was verified on QEMU 11.1.0.
 
 ```sh
--audiodev pa,id=snd0,server=unix:/path/to/private/native,in.name=aurora_fixture,out.name=aurora_silence
--global virtio-mmio.force-legacy=false
--device virtio-sound-device,audiodev=snd0,streams=2
+./tests/qemu/sound-capture-tests.sh
 ```
 
+The script starts a private PulseAudio server and builds an opt-in capture-test kernel. It waits for the guest to start capture before writing alternating signed PCM markers at 16 kHz. QEMU uses the format negotiated by the guest with input mixing disabled. The guest checks record authorization before and after the test grant, drains the preposted RX periods before release, and verifies at least 64 samples of each exact marker. The script also checks that the guest completed boot. It prints the path to the serial, QEMU, and fixture writer logs under `build/sound-capture.*`.
+
+The capture test runs with networking disabled and uses synthetic PCM exclusively. Application capture, microphone permission prompts, a visible recording indicator, and speech remain separate work. This probe is outside the required CI jobs. For playback regression coverage, run `./tests/qemu/sound-tests.sh`.
+
 [QEMU backend options](https://www.qemu.org/docs/master/system/invocation.html)
-
-Once RX submission is implemented, the guest test can select an input stream through `PCM_INFO`, queue writable buffers before starting capture, and feed the same known sample pattern from the host. The used length must include the eight-byte status trailer. Subtract the trailer to obtain the PCM byte count, reject counts beyond the buffer and counts that are not frame-aligned, and compare decoded frames with the expected pattern. Add cases for short completions, malformed status, and a timeout while the device owns the buffer.
-
-The QEMU WAV backend writes guest playback to a host file. The host probe above verifies the synthetic input source. End-to-end guest capture awaits the RX implementation.
