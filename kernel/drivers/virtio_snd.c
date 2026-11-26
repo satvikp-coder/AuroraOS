@@ -645,6 +645,7 @@ static int capture_probe(void)
     console_puts("sound capture input started\n");
 
     unsigned positive = 0, negative = 0, submitted = RX_SLOTS;
+    int low = 0, high = 0;
     uint64_t capture_start = timer_count();
     for (unsigned period = 0; period < submitted; period++) {
         uint16_t id;
@@ -676,6 +677,9 @@ static int capture_probe(void)
         if (rc != SND_OK) goto fail;
         for (uint32_t i = 0; i < bytes; i += 2u) {
             unsigned sample = (unsigned)samples[i] | ((unsigned)samples[i + 1] << 8);
+            int signed_sample = sample < 32768u ? (int)sample : (int)sample - 65536;
+            if (signed_sample < low) low = signed_sample;
+            if (signed_sample > high) high = signed_sample;
             positive += sample == 0x1234u;
             negative += sample == 0xedccu;
         }
@@ -691,6 +695,10 @@ static int capture_probe(void)
         rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_RELEASE, stream, cfg.streams));
     if (rc != SND_OK) goto fail;
     pmm_free_page(page);
+    console_puts("sound capture signed range magnitude -"); console_dec((unsigned)-low);
+    console_puts(" to "); console_dec((unsigned)high);
+    console_puts("; expected sample counts "); console_dec(positive);
+    console_puts("/"); console_dec(negative); console_puts("\n");
     return positive >= 64 && negative >= 64 ? SND_OK : VSND_EIO;
 
 fail:
