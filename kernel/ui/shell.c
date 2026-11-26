@@ -799,7 +799,7 @@ void shell_set_pages(struct shell *sh, uint32_t (*src)(struct procsnap *out))
 }
 
 /* ---- Aura: type a quick command, see what it would do, run it through the Action Broker, read the real result. Deterministic; no language model. ---- */
-static const struct aura_caps AURA_PREVIEW_CAPS = { 1, 0, 0, 0, 0, 0, 0 };         /* only for the preview; the broker applies the platform's real capabilities */
+static const struct aura_caps AURA_PREVIEW_CAPS = { 1, 0, 0, 0, 0, 0, 0, 0 };         /* only for the preview; the broker applies the platform's real capabilities */
 
 static void aura_refresh(struct shell *sh)
 {
@@ -808,7 +808,8 @@ static void aura_refresh(struct shell *sh)
     if (sh->launcher && sh->launcher->available) {
         pc.notes = sh->launcher->available(2);          /* APP_NOTES = 2 */
         pc.calculator = sh->launcher->available(1);     /* APP_CALCULATOR = 1 */
-        pc.files = sh->launcher->available(3);          /* APP_FILES = 3 */
+        pc.files = sh->launcher->available(APP_FILES);
+        pc.clock_app = sh->launcher->available(APP_CLOCK);
     }
     aura_parse(sh->aura_in, sh->aura_len, &pc, &sh->aura_pv);
 }

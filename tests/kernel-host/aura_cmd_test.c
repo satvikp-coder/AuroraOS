@@ -11,7 +11,7 @@
 static int passed, failed;
 #define CHECK(name, cond) do { if (cond) { passed++; } else { failed++; printf("  FAIL: %s (line %d)\n", name, __LINE__); } } while (0)
 
-static struct aura_caps CAPS0 = { 0, 0, 0, 0, 0, 0, 0 }, CAPS_PAGES = { 1, 0, 0, 0, 0, 0, 0 };
+static struct aura_caps CAPS0 = { 0, 0, 0, 0, 0, 0, 0, 0 }, CAPS_PAGES = { 1, 0, 0, 0, 0, 0, 0, 0 };
 
 static struct aura_intent run_caps(const struct aura_caps *c, const char *in, size_t len)
 {
@@ -97,10 +97,10 @@ static const struct exp TABLE[] = {
 
 int main(void)
 {
-    const struct aura_caps installed = { .notes = 1, .calculator = 1, .files = 1 };
+    const struct aura_caps installed = { .notes = 1, .calculator = 1, .files = 1, .clock_app = 1 };
     const struct aura_caps missing = { 0 };
-    const char *const app_commands[] = { "open calculator", "open notes", "open files" };
-    for (uint8_t app = APP_CALCULATOR; app <= APP_FILES; app++) {
+    const char *const app_commands[] = { "open calculator", "open notes", "open files", "open clock app" };
+    for (uint8_t app = APP_CALCULATOR; app <= APP_CLOCK; app++) {
         const char *text = app_commands[app - APP_CALCULATOR];
         struct aura_intent intent = run_caps(&installed, text, strlen(text));
         CHECK("installed app command has the registry target",
@@ -110,6 +110,14 @@ int main(void)
         CHECK("missing app reports a canonical unsupported intent",
               intent.status == AS_UNSUPPORTED && aura_validate(&intent, &missing));
     }
+
+    struct aura_intent clock_screen = run_caps(&installed, "open clock", sizeof "open clock" - 1);
+    CHECK("open clock keeps the built-in screen", clock_screen.kind == AK_OPEN_SCREEN &&
+          clock_screen.target == ASC_CLOCK && aura_validate(&clock_screen, &installed));
+    struct aura_intent clock_app = run_caps(&installed, "open clock app", sizeof "open clock app" - 1);
+    CHECK("Clock app has a distinct canonical preview", strcmp(clock_app.preview, "Open Clock app") == 0);
+    memcpy(clock_app.preview, "Open Clock", sizeof "Open Clock");
+    CHECK("Clock app rejects the built-in screen preview", !aura_validate(&clock_app, &installed));
 
     printf("aura_cmd tests\n");
 

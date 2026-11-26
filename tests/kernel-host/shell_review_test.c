@@ -15,7 +15,7 @@ static int passed, failed;
 #define SECURE 0x00FFB020u
 
 static struct shell sh;
-static const struct aura_caps CAPS = { 1, 1, 0, 0, 0, 0, 0 };
+static const struct aura_caps CAPS = { 1, 1, 0, 0, 0, 0, 0, 0 };
 static uint64_t T;
 static void fresh(void) { shell_init(&sh, W, H); struct shell_caps c = { 1, 1 }; shell_set_caps(&sh, c); T = 1000; shell_tick(&sh, T); }
 static struct rv_request mk(const char *cmd, int32_t prior, int32_t next)

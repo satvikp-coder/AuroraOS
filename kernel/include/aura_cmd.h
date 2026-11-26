@@ -65,7 +65,7 @@ struct aura_intent {
 };
 
 /* What the native OS actually provides. A zero field means "does not exist": the matching command is reported unsupported. */
-struct aura_caps { uint8_t pages, timer, notes, calculator, files, messaging, hardware; };
+struct aura_caps { uint8_t pages, timer, notes, calculator, files, messaging, hardware, clock_app; };
 
 /* Parse one command. `len` bytes of `text` are read (no NUL needed). Always fills *out; returns out->status. Never reads past len. */
 int aura_parse(const char *text, size_t len, const struct aura_caps *caps, struct aura_intent *out);
