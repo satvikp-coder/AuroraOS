@@ -1,5 +1,5 @@
 #!/bin/sh
-# tests/qemu/sound-tests.sh — QEMU regression tests for the virtio-sound driver: DEVICE BRING-UP ONLY (no playback, no capture).
+# tests/qemu/sound-tests.sh — QEMU regression tests for the virtio-sound driver: device bring-up and a test-build PCM tone.
 #
 # The device is QEMU's virtio-sound-device on the modern virtio-mmio transport with the `wav` audio backend writing to a disposable
 # file under build/sound-tests/. Scenarios:
@@ -110,6 +110,33 @@ fault 2 "non-zero padding in a PCM_INFO record" "malformed PCM_INFO response"
 fault 3 "used length one byte short" "malformed PCM_INFO response"
 fault 4 "config claims 33 streams" "config counts unstable or above driver bounds"
 fault 5 "unknown status code" "malformed PCM_INFO response"
+
+echo "== 8. PCM playback lifecycle and WAV output =="
+if AURORA_SND_PLAY_TEST=1 BUILD_DIR="$OUT/play" ./build.sh > "$OUT/play-build.log" 2>&1; then
+    log="$OUT/play.log"
+    run_qemu "$OUT/play/kernel.bin" "$log" \
+        -audiodev wav,id=snd0,path="$OUT/play.wav",out.frequency=48000 \
+        -global virtio-mmio.force-legacy=false -device virtio-sound-device,audiodev=snd0,streams=1
+    finished playback "$log"
+    expect "$log" "sound playback self-test passed" "guest completed SET_PARAMS through RELEASE and denied playback before grant"
+    if python3 - "$OUT/play.wav" <<'PY'
+from pathlib import Path
+import struct
+import sys
+
+# QEMU may leave the RIFF and data length words unset when stopped by SIGTERM.
+# Verify the fixed PCM header and the actual samples recorded after it.
+wav = Path(sys.argv[1]).read_bytes()
+assert wav[:4] == b"RIFF" and wav[8:16] == b"WAVEfmt " and wav[36:40] == b"data"
+assert struct.unpack_from("<IHHIIHH", wav, 16) == (16, 1, 2, 48000, 192000, 4, 16)
+frames = wav[44:]
+assert any(left == right and abs(left) >= 8000 for left, right in struct.iter_unpack("<hh", frames))
+PY
+    then ok "WAV contains nonzero stereo PCM from the guest"; else bad "playback WAV has no expected PCM"; fi
+else
+    tail -n 12 "$OUT/play-build.log"
+    bad "playback test kernel failed to build"
+fi
 
 echo "sound-tests: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ]

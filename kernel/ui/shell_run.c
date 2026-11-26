@@ -19,6 +19,7 @@
 #include <broker_kernel.h>
 #include <timersys.h>
 #include <ledger.h>
+#include <vsnd.h>
 
 /* The shell's own identity for the settings registry. Kernel code (this file, at boot) grants it appearance and attention rights, and NOT the
  * system right: the registry, not the UI, decides, so the Aura-mode setting stays refused. No process can ever hold this principal. */
@@ -35,7 +36,8 @@ static int space_store;            /* 1 once the shell may save the selected Spa
 /* Test builds: start EL0 clients from the installer-owned "shclient.elf" before the shell loop, selected by a bit mask:
  * 1 two CPU-bound spinners, 2 a yielder, 4 a process blocked on IPC, 8 a process that exits after a while, 16 one that faults after a while,
  * 32 a process that exits and is replaced repeatedly (the loop below recreates it). The mode travels in x0 (kernel-chosen). */
-static const struct { const char *app; const char *file; uint32_t principal; uint64_t mode; uint32_t bit; int ui; } CLIENTS[] = {
+/* caps bitmask: 1 = UI, 2 = timer, 4 = audio */
+static const struct { const char *app; const char *file; uint32_t principal; uint64_t mode; uint32_t bit; int caps; } CLIENTS[] = {
     { "c_spin1", "shclient.elf", 301, 1, 1, 0 }, { "c_spin2", "shclient.elf", 302, 1, 1, 0 }, { "c_yield", "shclient.elf", 303, 2, 2, 0 },
     { "c_block", "shclient.elf", 304, 3, 4, 0 }, { "c_exit", "shclient.elf", 305, 4, 8, 0 }, { "c_fault", "shclient.elf", 306, 5, 16, 0 },
     /* EL0 UI clients (uiclient.elf): 64 a demo surface, 128 a second demo surface, 256 a hostile client, 512 a client that faults after drawing,
@@ -43,7 +45,7 @@ static const struct { const char *app; const char *file; uint32_t principal; uin
     /* 2048: a client that HOLDS the navigate right (granted here, by kernel code) and asks the broker to navigate; 4096: one that holds nothing;
      * 8192: one that asks and then faults at once (its request must not outlive it). */
     { "c_nav", "uiclient.elf", 406, 6, 2048, 0 }, { "c_navbad", "uiclient.elf", 407, 7, 4096, 0 }, { "c_navcrash", "uiclient.elf", 408, 8, 8192, 0 }, { "c_navflood", "uiclient.elf", 409, 9, 16384, 0 },
-    /* SYS_TIMER clients (ui field 2 = the timer capability; 1 = the UI capability) (timerclient.elf): 32768 basic, 65536 hostile, 131072 without the capability, 262144 a holder of a 3 s timer, 524288 a spy on foreign ids,
+    /* SYS_TIMER clients (caps bit 2 = the timer capability; bit 1 = the UI capability) (timerclient.elf): 32768 basic, 65536 hostile, 131072 without the capability, 262144 a holder of a 3 s timer, 524288 a spy on foreign ids,
      * 1048576 starts two timers and exits, 2097152 starts two and faults, 4194304 a late client that must get its full quota. The capability is granted here, by kernel code. */
     { "c_tmbasic", "timerclient.elf", 501, 1, 32768, 2 }, { "c_tmhostile", "timerclient.elf", 502, 2, 65536, 2 }, { "c_tmnocap", "timerclient.elf", 503, 3, 131072, 0 },
     { "c_tmholder", "timerclient.elf", 504, 4, 262144, 2 }, { "c_tmspy", "timerclient.elf", 505, 5, 524288, 2 }, { "c_tmexit", "timerclient.elf", 506, 6, 1048576, 2 },
@@ -57,8 +59,9 @@ static void launch_clients(void)
     for (unsigned i = 0; i < sizeof CLIENTS / sizeof CLIENTS[0]; i++) {
         if (!(AURORA_SHELL_CLIENTS & CLIENTS[i].bit)) continue;
         int pid = 0, detail = 0;
-        if ((CLIENTS[i].ui & 1) && ui_sys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: ui_sys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
-        if ((CLIENTS[i].ui & 2) && timersys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: timersys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
+        if ((CLIENTS[i].caps & 1) && ui_sys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: ui_sys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
+        if ((CLIENTS[i].caps & 2) && timersys_grant(CLIENTS[i].principal) != 0) { console_puts("shell: timersys_grant failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
+        if ((CLIENTS[i].caps & 4) && vsnd_grant_audio(CLIENTS[i].principal, AUDIO_CAP_PLAY) != 0) { console_puts("shell: vsnd_grant_audio failed for "); console_puts(CLIENTS[i].app); console_puts("\n"); }
         int r = launch_register(CLIENTS[i].app, CLIENTS[i].file, CLIENTS[i].principal, CLIENTS[i].mode);
         if (r == LAUNCH_OK) r = launch_app(CLIENTS[i].app, &pid, &detail);
         if (r == LAUNCH_OK && (CLIENTS[i].bit == 2048 || CLIENTS[i].bit == 8192 || CLIENTS[i].bit == 16384)) { int g = broker_grant_navigate(pid); console_puts("shell: navigate right granted to "); console_puts(CLIENTS[i].app); console_puts(g == 0 ? "\n" : " FAILED\n"); }
@@ -103,6 +106,7 @@ static void reap(void)
         apps_gone(pid, p->gen);                                  /* the launcher forgets the instance: the next launch is a fresh one */
         timersys_owner_gone(pid, p->gen);                        /* and its timers */
         ledger_drop_instance(p->gen);                            /* and every Passport grant bound to this generation */
+        vsnd_revoke_audio(p->principal);                         /* revoke audio capabilities for this principal */
         shell_review_requester_gone(&SH, (uint32_t)pid, p->gen);  /* a review it asked for dies with it */
         proc_destroy(pid);
     }
@@ -298,6 +302,11 @@ void shell_loop(struct input_state *in)
             space_store = 1;
         }
     } else console_puts("shell: settings store=none (changes last for this session only)\n");
+
+    /* Grant audio playback capability to the shell principal (kernel context uses this for vsnd calls). */
+    int ag = vsnd_grant_audio(PRINCIPAL_SHELL, AUDIO_CAP_PLAY);
+    console_puts("shell: audio grant="); console_dec((uint64_t)(ag < 0 ? -ag : ag));
+    console_puts(ag == 0 ? " (play)\n" : " FAILED\n");
     aura_s1_attach(&S1ENV);                                      /* the S1 chain exists from here on: it still needs a keyboard, healthy ledgers and a person at the review */
     ledger_set_boot_hook(s1_boot_recover);
     ledger_boot();                                               /* the durable Passport: loaded and verified (or an honest reason why not) */

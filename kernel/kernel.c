@@ -194,6 +194,16 @@ void kernel_main(uint64_t dtb)
         }
         /* 4d. Sound: virtio-sound is optional and only brought up (no playback). Exactly one [snd] line; a failing device never stops boot. */
         (void)vsnd_init((const void *)(uintptr_t)dtb);
+#ifdef AURORA_SND_PLAY_TEST
+        int playback = vsnd_playback_selftest();
+        if (playback != 0) {
+            console_puts("sound playback self-test failed: ");
+            console_hex((uint64_t)(int64_t)playback);
+            console_puts("\n");
+            halt_forever();
+        }
+        console_puts("sound playback self-test passed\n");
+#endif
         blktest_run();
         if (blktest_summary()) { console_puts("BLOCK SELFTEST FAILED\n"); halt_forever(); }
         fstest_run();

@@ -3,6 +3,7 @@
 #include <elf.h>
 #include <mm.h>
 #include <proc.h>
+#include <vsnd.h>
 
 static struct proc table[PROC_MAX];
 static uint64_t next_gen = 1;                    /* generation 0 means "no process"; 64 bits never wrap in practice */
@@ -137,6 +138,10 @@ int proc_destroy(int pid)
     struct proc *p = proc_get(pid);
     if (!p) return -1;
     if (!proc_transition_ok(p->state, PROC_UNUSED)) return -2;     /* e.g. RUNNING: refuse */
+
+    /* Revoke audio capabilities for this principal (defense in depth: also called from shell's reap). */
+    vsnd_revoke_audio(p->principal);
+
     ipc_cleanup(p);
     ro_cleanup_proc(&p->as);
     pmm_bounded_cleanup_proc((uint32_t)pid, &p->as);

@@ -70,6 +70,12 @@ static void tick_hook(void)
 
 static struct proc *current(void) { return cur_pid ? proc_get(cur_pid) : 0; }
 
+uint32_t proc_current_principal(void)
+{
+    struct proc *p = current();
+    return p ? p->principal : PRINCIPAL_NONE;
+}
+
 static int pick_next(void)
 {   /* round robin: the first READY process after the current one; the current one (if READY again) comes last */
     for (int i = 1; i <= PROC_MAX; i++) {

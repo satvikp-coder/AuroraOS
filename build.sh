@@ -101,6 +101,7 @@ fi
 if [ -n "$AURORA_GFX_TEXT" ]; then
     CFLAGS="$CFLAGS -DAURORA_GFX_TEXT=1"        # draw the G4 text diagnostic image (needs a ramfb display)
 fi
+if [ "$AURORA_SND_PLAY_TEST" = 1 ]; then CFLAGS="$CFLAGS -DAURORA_SND_PLAY_TEST"; fi
 if [ -n "$AURORA_SND_FAULT" ]; then
     CFLAGS="$CFLAGS -DAURORA_SND_FAULT=$AURORA_SND_FAULT"   # test kernel: the sound driver SIMULATES a hostile device answer (tests/qemu/sound-tests.sh)
 fi
