@@ -105,6 +105,24 @@ static void load(void)
     if (cur_slot >= 0) { status = "Loaded"; sayn("notes load ok slot=", (u64)cur_slot); } else { status = "New note"; say("notes load empty"); }
 }
 
+/* Stage the older verified save in the editor. Ctrl+S is the only disk write. */
+static void load_previous(void)
+{
+    if (dirty) { status = "Save edits before loading a previous save"; return; }
+    if (locked || cur_slot < 0) { status = "No previous save available"; return; }
+    struct note previous;
+    u32 sequence = 0;
+    i64 err;
+    if (read_slot(1 - cur_slot, &previous, &sequence, &err) != SL_VALID ||
+        (int)(cur_seq - sequence) <= 0) {
+        status = "No previous save available";
+        return;
+    }
+    ncopy(&N, &previous);
+    dirty = 1;
+    status = "Previous save loaded. Ctrl+S to keep it";
+}
+
 /* Save the buffer. Returns 1 if the saved note was read back and matches. */
 static int save(void)
 {
@@ -164,6 +182,7 @@ static int on_key(u32 code, u32 mods)                 /* returns 1 if the screen
 {
     if (mods & 2u) {                                   /* Ctrl commands */
         if (code == 31) { save(); return 1; }          /* Ctrl+S */
+        if (code == 19) { load_previous(); return 1; } /* Ctrl+R */
         if (code == 16) return 2;                      /* Ctrl+Q */
         return 0;
     }
@@ -191,7 +210,7 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
     send_rect(0, 0, 8, 8, 700, 24); send_text(0, 1, "Notes");
     send_rect(1, 2, 8, 36, 700, 20);
     for (int i = 0; i < NOTE_ROWS; i++) send_rect((u8)(2 + i), 1, 8, 62 + i * 30, 700, 28);
-    send_rect(10, 2, 8, 316, 700, 20); send_text(10, 0, "Ctrl+S save   Ctrl+Q quit");
+    send_rect(10, 2, 8, 316, 700, 20); send_text(10, 0, "Ctrl+S save  Ctrl+R previous  Ctrl+Q quit");
     say("notes started");
     load(); refresh();
     for (;;) {

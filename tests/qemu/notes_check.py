@@ -127,12 +127,19 @@ def main():
         check("backspace removed the last seven characters (shorter text)", wait_for(lambda: last_text(1) == "AuroraOS is my independent operating |", 30))
         ctrl("s")
         check("saving SHORTER text wrote the other slot (seq 2) and verified it", wait_for(lambda: has(1, "notes save ok seq=2"), 20))
-        check("exit", quit_notes(1))
+        ctrl("r")
+        check("Ctrl+R loads the previous verified save into the editor", wait_for(lambda:
+              last_text(1) == SENTENCE + "|" and last_status(1) == "Previous save loaded. Ctrl+S to keep it", 20))
+        check("exit discards the staged previous save", quit_notes(1) and has(1, "notes exit unsaved"))
     elif sc == "third":
         check("after a second restart Notes launches", launch(1))
         check("the SHORTER text is what loads (the newest slot wins; the stale longer slot is ignored)", wait_for(lambda: has(1, "notes load ok slot=1"), 20) and last_text(1) == "AuroraOS is my independent operating |")
         s = focus_surface(1)
         type_note("kernel and more words to make it longer than before. " * 1)
+        edited = last_text(1)
+        ctrl("r")
+        check("Ctrl+R preserves unsaved edits", wait_for(lambda:
+              last_status(1) == "Save edits before loading a previous save" and last_text(1) == edited, 20))
         ctrl("s")
         check("saving LONGER text works (seq 3, back in slot a)", wait_for(lambda: has(1, "notes save ok seq=3"), 25))
         check("exit", quit_notes(1))
