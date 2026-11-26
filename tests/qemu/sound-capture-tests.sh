@@ -49,11 +49,13 @@ else:
     raise SystemExit("Guest START or QEMU input connection did not appear")
 
 print("Feeding the private source after guest START", flush=True)
-cycle = struct.pack("<h", 0x1234) * 320 + struct.pack("<h", -0x1234) * 320
+periods = [struct.pack("<h", value) * 320 for value in (0x1234, -0x1234)]
 try:
-    with open(sys.argv[1], "wb") as pipe:
-        for _ in range(20):
-            pipe.write(cycle * 25)
+    with open(sys.argv[1], "wb", buffering=0) as pipe:
+        for i in range(300):
+            if pipe.write(periods[i % 2]) != len(periods[i % 2]):
+                raise SystemExit("short fixture write")
+            time.sleep(0.020)
 except BrokenPipeError:
     pass
 PY
@@ -62,7 +64,7 @@ feed_pid=$!
 qemu-system-aarch64 -machine virt,highmem=off -cpu cortex-a53 -smp 1 -m 256M \
     -kernel "$out/kernel/kernel.bin" -nodefaults -display none -monitor none -nic none \
     -serial "file:$out/serial.log" -global virtio-mmio.force-legacy=false \
-    -audiodev "pa,id=fixture,server=$PULSE_SERVER,in.name=aurora_fixture,out.name=aurora_silence,in.frequency=16000,in.channels=1,in.format=s16" \
+    -audiodev "pa,id=fixture,server=$PULSE_SERVER,in.name=aurora_fixture,out.name=aurora_silence,in.frequency=16000,in.channels=1,in.format=s16,in.latency=20000" \
     -device virtio-sound-device,audiodev=fixture,streams=2 >"$out/qemu.log" 2>&1 &
 qemu_pid=$!
 for i in $(seq 1 240); do
