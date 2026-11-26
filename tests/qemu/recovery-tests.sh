@@ -138,8 +138,9 @@ cp -r "$PKG" "$OUT/bundle"; rm -rf "$OUT/bundle/data"
 if (cd "$OUT/bundle" && ./verify-bundle.sh > "$OUT/verify-ok.log" 2>&1); then ok "verify: the untouched bundle verifies"; else bad "verify: the untouched bundle was rejected (see $OUT/verify-ok.log)"; fi
 tamper() {       # $1 name, $2 shell command run inside a fresh copy of the bundle
     rm -rf "$OUT/t"; cp -r "$OUT/bundle" "$OUT/t"
-    (cd "$OUT/t" && sh -c "$2") 2>/dev/null
-    if (cd "$OUT/t" && ./verify-bundle.sh > "$OUT/verify-$1.log" 2>&1); then bad "verify: $1 was NOT detected"; else ok "verify: $1 is detected"; fi
+    if ! (cd "$OUT/t" && sh -c "$2"); then bad "verify: could not apply $1"; return; fi
+    label=$(printf '%s' "$1" | tr -c '[:alnum:]' '-')
+    if (cd "$OUT/t" && ./verify-bundle.sh > "$OUT/verify-$label.log" 2>&1); then bad "verify: $1 was NOT detected"; else ok "verify: $1 is detected"; fi
 }
 tamper "a modified kernel"        "printf x >> kernel.bin"
 tamper "a modified disk template" "printf x >> aurora-fresh.img"
