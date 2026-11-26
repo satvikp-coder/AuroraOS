@@ -54,7 +54,7 @@ cmp -s -n $((APPSECT * 512)) -i $((17 * 512)) "$FRESH" "$OUT/fresh.img" && ok "f
 [ "$B" != "$(sum "$OUT/fresh.img")" ] && ok "fresh: the boot did create its own state (the Trail), so this suite is not comparing a disk the kernel never wrote" || bad "fresh: the boot wrote nothing, so the persistence check below proves nothing"
 # persistence: the SAME disk, booted again, must show the state the first boot wrote
 AFTER1=$(sum "$OUT/fresh.img"); boot persist "$OUT/fresh.img"
-has "$L" "\[fs\] mount: AuroraFS v1 mounted read-only-safe, 5 files" && ok "persist: the second boot mounts the disk with the files the first boot created (3 installed + 2 system)" || bad "persist: the file set did not survive the restart"
+has "$L" "\[fs\] mount: AuroraFS v1 mounted read-only-safe, 6 files" && ok "persist: the second boot mounts the disk with the files the first boot created (4 installed + 2 system)" || bad "persist: the file set did not survive the restart"
 has "$L" "ledger: trail state=ok records=[1-9]" && ok "persist: the Trail written by the first boot was read back and is valid" || bad "persist: the Trail did not persist"
 cmp -s -n 1280 "$FRESH" "$OUT/fresh.img" && ok "persist: the installer-owned applications are still unchanged after a second boot" || bad "persist: an application inode changed"
 
