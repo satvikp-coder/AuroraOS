@@ -37,6 +37,35 @@ if "$P/run.sh" -display none > "$OUT/norun.log" 2>&1; then bad "run.sh booted wi
 echo marker >> "$P/data/aurora.img"; S1=$(sha256sum "$P/data/aurora.img")
 "$P/fresh-install.sh" > /dev/null 2>&1 && bad "fresh-install overwrote an existing disk" || ok "fresh-install.sh refuses to overwrite an existing disk"
 [ "$S1" = "$(sha256sum "$P/data/aurora.img")" ] && ok "the existing disk is untouched" || bad "disk changed"
+I="$OUT/install-race"; mkdir -p "$I"
+cp "$P/fresh-install.sh" "$P/aurora-fresh.img" "$I/"
+"$I/fresh-install.sh" > "$OUT/install-first.log" 2>&1 & first=$!
+"$I/fresh-install.sh" > "$OUT/install-second.log" 2>&1 & second=$!
+rc1=0; wait "$first" || rc1=$?
+rc2=0; wait "$second" || rc2=$?
+if [ "$((rc1 + rc2))" -eq 1 ] && cmp -s "$I/aurora-fresh.img" "$I/data/aurora.img"; then
+    ok "concurrent installs publish exactly one complete disk"
+else
+    bad "concurrent installs failed to publish exactly one complete disk"
+fi
+mv "$I/data/aurora.img" "$I/saved.img"
+ln -s "$I/missing.img" "$I/data/aurora.img"
+if "$I/fresh-install.sh" > "$OUT/install-link.log" 2>&1 || [ -e "$I/missing.img" ]; then
+    bad "fresh-install followed a disk symlink"
+elif "$I/fresh-install.sh" --force > "$OUT/install-force.log" 2>&1 &&
+     [ ! -L "$I/data/aurora.img" ] && [ ! -e "$I/missing.img" ] &&
+     cmp -s "$I/aurora-fresh.img" "$I/data/aurora.img"; then
+    ok "fresh-install replaces a disk symlink only with explicit force and leaves its target alone"
+else
+    bad "forced fresh-install did not replace the disk symlink safely"
+fi
+rm "$I/data/aurora.img" "$I/aurora-fresh.img"
+if "$I/fresh-install.sh" > "$OUT/install-missing.log" 2>&1 || [ -n "$(ls -A "$I/data")" ]; then
+    bad "failed copy left a published disk or staging file"
+else
+    ok "failed copy leaves no disk or staging file"
+fi
+
 
 # boot the PACKAGED artifacts and launch Calculator from Index (real keys, real pixels)
 "$P/fresh-install.sh" --force > /dev/null
