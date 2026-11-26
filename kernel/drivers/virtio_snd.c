@@ -579,6 +579,17 @@ int vsnd_playback_selftest(void)
 #define RX_PERIOD 640u                  /* 20 ms at 16 kHz, S16LE, mono */
 #define RX_DATA_OFF 16u
 #define RX_STATUS_OFF (RX_DATA_OFF + RX_PERIOD)
+#define RX_SLOTS 4u
+#define RX_SLOT_BYTES (RX_STATUS_OFF + VSND_PSTATUS_SIZE)
+_Static_assert(RX_SLOTS * RX_SLOT_BYTES <= PAGE_SIZE, "RX periods fit in one DMA page");
+
+static int capture_submit(struct sq *q, uintptr_t slot, uint16_t head)
+{
+    uint8_t *samples = (uint8_t *)(slot + RX_DATA_OFF);
+    for (unsigned i = 0; i < RX_PERIOD; i++) samples[i] = 0;
+    for (unsigned i = 0; i < VSND_PSTATUS_SIZE; i++) samples[RX_PERIOD + i] = 0xff;
+    return vq_submit(&q->vq, head, RX_PERIOD + VSND_PSTATUS_SIZE);
+}
 
 static int capture_command(size_t request)
 {
@@ -600,43 +611,42 @@ static int capture_probe(void)
     if (!vsnd_check_audio_cap(proc_current_principal(), AUDIO_CAP_RECORD)) return VSND_EPERM;
     if (!live) return SND_ENODEV;
     struct sq *q = &Q[VIRTIO_SND_VQ_RX];
-    if (q->vq.qn < 3u) return SND_EPROTO;
+    if (q->vq.qn < 2u * RX_SLOTS) return SND_EPROTO;
     uint32_t stream = 0;
     while (stream < cfg.streams && info[stream].direction != VIRTIO_SND_D_INPUT) stream++;
     if (stream == cfg.streams) return VSND_ENODEV;
     struct vsnd_pcm_params params = {
-        .stream_id = stream, .buffer_bytes = 2u * RX_PERIOD, .period_bytes = RX_PERIOD,
+        .stream_id = stream, .buffer_bytes = RX_SLOTS * RX_PERIOD, .period_bytes = RX_PERIOD,
         .channels = 1, .format = VIRTIO_SND_PCM_FMT_S16, .rate = VIRTIO_SND_PCM_RATE_16000,
     };
     uintptr_t page = pmm_alloc_page();
     if (!page) return SND_ENOMEM;
     uint8_t *req = (uint8_t *)(ctrl_page + OFF_REQ);
-    uint8_t *samples = (uint8_t *)(page + RX_DATA_OFF);
-    uint8_t *status = (uint8_t *)(page + RX_STATUS_OFF);
     int rc = capture_command(vsnd_enc_pcm_set_params(req, VSND_SETP_SIZE, &params, &info[stream], cfg.streams));
     if (rc != SND_OK) goto fail;
     rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_PREPARE, stream, cfg.streams));
     if (rc != SND_OK) goto fail;
-    if (!vsnd_enc_pcm_xfer((uint8_t *)page, VSND_XFER_SIZE, stream, cfg.streams)) { rc = SND_EPROTO; goto fail; }
 
-    q->desc[0] = (struct desc){ .addr = page, .len = VSND_XFER_SIZE, .flags = DESC_NEXT, .next = 1 };
-    q->desc[1] = (struct desc){ .addr = page + RX_DATA_OFF, .len = RX_PERIOD,
-                                  .flags = DESC_NEXT | DESC_WRITE, .next = 2 };
-    q->desc[2] = (struct desc){ .addr = page + RX_STATUS_OFF, .len = VSND_PSTATUS_SIZE, .flags = DESC_WRITE };
-    unsigned positive = 0, negative = 0;
-    uint64_t capture_start = timer_count();
-    for (unsigned period = 0; period < 100u; period++) {
-        for (unsigned i = 0; i < RX_PERIOD; i++) samples[i] = 0;
-        for (unsigned i = 0; i < VSND_PSTATUS_SIZE; i++) status[i] = 0xff;
+    /* Keep multiple periods resident so the host callback can fill another
+     * period while the guest processes and replenishes a completed chain. */
+    for (unsigned i = 0; i < RX_SLOTS; i++) {
+        uintptr_t slot = page + i * RX_SLOT_BYTES;
+        uint16_t head = (uint16_t)(2u * i);
+        if (!vsnd_enc_pcm_xfer((uint8_t *)slot, VSND_XFER_SIZE, stream, cfg.streams)) { rc = SND_EPROTO; goto fail; }
+        q->desc[head] = (struct desc){ .addr = slot, .len = VSND_XFER_SIZE, .flags = DESC_NEXT, .next = head + 1u };
+        q->desc[head + 1u] = (struct desc){ .addr = slot + RX_DATA_OFF, .len = RX_PERIOD + VSND_PSTATUS_SIZE,
+                                         .flags = DESC_WRITE };
         mb();
-        if (vq_submit(&q->vq, 0, RX_PERIOD + VSND_PSTATUS_SIZE) != VQ_OK) { rc = SND_EPROTO; goto fail; }
-        wr(VIO_R_QNOTIFY, VIRTIO_SND_VQ_RX);
-        if (period == 0) {
-            rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_START, stream, cfg.streams));
-            if (rc != SND_OK) goto fail;
-            console_puts("sound capture input started\n");
-        }
+        if (capture_submit(q, slot, head) != VQ_OK) { rc = SND_EPROTO; goto fail; }
+    }
+    wr(VIO_R_QNOTIFY, VIRTIO_SND_VQ_RX);
+    rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_START, stream, cfg.streams));
+    if (rc != SND_OK) goto fail;
+    console_puts("sound capture input started\n");
 
+    unsigned positive = 0, negative = 0, submitted = RX_SLOTS;
+    uint64_t capture_start = timer_count();
+    for (unsigned period = 0; period < submitted; period++) {
         uint16_t id;
         uint32_t used, bytes;
         uint64_t t0 = timer_count();
@@ -656,18 +666,24 @@ static int capture_probe(void)
                 goto fail;
             }
         }
-        if (id != 0 || vsnd_rx_frames(used, RX_PERIOD, &bytes) != VSND_OK || bytes != RX_PERIOD) {
+        if ((id & 1u) || id / 2u >= RX_SLOTS || vsnd_rx_frames(used, RX_PERIOD, &bytes) != VSND_OK || bytes != RX_PERIOD) {
             rc = SND_EPROTO;
             goto fail;
         }
-        rc = vsnd_dec_pcm_status(status, VSND_PSTATUS_SIZE, 0);
+        uintptr_t slot = page + (id / 2u) * RX_SLOT_BYTES;
+        const uint8_t *samples = (const uint8_t *)(slot + RX_DATA_OFF);
+        rc = vsnd_dec_pcm_status(samples + bytes, VSND_PSTATUS_SIZE, 0);
         if (rc != SND_OK) goto fail;
         for (uint32_t i = 0; i < bytes; i += 2u) {
             unsigned sample = (unsigned)samples[i] | ((unsigned)samples[i + 1] << 8);
             positive += sample == 0x1234u;
             negative += sample == 0xedccu;
         }
-        if (positive >= 64 && negative >= 64) break;
+        if ((positive < 64 || negative < 64) && submitted < 100u) {
+            if (capture_submit(q, slot, id) != VQ_OK) { rc = SND_EPROTO; goto fail; }
+            submitted++;
+            wr(VIO_R_QNOTIFY, VIRTIO_SND_VQ_RX);
+        }
     }
 
     rc = capture_command(vsnd_enc_pcm_hdr(req, VSND_PCM_HDR_SIZE, VIRTIO_SND_R_PCM_STOP, stream, cfg.streams));
