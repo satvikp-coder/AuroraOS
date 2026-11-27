@@ -11,9 +11,13 @@ QPID=""; stop_qemu() { if [ -n "$QPID" ]; then kill "$QPID" 2>/dev/null; wait "$
 trap stop_qemu EXIT; trap 'stop_qemu; exit 130' INT TERM
 
 PKG_DIR="$OUT/p1" ./scripts/package-qemu.sh > "$OUT/p1.log" 2>&1 && ok "the package builds" || { bad "package build failed (see $OUT/p1.log)"; tail -5 "$OUT/p1.log"; echo "pkg-tests: $PASSES passed, $FAILS failed"; exit 1; }
-PKG_DIR="$OUT/p2" ./scripts/package-qemu.sh > "$OUT/p2.log" 2>&1 || bad "second package build failed"
+AURORA_BLK_TEST=1 AURORA_FS_TEST=1 AURORA_TEST_ENTRY=el1t PKG_DIR="$OUT/p2" \
+    ./scripts/package-qemu.sh > "$OUT/p2.log" 2>&1 || bad "second package build failed"
+AURORA_PRODUCTION=1 BUILD_DIR="$OUT/production" sh ./build.sh > "$OUT/production.log" 2>&1 &&
+    cmp -s "$OUT/p1/kernel.bin" "$OUT/production/kernel.bin" &&
+    ok "the package contains the production kernel" || bad "the packaged kernel differs from a production build"
 H1=$(cd "$OUT/p1" && sha256sum kernel.bin aurora-fresh.img apps/*.elf); H2=$(cd "$OUT/p2" && sha256sum kernel.bin aurora-fresh.img apps/*.elf)
-if [ "$H1" = "$H2" ]; then ok "two builds are byte-identical (kernel, disk image, executables)"; else bad "the builds differ"; echo "$H1"; echo "$H2"; fi
+if [ "$H1" = "$H2" ]; then ok "package builds are byte-identical even with test switches in the caller environment"; else bad "the builds differ"; echo "$H1"; echo "$H2"; fi
 grep -q "calc.elf" "$OUT/p1/manifest.txt" && grep -q "kernel.bin" "$OUT/p1/manifest.txt" && ok "the manifest lists hashes and the installed files" || bad "manifest incomplete"
 file "$OUT/p1/apps/calc.elf" | grep -q "ELF 64-bit LSB executable, ARM aarch64" && ok "calc.elf is a 64-bit AArch64 ET_EXEC" || bad "calc.elf has the wrong format"
 SZ=$(wc -c < "$OUT/p1/apps/calc.elf"); if [ "$SZ" -le 24576 ]; then ok "calc.elf ($SZ bytes) is within the loader's 24 KiB limit"; else bad "calc.elf too large"; fi

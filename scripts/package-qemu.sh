@@ -16,7 +16,9 @@ CROSS="${CROSS_COMPILE:-aarch64-linux-gnu-}"
 rm -rf "$PKG"; mkdir -p "$PKG/apps" "$PKG/obj"
 
 echo "package: building the production kernel"
-BUILD_DIR="$PKG/obj/k" ./build.sh >/dev/null
+# The development build accepts test switches through the environment, including
+# switches that write to test disks. Pass only the settings needed for packaging.
+env -i PATH="$PATH" AURORA_PRODUCTION=1 BUILD_DIR="$PKG/obj/k" sh ./build.sh >/dev/null
 cp "$PKG/obj/k/kernel.bin" "$PKG/kernel.bin"
 
 PF="-O1 -ffreestanding -fno-builtin -nostdlib -static -no-pie -fno-pic -fno-pie -mgeneral-regs-only -fno-stack-protector -Wall -Wextra -Werror -Wl,-T,tests/programs/user.ld -Wl,-z,noexecstack -Wl,-z,max-page-size=4096 -Wl,--build-id=none"
