@@ -85,6 +85,8 @@ static struct {
     uint8_t  used;
 } audio_grants[AUDIO_MAX_GRANTS];
 
+static uint32_t capture_owner_principal;
+
 /* Grant audio capabilities to a principal. Kernel code only.
  * Returns 0 on success, -1 if principal is invalid (kernel, none, reserved) or table full. */
 int vsnd_grant_audio(uint32_t principal, uint8_t caps)
@@ -133,6 +135,9 @@ static int vsnd_check_audio_cap(uint32_t principal, uint8_t cap)
 int vsnd_revoke_audio(uint32_t principal)
 {
     int n = 0;
+    if (capture_owner_principal == principal) {
+        capture_owner_principal = 0;
+    }
     for (int i = 0; i < AUDIO_MAX_GRANTS; i++) {
         if (audio_grants[i].used && audio_grants[i].principal == principal) {
             audio_grants[i].used = 0;

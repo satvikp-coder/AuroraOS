@@ -440,4 +440,27 @@ static inline int vsnd_dec_event(const uint8_t *buf, size_t len, const struct vs
     out->type = type; out->data = data;
     return VSND_OK;
 }
+
+/* ---- Bounded application audio capture authorization & bounds ---- */
+#define VSND_CAPTURE_MAX_BYTES 16384u
+
+struct vsnd_capture_req {
+    uint32_t principal;
+    uint32_t stream_id;
+    uint32_t buffer_bytes;
+    uint32_t owner_principal; /* 0 if unowned, otherwise current capture owner */
+};
+
+/* Validate an application audio capture request: capability, stream ownership, stream bounds/direction, and buffer size. */
+static inline int vsnd_check_capture_req(const struct vsnd_capture_req *req, uint8_t granted_caps,
+                                         uint32_t streams, const struct vsnd_pcm_info *info)
+{
+    if (!req) return VSND_EARG;
+    if (!(granted_caps & AUDIO_CAP_RECORD)) return VSND_EPERM;
+    if (req->owner_principal != 0u && req->owner_principal != req->principal) return VSND_EPERM;
+    if (req->stream_id >= streams || req->stream_id >= VSND_MAX_STREAMS) return VSND_EARG;
+    if (info && info->direction != VIRTIO_SND_D_INPUT) return VSND_EARG;
+    if (req->buffer_bytes == 0u || req->buffer_bytes > VSND_CAPTURE_MAX_BYTES) return VSND_EARG;
+    return VSND_OK;
+}
 #endif
