@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 1
 
-NOBJ=11
+NOBJ=12
 EXPECTED_VALID=$((1 + NOBJ + 1 + 1))   # setup + one per object + denied + no leaks (keep in sync with kernel/infertest.c)
 EXPECTED_NOVOL=4         # setup + novol infer + novol ordinary + no leaks
 EXPECTED_PROC_TESTS=128
@@ -80,14 +80,31 @@ gen extra    --extra 1 "$OUT/extra.bin" 37 300 24 0x1234
 gen badscale --zero-mult 5 "$OUT/badscale.bin" 37 300 24 0x1234
 gen zerodims --claim-rows 0 "$OUT/zerodims.bin" 1 8 0 4
 head -c 20 "$OUT/tensor.bin" > "$OUT/short.bin"
+python3 - "$OUT/qwen3.bin" <<'PY_FIXTURE'
+from pathlib import Path
+from struct import pack
+from sys import argv
+
+header_size, entry_size = 48, 32
+first_offset = header_size + 2 * entry_size
+# The first projection swaps the first two activations. The second returns [5, -3].
+first = pack("<16b", 0, 2, 0, 0, 2, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2)
+second = pack("<8b", 2, 1, 0, -1, 1, -2, 1, 0)
+second_offset = first_offset + len(first)
+header = pack("<8s8IQ", b"AURQ3V1", 1, 16, 4, 4, 2, 1, 4, 2,
+              second_offset + len(second))
+directory = (pack("<HHIIIQQ", 0, 3, 4, 4, 1, first_offset, len(first))
+             + pack("<HHIIIQQ", 1, 9, 2, 4, 1, second_offset, len(second)))
+Path(argv[1]).write_bytes(header + directory + first + second)
+PY_FIXTURE
 ok "tensor objects and their reference results written"
 [ "$(wc -l < "$OUT/tensor.ref")" -eq 37 ] && [ "$(wc -l < "$OUT/maxdims.ref")" -eq 1024 ] && ok "reference: 37 + 1024 rows" || bad "reference row counts"
 grep -qv '^ic: y [0-9]* 67108864 127$' "$OUT/maxdims.ref" && bad "reference: maxdims is not 67108864 -> 127 in every row" || ok "reference: every maxdims row is 4096 * (-128)^2 = 67108864 and saturates to 127"
 grep -qv '^ic: y [0-9]* -66584576 -128$' "$OUT/neg.ref" && bad "reference: neg is not -66584576 -> -128 in every row" || ok "reference: every neg row is 4096 * 127 * -128 = -66584576 and saturates to -128"
 # object index:      0           1             2         3            4               5              6           7            8           9            10
 objs="tensor:1=$OUT/tensor.bin maxdims:1=$OUT/maxdims.bin lie:1=$OUT/lie.bin trunc:1=$OUT/trunc.bin wrongkind:0=$OUT/tensor.bin short:1=$OUT/short.bin \
-huge:1=$OUT/huge.bin extra:1=$OUT/extra.bin badscale:1=$OUT/badscale.bin zerodims:1=$OUT/zerodims.bin neg:1=$OUT/neg.bin"
-"$OUT/mkmodel" "$OUT/valid.img" $objs > "$OUT/mkmodel.log" 2>&1 && ok "11-object model volume built (kinds set with name:kind)" || { bad "mkmodel failed"; cat "$OUT/mkmodel.log"; }
+huge:1=$OUT/huge.bin extra:1=$OUT/extra.bin badscale:1=$OUT/badscale.bin zerodims:1=$OUT/zerodims.bin neg:1=$OUT/neg.bin qwen3:0=$OUT/qwen3.bin"
+"$OUT/mkmodel" "$OUT/valid.img" $objs > "$OUT/mkmodel.log" 2>&1 && ok "12-object model volume built (kinds set with name:kind)" || { bad "mkmodel failed"; cat "$OUT/mkmodel.log"; }
 # a ':0' suffix must produce exactly the bytes of the plain spec (mkmodel stays byte-compatible)
 "$OUT/mkmodel" "$OUT/k0a.img" a=$OUT/tensor.bin b=$OUT/short.bin >/dev/null 2>&1 && "$OUT/mkmodel" "$OUT/k0b.img" a:0=$OUT/tensor.bin b:0x0=$OUT/short.bin >/dev/null 2>&1 \
   && cmp -s "$OUT/k0a.img" "$OUT/k0b.img" && ok "mkmodel: 'name:0=file' is byte-identical to 'name=file'" || bad "mkmodel: kind 0 suffix changed the image"
@@ -105,7 +122,7 @@ expect_not "$log" "\[infer-test\].*: FAIL" "valid: no failing kernel-side check"
 isec="$OUT/valid.section"; tr -d '\r' < "$log" | sed -n '/\[infer-test\] setup/,$p' > "$isec"
 expect_not "$isec" "FAULT at EL0" "valid: no EL0 fault on any object, valid or hostile"
 k=0
-for want in "0 -" "0 -" "3 size" "3 size" "3 kind" "3 short" "3 dims" "3 size" "3 scale" "3 dims" "0 -"; do
+for want in "0 -" "0 -" "3 size" "3 size" "3 kind" "3 short" "3 dims" "3 size" "3 scale" "3 dims" "0 -" "0 -"; do
     code="${want% *}"; why="${want#* }"; m=$((k + 1))
     expect "$log" "\[infer-test\] object $k as PRINCIPAL_INFER: terminated with exit $code: PASS" "valid: object $k terminated with exit $code"
     sec="$OUT/valid-mode$m.txt"; section "$log" "$m" > "$sec"
@@ -180,7 +197,7 @@ else
 fi
 grep -qx 'ic: runtime logits 13 -3 argmax 0' "$OUT/valid-mode1.txt" && ok "valid: reusable infer_runtime.h executed in EL0 and matched [13, -3] argmax 0" || bad "valid: reusable infer_runtime.h EL0 output mismatch"
 grep -Eq '^ic: qwen3 norm 64 -64 attn [0-9]+ [0-9]+ mlp [0-9]+ [0-9]+$' "$OUT/valid-mode1.txt" && ok "valid: qwen3_ops.h decoder block (RMSNorm -> RoPE -> KV-attn -> SwiGLU) executed in EL0" || bad "valid: qwen3_ops.h EL0 output missing or invalid"
-grep -qx 'ic: qwen3_stream layers 1 y 6 0' "$OUT/valid-mode1.txt" && ok "valid: qwen3_model.h header + directory + weight streaming executed in EL0" || bad "valid: qwen3_model.h EL0 streaming output mismatch"
+grep -qx 'ic: qwen3_stream layers 2 y 5 -3' "$OUT/valid-mode12.txt" && ok "valid: EL0 streamed both AURQ3V1 projection tensors via SYS_MODEL with one row of scratch" || bad "valid: EL0 AURQ3V1 projection output mismatch"
 count_is "$log" "\] ic: pipe " 2 "valid: only the successful AI pipeline printed results"
 count_is "$OUT/valid-mode1.txt" "^ic: done 37 rows 300 cols$" 1 "valid: tensor (37 x 300, 3 reads of payload) completed"
 count_is "$OUT/valid-mode2.txt" "^ic: done 1024 rows 4096 cols$" 1 "valid: maxdims (1024 x 4096, the dimension limits) completed"
