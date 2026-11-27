@@ -16,6 +16,7 @@
 #include <tensor.h>
 #include <tokenizer.h>
 #include <infer_runtime.h>
+#include <qwen3_ops.h>
 #define SYS_MODEL 11
 #define INFO 1
 #define READ 2
@@ -196,6 +197,37 @@ static int runtime_el0_check(void)
     return 0;
 }
 
+/* Execute a quantized Qwen3-style decoder block (RMSNorm -> RoPE -> KV cache + causal attention -> SwiGLU) in EL0. */
+static int qwen3_layer_el0(void)
+{
+    static struct qwen3_kv_cache kv;
+    static const int8_t x[4]     = { 10, -10, 10, -10 };
+    static const int8_t gamma[4] = { 64, 64, 64, 64 };
+    static const int8_t k0[4]    = { 10, 0, 0, 0 };
+    static const int8_t v0[4]    = { 100, 0, 0, 0 };
+    static const int8_t k1[4]    = { 0, 10, 0, 0 };
+    static const int8_t v1[4]    = { 0, 100, 0, 0 };
+    static const int8_t up[4]    = { 32, 32, 32, 32 };
+
+    int8_t norm[4], q_rot[4], attn[4], mlp[4];
+    if (qwen3_rmsnorm(x, gamma, 4, 0, norm) != Q3_OK) return -1;
+
+    /* RoPE on pair (0,1) with identity cos=32767, sin=0 and pair (2,3) with 90-deg cos=0, sin=32767 */
+    qwen3_rope_pair(norm[0], norm[1], 32767, 0, &q_rot[0], &q_rot[1]);
+    qwen3_rope_pair(norm[2], norm[3], 0, 32767, &q_rot[2], &q_rot[3]);
+
+    if (qwen3_kv_init(&kv, 4) != Q3_OK) return -1;
+    if (qwen3_kv_push(&kv, k0, v0) != Q3_OK) return -1;
+    if (qwen3_kv_push(&kv, k1, v1) != Q3_OK) return -1;
+    if (qwen3_attn_head(&kv, q_rot, attn) != Q3_OK) return -1;
+    if (qwen3_swiglu(attn, up, 4, 5, mlp) != Q3_OK) return -1;
+
+    put("ic: qwen3 norm "); putd(norm[0]); put(" "); putd(norm[1]);
+    put(" attn "); putd(attn[0]); put(" "); putd(attn[1]);
+    put(" mlp "); putd(mlp[0]); put(" "); putd(mlp[1]); flush();
+    return 0;
+}
+
 void __attribute__((section(".text._start"))) _start(u64 mode)
 {
     sayn("ic: mode ", mode);
@@ -217,5 +249,6 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
     if (mode == 1 && tiny_graph()) { say("ic: graph rejected"); quit(3); }
     if (mode == 1 && tiny_pipeline()) { say("ic: pipe rejected"); quit(3); }
     if (mode == 1 && runtime_el0_check()) { say("ic: runtime rejected"); quit(3); }
+    if (mode == 1 && qwen3_layer_el0()) { say("ic: qwen3 rejected"); quit(3); }
     quit(0);
 }
