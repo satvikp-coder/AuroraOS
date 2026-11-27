@@ -13,6 +13,7 @@ def main():
     ap.add_argument("--qmp", required=True); ap.add_argument("--serial", required=True); ap.add_argument("--tmp", required=True)
     ap.add_argument("--scenario", required=True); ap.add_argument("--expect", default=""); ap.add_argument("--timeout", type=float, default=400)
     ap.add_argument("--check-aura-notes", action="store_true")
+    ap.add_argument("--expect-offline", action="store_true")
     a = ap.parse_args()
     passed = failed = 0
     dl = time.time() + a.timeout
@@ -34,6 +35,9 @@ def main():
             time.sleep(0.2)
         return False
     q = Qmp(a.qmp, dl)
+    if a.expect_offline:
+        network = q.cmd("human-monitor-command", command_line="info network")
+        check("QEMU reports no guest network devices or backends", not network.strip())
     check("the real kernel reached the interactive shell", wait_serial(a.serial, "shell: ready keyboards=1 pointers=1", dl))
     check("no panic or failed self-test", "KERNEL PANIC" not in log() and "SELFTEST FAILED" not in log())
     path = os.path.join(a.tmp, a.scenario + ".ppm")

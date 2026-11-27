@@ -75,7 +75,7 @@ cat > "$PKG/run.sh" <<'EOS'
 # Extra arguments are passed to QEMU (for example -display none); AURORA_SERIAL=file:log.txt redirects the serial console (default: stdio). Close the window or press Ctrl+C to stop.
 D="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$D/data/aurora.img" ] || { echo "run: no disk at $D/data/aurora.img; run ./fresh-install.sh first" >&2; exit 1; }
-exec qemu-system-aarch64 -machine virt,highmem=off -cpu cortex-a53 -smp 1 -m 256M -kernel "$D/kernel.bin" \
+exec qemu-system-aarch64 -machine virt,highmem=off -cpu cortex-a53 -smp 1 -m 256M -nic none -kernel "$D/kernel.bin" \
     -global virtio-mmio.force-legacy=false -device ramfb -device virtio-keyboard-device -device virtio-tablet-device \
     -drive file="$D/data/aurora.img",if=none,format=raw,id=d0 -device virtio-blk-device,drive=d0 -serial "${AURORA_SERIAL:-stdio}" "$@"
 EOS
