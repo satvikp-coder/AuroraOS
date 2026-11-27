@@ -180,6 +180,7 @@ else
 fi
 grep -qx 'ic: runtime logits 13 -3 argmax 0' "$OUT/valid-mode1.txt" && ok "valid: reusable infer_runtime.h executed in EL0 and matched [13, -3] argmax 0" || bad "valid: reusable infer_runtime.h EL0 output mismatch"
 grep -Eq '^ic: qwen3 norm 64 -64 attn [0-9]+ [0-9]+ mlp [0-9]+ [0-9]+$' "$OUT/valid-mode1.txt" && ok "valid: qwen3_ops.h decoder block (RMSNorm -> RoPE -> KV-attn -> SwiGLU) executed in EL0" || bad "valid: qwen3_ops.h EL0 output missing or invalid"
+grep -qx 'ic: qwen3_stream layers 1 y 6 0' "$OUT/valid-mode1.txt" && ok "valid: qwen3_model.h header + directory + weight streaming executed in EL0" || bad "valid: qwen3_model.h EL0 streaming output mismatch"
 count_is "$log" "\] ic: pipe " 2 "valid: only the successful AI pipeline printed results"
 count_is "$OUT/valid-mode1.txt" "^ic: done 37 rows 300 cols$" 1 "valid: tensor (37 x 300, 3 reads of payload) completed"
 count_is "$OUT/valid-mode2.txt" "^ic: done 1024 rows 4096 cols$" 1 "valid: maxdims (1024 x 4096, the dimension limits) completed"
