@@ -89,6 +89,18 @@ jobs:
       - name: Verify ELF
         run: |
           file build/kernel.elf | grep -q "aarch64" || { echo "not an aarch64 ELF"; exit 1; }
+          headers=$(aarch64-linux-gnu-readelf -lW build/kernel.elf)
+          flags=$(printf '%s\n' "$headers" | awk '$1 == "LOAD" {
+            if ($NF != "0x1000") exit 1
+            for (i = 7; i < NF; i++) printf "%s", $i
+            print ""
+          }')
+          test "$flags" = "$(printf 'RE\nR\nRW\n')" || {
+            echo "expected RX text, R rodata and RW data LOAD segments"
+            printf '%s\n' "$headers"
+            exit 1
+          }
+          printf '%s\n' "$headers" | grep -Eq '^[[:space:]]+[0-9]+[[:space:]]+\.data \.bss \.stack[[:space:]]*$'
 
   kernel-qemu-boot:
     name: QEMU boot smoke test

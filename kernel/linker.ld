@@ -10,23 +10,32 @@ OUTPUT_FORMAT("elf64-littleaarch64", "elf64-littleaarch64", "elf64-littleaarch64
 OUTPUT_ARCH(aarch64)
 ENTRY(_start)
 
+/* Match the runtime permission domains in the diagnostic ELF, too. */
+PHDRS
+{
+    text   PT_LOAD FLAGS(5); /* PF_R | PF_X */
+    rodata PT_LOAD FLAGS(4); /* PF_R */
+    data   PT_LOAD FLAGS(6); /* PF_R | PF_W */
+    stack  PT_GNU_STACK FLAGS(6);
+}
+
 SECTIONS
 {
     . = 0x40080000;
     __image_start = .;
 
     __text_start = .;
-    .text : { *(.text.boot) *(.text) *(.text.*) }
+    .text : { *(.text.boot) *(.text) *(.text.*) } :text
     . = ALIGN(4096);
     __text_end = .;
 
     __rodata_start = .;
-    .rodata : { *(.rodata) *(.rodata.*) *(.user_blob) *(.user_fp_blob) *(.user_mem_blob) }
+    .rodata : { *(.rodata) *(.rodata.*) *(.user_blob) *(.user_fp_blob) *(.user_mem_blob) } :rodata
     . = ALIGN(4096);
     __rodata_end = .;
 
     __data_start = .;
-    .data : { *(.data) *(.data.*) }
+    .data : { *(.data) *(.data.*) } :data
     .bss : {
         . = ALIGN(8);
         __bss_start = .;
@@ -47,7 +56,7 @@ SECTIONS
 
         . = ALIGN(8);
         __bss_end = .;
-    }
+    } :data
     . = ALIGN(4096);
     __data_end = .;
 
@@ -64,7 +73,7 @@ SECTIONS
         __exc_stack_bottom = .;
         . += 8192;
         __exc_stack_top = .;
-    }
+    } :data
     . = ALIGN(4096);
     __kernel_end = .;
 
