@@ -178,6 +178,7 @@ else
     bad "valid: synthetic EL0 AI pipeline differs from the host reference"
     diff "$OUT/el0-pipe.txt" "$OUT/pipe.ref"
 fi
+grep -qx 'ic: runtime logits 13 -3 argmax 0' "$OUT/valid-mode1.txt" && ok "valid: reusable infer_runtime.h executed in EL0 and matched [13, -3] argmax 0" || bad "valid: reusable infer_runtime.h EL0 output mismatch"
 count_is "$log" "\] ic: pipe " 2 "valid: only the successful AI pipeline printed results"
 count_is "$OUT/valid-mode1.txt" "^ic: done 37 rows 300 cols$" 1 "valid: tensor (37 x 300, 3 reads of payload) completed"
 count_is "$OUT/valid-mode2.txt" "^ic: done 1024 rows 4096 cols$" 1 "valid: maxdims (1024 x 4096, the dimension limits) completed"
