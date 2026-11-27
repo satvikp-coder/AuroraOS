@@ -30,6 +30,82 @@ static int64_t mem_rd(void *ctx, uint64_t off, uint8_t *buf, uint64_t len)
     return (int64_t)n;
 }
 
+static void check_v2(uint32_t tied)
+{
+    /* Directory only. Represent the complete logical int8 object without weights. */
+    static const struct { uint16_t role; uint32_t rows, cols; } shapes[] = {
+        {Q3M_T_INPUT_NORM, 1, 1024}, {Q3M_T_WQ, 2048, 1024},
+        {Q3M_T_WK, 1024, 1024}, {Q3M_T_WV, 1024, 1024},
+        {Q3M_T_Q_NORM, 1, 128}, {Q3M_T_K_NORM, 1, 128},
+        {Q3M_T_WO, 1024, 2048}, {Q3M_T_POST_ATTN_NORM, 1, 1024},
+        {Q3M_T_WGATE, 3072, 1024}, {Q3M_T_WUP, 3072, 1024},
+        {Q3M_T_WDOWN, 1024, 3072}
+    };
+    uint32_t globals = tied ? 2 : 3;
+    uint32_t count = 28 * 11 + globals;
+    uint8_t metadata[Q3M_V2_HDR_SIZE + 311 * Q3M_ENTRY_SIZE] = {0};
+    memcpy(metadata, "AURQ3V2", 8);
+    put_le32(metadata + 8, 2);
+    put_le32(metadata + 12, 151936);
+    put_le32(metadata + 16, 1024);
+    put_le32(metadata + 20, 3072);
+    put_le32(metadata + 24, 28);
+    put_le32(metadata + 28, 16);
+    put_le32(metadata + 32, 128);
+    put_le32(metadata + 36, count);
+    put_le32(metadata + 48, 8);
+    put_le32(metadata + 52, tied);
+    size_t dir_end = Q3M_V2_HDR_SIZE + count * Q3M_ENTRY_SIZE;
+    uint64_t total = dir_end;
+    for (uint32_t i = 0; i < count; ++i) {
+        uint8_t *e = metadata + Q3M_V2_HDR_SIZE + i * Q3M_ENTRY_SIZE;
+        uint32_t rows, cols;
+        if (i < globals) {
+            put_le16(e, UINT16_MAX);
+            put_le16(e + 2, i == 0 ? Q3M_T_EMBED : i == 1 ? Q3M_T_FINAL_NORM : Q3M_T_LM_HEAD);
+            rows = i == 1 ? 1 : 151936;
+            cols = 1024;
+        } else {
+            uint32_t slot = (i - globals) % 11;
+            put_le16(e, (uint16_t)((i - globals) / 11));
+            put_le16(e + 2, shapes[slot].role);
+            rows = shapes[slot].rows;
+            cols = shapes[slot].cols;
+        }
+        put_le32(e + 4, rows);
+        put_le32(e + 8, cols);
+        put_le64(e + 16, total);
+        put_le64(e + 24, (uint64_t)rows * cols);
+        total += (uint64_t)rows * cols;
+    }
+    put_le64(metadata + 40, total);
+    struct mem_dev dev = {metadata, dir_end, -1, -1};
+    struct q3m_header h;
+    CHECK("V2 extended header required", q3m_parse_header(metadata, 48, total, &h) == Q3M_E_TRUNC);
+    CHECK("V2 header", q3m_parse_header(metadata, 56, total, &h) == Q3M_OK &&
+          h.num_heads == 16 && h.num_kv_heads == 8 && h.flags == tied);
+    CHECK("V2 complete directory", q3m_validate_v2_directory(&h, mem_rd, &dev) == Q3M_OK);
+    uint8_t *q = metadata + Q3M_V2_HDR_SIZE + (globals + 1) * Q3M_ENTRY_SIZE;
+    put_le32(q + 4, 1024);
+    CHECK("V2 hidden substituted for Q width", q3m_validate_v2_directory(&h, mem_rd, &dev) == Q3M_E_DIMS);
+    put_le32(q + 4, 2048);
+    put_le16(q + 2, Q3M_T_WK);
+    CHECK("V2 duplicate role", q3m_validate_v2_directory(&h, mem_rd, &dev) == Q3M_E_FORMAT);
+    put_le16(q + 2, Q3M_T_WQ);
+    put_le64(q + 16, q3m_le64(q + 16) - 1);
+    CHECK("V2 overlapping weights", q3m_validate_v2_directory(&h, mem_rd, &dev) == Q3M_E_BOUNDS);
+    put_le32(metadata + 52, 2);
+    CHECK("V2 unknown flags", q3m_parse_header(metadata, 56, total, &h) == Q3M_E_FORMAT);
+    put_le32(metadata + 52, tied);
+    put_le32(metadata + 48, 3);
+    CHECK("V2 nonintegral grouping", q3m_parse_header(metadata, 56, total, &h) == Q3M_E_DIMS);
+    put_le32(metadata + 48, 0);
+    CHECK("V2 zero KV heads", q3m_parse_header(metadata, 56, total, &h) == Q3M_E_DIMS);
+    put_le32(metadata + 48, 8);
+    put_le32(metadata + 36, tied ? 311 : 310);
+    CHECK("V2 missing or excess output head", q3m_parse_header(metadata, 56, total, &h) == Q3M_E_FORMAT);
+}
+
 int main(void)
 {
     /* Build a valid 2-tensor model image: 48 hdr + 2*32 dir + 12 + 8 = 132 bytes */
@@ -117,6 +193,8 @@ int main(void)
     dev.fail_at = -1; dev.short_at = 112;
     CHECK("short read during stream -> Q3M_E_TRUNC", q3m_stream_tensor(&td, mem_rd, &dev, wbuf, sizeof(wbuf)) == Q3M_E_TRUNC);
 
+    check_v2(Q3M_TIED_EMBED);
+    check_v2(0);
     printf("qwen3_model: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;
 }
