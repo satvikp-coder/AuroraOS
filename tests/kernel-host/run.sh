@@ -119,7 +119,7 @@ cc $CFLAGS -o "$OUT/ai_pipeline_test" "$ROOT/tests/kernel-host/ai_pipeline_test.
 "$OUT/ai_pipeline_test"
 "$OUT/infer_runtime_test"
 "$OUT/qwen3_ops_test"
-cc $CFLAGS -o "$OUT/qwen3_model_test" "$ROOT/tests/kernel-host/qwen3_model_test.c"
+cc $CFLAGS -o "$OUT/qwen3_model_test" "$ROOT/tests/kernel-host/qwen3_model_test.c" "$ROOT/kernel/proc/quant_ops.c"
 "$OUT/qwen3_model_test"
 
 cc $CFLAGS -o "$OUT/audio_vad_test" "$ROOT/tests/kernel-host/audio_vad_test.c" "$ROOT/kernel/proc/audio_vad.c"

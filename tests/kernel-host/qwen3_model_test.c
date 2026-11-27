@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include <qwen3_model.h>
+#include <qwen3_projection.h>
 
 static int passed, failed;
 #define CHECK(name, cond) do { if (cond) passed++; else { failed++; printf("  FAIL: %s (line %d)\n", name, __LINE__); } } while (0)
@@ -87,6 +87,29 @@ int main(void)
     uint8_t wbuf[16];
     CHECK("stream tensor 0", q3m_stream_tensor(&td, mem_rd, &dev, wbuf, sizeof(wbuf)) == Q3M_OK && wbuf[0] == 1 && wbuf[11] == 12);
     CHECK("stream into too-small buffer rejected", q3m_stream_tensor(&td, mem_rd, &dev, wbuf, 8) == Q3M_E_BOUNDS);
+
+    const int8_t input[4] = { 7, -4, -8, 2 };
+    int8_t projection[3], reference[3], scratch[8];
+    CHECK("full-tensor reference",
+          quant_matvec((const int8_t *)wbuf, 3, 4, input, 1, td.shift, 0, reference) == 0);
+    CHECK("projection batches two rows and handles final row",
+          q3m_project_i8(&td, mem_rd, &dev, input, 4, projection, 3, scratch, 8) == Q3M_OK &&
+          memcmp(projection, reference, sizeof(projection)) == 0);
+    CHECK("projection works with one row of scratch",
+          q3m_project_i8(&td, mem_rd, &dev, input, 4, projection, 3, scratch, 4) == Q3M_OK &&
+          memcmp(projection, reference, sizeof(projection)) == 0);
+    CHECK("projection rejects short scratch",
+          q3m_project_i8(&td, mem_rd, &dev, input, 4, projection, 3, scratch, 3) == Q3M_E_BOUNDS);
+    CHECK("projection rejects mismatched input and short output",
+          q3m_project_i8(&td, mem_rd, &dev, input, 3, projection, 3, scratch, 8) == Q3M_E_BOUNDS &&
+          q3m_project_i8(&td, mem_rd, &dev, input, 4, projection, 2, scratch, 8) == Q3M_E_BOUNDS);
+    struct q3m_tensor_desc overflow = td;
+    overflow.offset = UINT64_MAX - td.bytes + 1;
+    CHECK("projection rejects wrapped offset",
+          q3m_project_i8(&overflow, mem_rd, &dev, input, 4, projection, 3, scratch, 8) == Q3M_E_BOUNDS);
+    dev.fail_at = 120;
+    CHECK("projection propagates read failure in second batch",
+          q3m_project_i8(&td, mem_rd, &dev, input, 4, projection, 3, scratch, 8) == Q3M_E_READ);
 
     /* Hostile read failures */
     dev.fail_at = 112;
