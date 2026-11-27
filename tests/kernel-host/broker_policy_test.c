@@ -56,6 +56,9 @@ static int oracle(const struct bp_env *e, const struct aura_intent *in, uint32_t
     if (in->status == AS_ACTIONABLE) {
         if (!nav) { *why = BPR_BAD_INTENT; return BP_DENY; }
         if (!(rights & BP_RIGHT_NAVIGATE)) { *why = BPR_NO_RIGHT; return BP_DENY; }
+        if (pid != BP_SHELL_PID && in->kind == AK_OPEN_SCREEN && in->target == ASC_TRAIL) {
+            *why = BPR_NO_RIGHT; return BP_DENY;
+        }
         if (!e->nav_service) { *why = BPR_NO_NAVIGATION; return BP_UNAVAILABLE; }
         return BP_ALLOW_NOW;
     }
@@ -89,6 +92,15 @@ int main(void)
     r = as(0, "open settings");     CHECK("the shell may navigate: open settings -> ALLOW_NOW (S0)", r.decision == BP_ALLOW_NOW && r.reason == BPR_NONE && r.risk == 0 && r.principal == 0x7F000003u);
     r = as(0, "switch to work space"); CHECK("select a Space -> ALLOW_NOW", r.decision == BP_ALLOW_NOW);
     r = as(0, "open pages");        CHECK("open pages -> ALLOW_NOW when the platform reports a Pages screen", r.decision == BP_ALLOW_NOW);
+    struct aura_intent trail = parse("show activity");
+    CHECK("activity maps to a canonical read-only Trail navigation",
+          trail.kind == AK_OPEN_SCREEN && trail.target == ASC_TRAIL &&
+          strcmp(trail.preview, "Open Trail") == 0 && aura_validate(&trail, &CAPS));
+    r = as(0, "open trail");
+    CHECK("the shell can open the activity screen", r.decision == BP_ALLOW_NOW);
+    r = as(2, "open trail");
+    CHECK("an app with navigation rights cannot open the activity screen",
+          r.decision == BP_DENY && r.reason == BPR_NO_RIGHT);
     r = as(2, "open home");         CHECK("an EL0 client that holds the navigate right -> ALLOW_NOW", r.decision == BP_ALLOW_NOW && r.principal == 0x1002u);
     r = as(1, "open home");         CHECK("an EL0 client without rights is DENIED (no right), not allowed", r.decision == BP_DENY && r.reason == BPR_NO_RIGHT);
     r = as(3, "open home");         CHECK("holding only the settings right does not allow navigation", r.decision == BP_DENY && r.reason == BPR_NO_RIGHT);

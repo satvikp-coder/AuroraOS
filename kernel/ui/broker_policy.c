@@ -72,7 +72,11 @@ void bp_decide(const struct bp_env *env, struct bp_replay *replay, const struct 
             res(out, BP_ALLOW_NOW, BPR_NONE, risk, principal); return;
         }
         if (!(rights & BP_RIGHT_NAVIGATE)) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
-        if (kind == AK_OPEN_APP && req->pid != BP_SHELL_PID) { res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return; }
+        /* Launching applications and showing system activity are trusted-shell actions. */
+        if (req->pid != BP_SHELL_PID &&
+            (kind == AK_OPEN_APP || (kind == AK_OPEN_SCREEN && req->intent.target == ASC_TRAIL))) {
+            res(out, BP_DENY, BPR_NO_RIGHT, risk, principal); return;
+        }
         if (!env->nav_service) { res(out, BP_UNAVAILABLE, BPR_NO_NAVIGATION, risk, principal); return; }
         res(out, BP_ALLOW_NOW, BPR_NONE, risk, principal); return;
     case AS_NEEDS_APPROVAL:
