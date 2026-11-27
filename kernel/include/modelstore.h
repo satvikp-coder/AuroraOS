@@ -19,6 +19,7 @@
  * the header digest, checked against a public key the kernel or installer already trusts (not implemented).
  */
 #define MS_SECTOR 512u
+#define MS_VERIFY_BATCH_SECTORS 8u  /* one virtio-blk bounce page */
 #define MS_MAX_OBJECTS 16u
 #define MS_ENTRY 128u
 #define MS_NAME_MAX 31u
@@ -35,7 +36,9 @@ int ms_parse(const uint8_t *header, const uint8_t *table, size_t table_len, stru
 
 /* Read `count` sectors starting at `sector` into buf; return 0 on success. */
 typedef int (*ms_read_fn)(void *ctx, uint64_t sector, uint32_t count, uint8_t *buf);
-/* Stream one object through SHA-256 and compare with its recorded digest; also requires the zero tail. MS_OK, MS_EDATA (mismatch) or MS_EIO. */
+/* Stream an object in bounded batches through SHA-256. Requires an ms_parse-validated volume
+ * and a reader accepting up to MS_VERIFY_BATCH_SECTORS sectors. Nonzero tail bytes fail
+ * verification. Returns MS_OK, MS_EDATA for mismatch or MS_EIO for a read failure. */
 int ms_verify_object(const struct ms_volume *v, uint32_t index, ms_read_fn rd, void *ctx);
 
 /* Verify a v2 signature trailer (kernel/include/model_trust.h) bound to the header's SHA-256 digest (bytes 96..127). */
