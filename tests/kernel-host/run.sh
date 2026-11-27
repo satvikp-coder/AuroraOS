@@ -53,11 +53,8 @@ cc $CFLAGS -o "$OUT/timersvc_test" "$ROOT/tests/kernel-host/timersvc_test.c" "$R
 cc $CFLAGS -o "$OUT/principal_test" "$ROOT/tests/kernel-host/principal_test.c"
 cc $CFLAGS -o "$OUT/modelsys_test" "$ROOT/tests/kernel-host/modelsys_test.c"
 cc $CFLAGS -o "$OUT/matvec_test" "$ROOT/tests/kernel-host/matvec_test.c"
-<<<<<<< HEAD
-cc $CFLAGS -o "$OUT/qwen3_ops_test" "$ROOT/tests/kernel-host/qwen3_ops_test.c"
-=======
 cc $CFLAGS -o "$OUT/infer_runtime_test" "$ROOT/tests/kernel-host/infer_runtime_test.c" "$ROOT/kernel/proc/tokenizer.c" "$ROOT/kernel/proc/tensor.c" "$ROOT/kernel/proc/quant_ops.c"
->>>>>>> origin/main
+cc $CFLAGS -o "$OUT/qwen3_ops_test" "$ROOT/tests/kernel-host/qwen3_ops_test.c"
 cc $CFLAGS -o "$OUT/hold_test" "$ROOT/tests/kernel-host/hold_test.c" "$ROOT/kernel/ui/hold.c"
 cc $CFLAGS -o "$OUT/review_test" "$ROOT/tests/kernel-host/review_test.c" "$ROOT/kernel/ui/review.c" "$ROOT/kernel/ui/aura_cmd.c"
 cc $CFLAGS -o "$OUT/ledger_test" "$ROOT/tests/kernel-host/ledger_test.c" "$ROOT/kernel/ui/ledger_store.c" "$ROOT/kernel/ui/passport.c" "$ROOT/kernel/ui/trail.c"
