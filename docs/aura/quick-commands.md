@@ -4,6 +4,11 @@ Status: **the parser and the validator are implemented and host-tested. Nothing 
 
 Code: `kernel/include/aura_cmd.h`, `kernel/ui/aura_cmd.c`. Tests: `tests/kernel-host/aura_cmd_test.c` (ASan/UBSan), `tests/kernel-host/mutate_aura_cmd.py` (mutation check).
 
+From the native Aura screen, `open Trail` or `show activity` opens the
+read-only Trail view through the Action Broker. This command is reserved for
+the trusted shell. Application navigation rights do not grant access to Trail,
+and an active trusted review keeps control of the screen.
+
 ## What it is, and what it is not
 
 A pure function from at most 64 bytes of ASCII to one `struct aura_intent` made only of enumerations and small validated numbers. It has no state, no clock, no allocation and no libc. It does **not** authorise anything, does not execute anything, and never reports an unsupported request as done. The `preview` text is built from constants and validated numbers; it never contains the user's words, so a hostile string cannot reach a review screen through it.

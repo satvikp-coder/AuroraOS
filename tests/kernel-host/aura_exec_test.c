@@ -1,5 +1,5 @@
 /* tests/kernel-host/aura_exec_test.c - the S0 Aura pipeline against the REAL shell (host): text -> parse -> validate -> policy -> executor -> verified
- * shell state. Covers the nine S0 commands, every refusal, requester authorisation, queued requests whose client has gone, modal containment, replay,
+ * shell state. Covers the S0 navigation commands, every refusal, requester authorisation, queued requests whose client has gone, modal containment, replay,
  * "denied means the shell did not change", and a randomised run. Host, ASan/UBSan. */
 #include <stdio.h>
 #include <string.h>
@@ -55,9 +55,9 @@ int main(void)
     printf("aura exec tests\n");
     struct aura_outcome o;
 
-    /* ---- the nine S0 commands work, by the real shell ---- */
-    static const struct { const char *cmd; int screen; } NAV[] = { { "open home", SCR_HOME }, { "open spaces", SCR_SPACES }, { "open index", SCR_INDEX }, { "open settings", SCR_SETTINGS }, { "open pages", SCR_PAGES } };
-    for (unsigned i = 0; i < 5; i++) {
+    /* ---- the S0 navigation commands work, by the real shell ---- */
+    static const struct { const char *cmd; int screen; } NAV[] = { { "open home", SCR_HOME }, { "open spaces", SCR_SPACES }, { "open index", SCR_INDEX }, { "open settings", SCR_SETTINGS }, { "open pages", SCR_PAGES }, { "open trail", SCR_TRAIL } };
+    for (unsigned i = 0; i < sizeof NAV / sizeof NAV[0]; i++) {
         fresh(); shell_go(&sh, SCR_SPACES);
         o = run(0, NAV[i].cmd);
         CHECK(NAV[i].cmd, o.state == AX_DONE && o.executed && o.decision == BP_ALLOW_NOW && sh.screen == NAV[i].screen && strncmp(o.msg, "Done: ", 6) == 0);
@@ -150,6 +150,17 @@ int main(void)
     CHECK("with the About dialog open the executor refuses to navigate behind it", o.state == AX_FAILED && !o.executed && shell_digest() == before);
     fresh(); sh.corner_open = 1; before = shell_digest(); o = run(0, "open spaces");
     CHECK("with the Glass Corner sheet open it also refuses", o.state == AX_FAILED && shell_digest() == before);
+
+    fresh(); sh.review_open = 1; o = run(0, "open trail");
+    CHECK("Trail cannot replace trusted review", o.state == AX_FAILED &&
+          !o.executed && sh.review_open && sh.screen == SCR_HOME);
+
+    fresh();
+    struct aura_intent trail;
+    aura_parse("show activity", 13, &CAPS, &trail);
+    aura_run_queued(&sh, &ENV, 2, T[2].gen, &trail, &o);
+    CHECK("a queued client cannot open Trail", o.state == AX_DENIED &&
+          !o.executed && sh.screen == SCR_HOME);
 
     /* ---- queued requests (from an EL0 client): the requester must still be the same live instance ---- */
     fresh(); { struct aura_intent in; aura_parse("open pages", 10, &CAPS, &in);
