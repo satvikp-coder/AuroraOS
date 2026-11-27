@@ -79,7 +79,12 @@ struct shell_trail_view {
 };
 
 /* The kernel's application launcher as the shell sees it. The shell never names an executable or an identity: it passes a stable application id and the kernel decides. */
-struct shell_launcher { int (*available)(uint32_t app); int (*launch)(uint32_t app); const char *(*describe)(int rc); };
+struct shell_launcher {
+    int (*available)(uint32_t app);
+    int (*launch)(uint32_t app);
+    const char *(*describe)(int rc);
+    int (*focus)(uint32_t app);     /* returns 1 when the running instance has keyboard focus */
+};
 struct shell_caps { uint8_t keyboard, pointer; };      /* what input hardware the kernel actually found */
 
 /* The settings store the shell talks to (the kernel wires it to the typed registry, kernel/settings.c, as the shell's OWN principal). It returns the

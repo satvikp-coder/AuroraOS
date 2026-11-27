@@ -17,6 +17,7 @@ void apps_init(void);                                   /* kernel code, once at 
 int  apps_available(uint32_t app);                      /* 1 only if it could be launched now */
 int  apps_launch(uint32_t app);                         /* APPS_OK, or APPS_E*; never starts a second instance */
 void apps_gone(int pid, uint64_t gen);                  /* the process instance was reaped */
+int  apps_focus(uint32_t app);                          /* raise and focus the live instance, returns 1 on success */
 int  apps_running(uint32_t app);                        /* pid of the live instance, or 0 */
 const char *apps_describe(int rc);                      /* a short sentence for the person */
 const char *apps_label(uint32_t app);

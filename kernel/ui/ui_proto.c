@@ -304,6 +304,17 @@ int uip_set_focus(struct uip_state *st, int slot)
     return UIP_OK;
 }
 
+int uip_focus_owner(struct uip_state *st, uint8_t pid, uint64_t gen)
+{
+    for (int i = (int)st->nz - 1; i >= 0; i--) {
+        int slot = st->z[i];
+        const struct uip_surface *s = uip_surface(st, slot);
+        if (s && s->placed && s->owner_pid == pid && s->owner_gen == gen)
+            return uip_set_focus(st, slot);
+    }
+    return UIP_ESTALE;
+}
+
 /* ---- routing ---- */
 uint32_t uip_route_key(struct uip_state *st, uint16_t code, uint16_t mods, uint8_t down, uint8_t repeat, struct uip_target *to, uint8_t *buf, uint32_t cap)
 {

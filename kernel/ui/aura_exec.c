@@ -15,7 +15,9 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
         if (in->target <= APP_NONE || in->target >= APP_COUNT) return 0;
         if (!sh->launcher->available(in->target)) return 0;
         int rc = sh->launcher->launch(in->target);
-        if (rc != APPS_OK && rc != APPS_EBUSY) return 0;  /* EBUSY = an instance is already running: still a success */
+        if (rc == APPS_EBUSY) {
+            if (!sh->launcher->focus || !sh->launcher->focus(in->target)) return 0;
+        } else if (rc != APPS_OK) return 0;
         shell_go(sh, SCR_PAGES);
         return sh->screen == SCR_PAGES;
     }

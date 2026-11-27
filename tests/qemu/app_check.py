@@ -194,6 +194,19 @@ def main():
             pid = int(launched_clock.group(1))
             check("Clock restores the saved preset", wait_for(lambda: any("clock restored preset=1" in l for l in user(pid)), 20))
             check("Clock leaves the countdown stopped", not any("clock timer started" in l for l in user(pid)))
+            check("Home and Aura are reachable while Clock is running",
+                  tab_to(SID_DOCK_HOME) and (tap("ret") or True) and
+                  wait_for(lambda: screen_now() == "Home", 15) and
+                  tab_to(SID_APP_AURA) and (tap("ret") or True) and
+                  wait_for(lambda: screen_now() == "Aura", 15))
+            receipt = "kind=open_app decision=allow_now reason=none state=1 [Done: Open Clock app] screen=Pages"
+            typ("open clock app"); tap("ret")
+            check("Aura activates the Clock and keeps exactly one instance",
+                  wait_for(lambda: log().count(receipt) == 2, 30) and
+                  log().count("apps: launched clock pid=") == 1)
+            tap("2")  # no pointer press or additional focus navigation
+            check("the activated instance receives the next key without a click",
+                  wait_for(lambda: any(l.rstrip().endswith("clock preset=2") for l in user(pid)), 15))
     elif sc == "refused":
         # An installed Calculator that is damaged: the kernel must refuse it with a specific reason, create no process, and leave the other applications usable.
         check("boot registered the Calculator", "apps: calculator registered" in log())

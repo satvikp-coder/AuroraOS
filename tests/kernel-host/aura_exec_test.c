@@ -24,7 +24,14 @@ static uint64_t nonce;
 static int notes_available, notes_result, launches;
 static int available(uint32_t app) { return app == APP_NOTES && notes_available; }
 static int launch(uint32_t app) { if (app != APP_NOTES) return APPS_EUNKNOWN; launches++; return notes_result; }
-static const struct shell_launcher LAUNCHER = { available, launch, NULL };
+static int focus_available, focus_attempts;
+static int focus_app(uint32_t app)
+{
+    if (app != APP_NOTES) return 0;
+    focus_attempts++;
+    return focus_available;
+}
+static const struct shell_launcher LAUNCHER = { available, launch, NULL, focus_app };
 static void fresh(void)
 {
     memset(T, 0, sizeof T);
@@ -115,10 +122,17 @@ int main(void)
     CHECK("a loader failure stays on the current screen", o.state == AX_FAILED && sh.screen == SCR_HOME && launches == 1);
     notes_result = APPS_OK;
     o = run(0, "open notes");
-    CHECK("the trusted shell opens installed Notes and goes to Pages", o.state == AX_DONE && sh.screen == SCR_PAGES && launches == 2);
+    CHECK("the trusted shell opens installed Notes and goes to Pages", o.state == AX_DONE && sh.screen == SCR_PAGES && launches == 2 && focus_attempts == 0);
+    shell_go(&sh, SCR_HOME);
     notes_result = APPS_EBUSY;
+    o = run(2, "open notes");
+    CHECK("client requests cannot focus a running app", o.state == AX_DENIED && sh.screen == SCR_HOME && launches == 2 && focus_attempts == 0);
     o = run(0, "open notes");
-    CHECK("an existing Notes instance is reachable on Pages", o.state == AX_DONE && sh.screen == SCR_PAGES && launches == 3);
+    CHECK("an existing instance without a focusable surface leaves the current screen unchanged",
+          o.state == AX_FAILED && sh.screen == SCR_HOME && focus_attempts == 1);
+    focus_available = 1;
+    o = run(0, "open notes");
+    CHECK("Aura focuses an existing Notes instance and shows Pages", o.state == AX_DONE && sh.screen == SCR_PAGES && launches == 4 && focus_attempts == 2);
     CAPS.notes = 0;
     fresh(); o = run(0, "make text bigger");
     CHECK("S1 'make text bigger': shows it needs approval and that the trusted review is not available; nothing changed", o.state == AX_UNAVAILABLE && strstr(o.msg, "trusted review is not available") != 0 && sh.text_pct == 100 && o.intent.kind == AK_SET_SETTING && o.intent.arg == 1);
