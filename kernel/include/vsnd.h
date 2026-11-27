@@ -32,6 +32,8 @@ int vsnd_stop(uint32_t stream_id);
 
 /* Submit a 1â€“21 ms tone at 1â€“24000 Hz to a started stereo S16/48 kHz stream. The tone length must fit its configured period. */
 int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms);
+/* Synthesize and submit a short (<= 6 char) offline TTS cue to a started stereo S16 stream. */
+int vsnd_play_tts(uint32_t stream_id, const char *text, size_t len);
 
 /* Audio capability management (kernel code only). */
 int vsnd_grant_audio(uint32_t principal, uint8_t caps);   /* grant audio capabilities to a principal; 0 on success, -1 on error */
