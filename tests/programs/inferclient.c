@@ -15,6 +15,7 @@
 #include <quant_ops.h>
 #include <tensor.h>
 #include <tokenizer.h>
+#include <infer_runtime.h>
 #define SYS_MODEL 11
 #define INFO 1
 #define READ 2
@@ -142,6 +143,59 @@ static int tiny_pipeline(void)
     return 0;
 }
 
+/* Execute the reusable infer_runtime.h pipeline in EL0. */
+static int runtime_el0_check(void)
+{
+    static const struct tok_entry vocab[] = {
+        { "ab", TOK_ID_FIRST + 0 },
+        { "cd", TOK_ID_FIRST + 1 },
+    };
+    static const struct tok_merge merges[] = {
+        { TOK_BYTE_ID_BASE + 'a', TOK_BYTE_ID_BASE + 'b', TOK_ID_FIRST + 0, 0 },
+        { TOK_BYTE_ID_BASE + 'c', TOK_BYTE_ID_BASE + 'd', TOK_ID_FIRST + 1, 1 },
+    };
+    static const int8_t embed[6 * 4] = {
+        0, 0, 0, 0,
+        1, 1, 1, 1,
+        2, 2, 2, 2,
+        3, 3, 3, 3,
+        10, 20, -5, 4,
+        -4, 8, 12, 6,
+    };
+    static const int8_t w1[3 * 4] = {
+        2, 1, 0, 1,
+        -1, -1, 1, 0,
+        1, 2, 1, 1
+    };
+    static const int8_t w2[2 * 3] = {
+        1, 0, 2,
+        -1, 1, 0
+    };
+    static struct tokenizer tok;
+    static struct ir_result res;
+    struct ir_mlp_model model;
+    model.vocab_size = 6;
+    model.embed_dim = 4;
+    model.hidden_dim = 3;
+    model.num_classes = 2;
+    model.embed_table = embed;
+    model.w1 = w1;
+    model.w1_mult = 1;
+    model.w1_shift = 2;
+    model.w1_zp_out = 0;
+    model.w2 = w2;
+    model.w2_mult = 1;
+    model.w2_shift = 1;
+    model.w2_zp_out = 0;
+
+    tokenizer_init(&tok, vocab, 2, merges, 2);
+    if (ir_run_text(&tok, &model, "abcd", 4, &res) != IR_OK) return -1;
+
+    put("ic: runtime logits "); putd(res.logits[0]); put(" "); putd(res.logits[1]);
+    put(" argmax "); putd((i64)res.argmax); flush();
+    return 0;
+}
+
 void __attribute__((section(".text._start"))) _start(u64 mode)
 {
     sayn("ic: mode ", mode);
@@ -162,5 +216,6 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
     put("ic: done "); putd(R.h.rows); put(" rows "); putd(R.h.cols); put(" cols"); flush();
     if (mode == 1 && tiny_graph()) { say("ic: graph rejected"); quit(3); }
     if (mode == 1 && tiny_pipeline()) { say("ic: pipe rejected"); quit(3); }
+    if (mode == 1 && runtime_el0_check()) { say("ic: runtime rejected"); quit(3); }
     quit(0);
 }
