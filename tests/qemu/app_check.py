@@ -156,8 +156,33 @@ def main():
                     check("C cancels and releases the timer", wait_for(lambda: any("clock cancelled" in l for l in user(clock_pid)), 15))
                     tap("q")
                     check("Q exits Clock", wait_for(lambda: "apps: instance gone clock" in log(), 30))
-    elif sc == "clock-restart":
-        check("Aura opens after reboot", tab_to(SID_APP_AURA) and (tap("ret") or True) and
+    elif sc == "app-restart":
+        check("Index opens after reboot", open_index())
+        typ("calc"); tap("ret")
+        check("Calculator relaunches from the installed disk with identity 601",
+              wait_for(lambda: len(launched()) == 1 and launched()[0][1] == "601", 30))
+        if launched():
+            calc_pid = int(launched()[0][0])
+            check("Calculator presents a surface on Pages", wait_for(lambda:
+                  screen_now() == "Pages" and any(s[1] == calc_pid for s in surfaces()), 30))
+            calc_surface = next((s for s in surfaces() if s[1] == calc_pid), None)
+            def calc_display():
+                return [l.rstrip().split("calc display=", 1)[1]
+                        for l in user(calc_pid) if "calc display=" in l]
+            check("Calculator starts at zero before explicit recall",
+                  wait_for(lambda: calc_display() == ["0"], 20))
+            if calc_surface:
+                _, _, cx, cy, cw, ch = calc_surface
+                click(cx + cw // 2, cy + ch // 2)
+                ctrl("r")
+                check("Ctrl+R restores exactly 20 from the disk after reboot",
+                      wait_for(lambda: any(l.rstrip().endswith(" Saved result restored")
+                                           for l in user(calc_pid)) and calc_display() == ["0", "20"], 20))
+                tap("q")
+                check("Calculator exits before Clock launches",
+                      wait_for(lambda: "apps: instance gone calculator" in log(), 30))
+        check("Aura opens after reboot", tab_to(SID_DOCK_HOME) and (tap("ret") or True) and
+              wait_for(lambda: screen_now() == "Home", 15) and tab_to(SID_APP_AURA) and (tap("ret") or True) and
               wait_for(lambda: screen_now() == "Aura", 15))
         typ("open clock app"); tap("ret")
         check("Aura opens the installed Clock through the broker", wait_for(lambda:
