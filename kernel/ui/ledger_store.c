@@ -318,3 +318,10 @@ int ledger_grant_instance(uint32_t principal, uint64_t gen, uint8_t perm)
     return passport_grant(&live, &k, principal, gen, perm) == PP_OK ? LG_E_OK : LG_E_PASSPORT;
 }
 int ledger_drop_instance(uint64_t gen) { return passport_drop_instance(&live, gen); }
+int ledger_revoke_principal(uint32_t principal)
+{
+    struct pp_actor k; k.kind = PP_ACTOR_KERNEL; k.pid = 0; k.gen = 0; k.principal = 0;
+    return passport_revoke_all(&live, &k, principal);
+}
+int ledger_count_grants(uint32_t principal) { return passport_count_grants(&live, principal); }
+int ledger_has_any(uint32_t principal) { return passport_has_any(&live, principal); }

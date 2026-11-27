@@ -417,6 +417,14 @@ int main(void)
         }
         CHECK("4,000 random mutations with random crashes, uncertain outcomes and refusals agree with the model (rebooted many times)", bad == 0 && reboots > 200);
     }
+    /* ---- service-enforced principal revocation in live ledger ---- */
+    {
+        wipe(); reboot();
+        CHECK("revoke_principal: grant instance + durable", ledger_grant(4201, PP_NAVIGATE) == LG_E_OK && ledger_grant_instance(4201, 9, PP_TIMER) == LG_E_OK);
+        CHECK("revoke_principal: count is 2 and has_any is 1", ledger_count_grants(4201) == 2 && ledger_has_any(4201) == 1);
+        CHECK("revoke_principal: revokes both grants", ledger_revoke_principal(4201) == 2 && ledger_count_grants(4201) == 0 && ledger_has_any(4201) == 0);
+        CHECK("revoke_principal: denied after revoke", !has(4201, PP_NAVIGATE) && !ledger_peek(4201, 9, PP_TIMER));
+    }
     printf("ledger: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;
 }
