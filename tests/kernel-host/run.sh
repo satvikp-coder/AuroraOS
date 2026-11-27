@@ -116,3 +116,5 @@ cc $CFLAGS -o "$OUT/ai_pipeline_test" "$ROOT/tests/kernel-host/ai_pipeline_test.
 
 cc $CFLAGS -o "$OUT/audio_vad_test" "$ROOT/tests/kernel-host/audio_vad_test.c" "$ROOT/kernel/proc/audio_vad.c"
 "$OUT/audio_vad_test"
+cc $CFLAGS -o "$OUT/speech_feat_test" "$ROOT/tests/kernel-host/speech_feat_test.c" "$ROOT/kernel/proc/audio_vad.c"
+"$OUT/speech_feat_test"
