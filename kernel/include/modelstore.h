@@ -37,4 +37,15 @@ int ms_parse(const uint8_t *header, const uint8_t *table, size_t table_len, stru
 typedef int (*ms_read_fn)(void *ctx, uint64_t sector, uint32_t count, uint8_t *buf);
 /* Stream one object through SHA-256 and compare with its recorded digest; also requires the zero tail. MS_OK, MS_EDATA (mismatch) or MS_EIO. */
 int ms_verify_object(const struct ms_volume *v, uint32_t index, ms_read_fn rd, void *ctx);
+
+/* Verify a v2 signature trailer (kernel/include/model_trust.h) bound to the header's SHA-256 digest (bytes 96..127). */
+struct mt_trust_table;
+struct mt_trailer;
+typedef int (*ms_sig_verify_fn)(const uint8_t sig[64], const uint8_t *msg, size_t msg_len, const uint8_t pubkey[32]);
+int ms_verify_v2_trailer(const uint8_t *header,
+                         const struct mt_trust_table *trust,
+                         const uint8_t *trailer_buf,
+                         size_t trailer_len,
+                         ms_sig_verify_fn verify_fn,
+                         struct mt_trailer *out_parsed);
 #endif
