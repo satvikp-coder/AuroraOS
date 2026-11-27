@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <capture_lifecycle.h>
+#include <virtio_snd.h>
 
 static int passed, failed;
 #define CHECK(name, cond) do { if (cond) passed++; else { failed++; printf("  FAIL: %s (line %d)\n", name, __LINE__); } } while (0)
@@ -18,6 +19,9 @@ int main(void)
     CHECK("principal 0 rejected on authorize", cap_authorize(&s, 0, AUDIO_CAP_RECORD, 0) == CAP_E_ARG);
     CHECK("principal NONE rejected on authorize", cap_authorize(&s, 0xFFFFFFFFu, AUDIO_CAP_RECORD, 0) == CAP_E_ARG);
     CHECK("missing AUDIO_CAP_RECORD rejected", cap_authorize(&s, 100, 0, 0) == CAP_E_CAP && s.state == CAP_IDLE);
+
+    CHECK("playback-only grant cannot authorize capture",
+          cap_authorize(&s, 100, AUDIO_CAP_PLAY, 0) == CAP_E_CAP && s.state == CAP_IDLE);
 
     /* Invalid transitions from IDLE */
     CHECK("IDLE -> prepare refused", cap_prepare(&s, 100, 4) == CAP_E_STATE);
