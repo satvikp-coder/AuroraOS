@@ -344,6 +344,18 @@ int main(void)
     { uint32_t ink = 0; for (int y = 8; y < 56; y++) for (int x = 912; x < 1008; x++) ink += px(x, y) == 0x00142136u; CHECK("SCREEN: the Held handle label is drawn at the top right", ink > 10); }
     CHECK("rendering with the corner open or closed stayed inside the surface", guards_ok());
 
+    /* Compositor-owned microphone listening indicator */
+    fresh();
+    CHECK("mic badge hidden initially", shell_find(&sh, 0xF611u) < 0);
+    CHECK("shell_mic_begin activates indicator", shell_mic_begin(&sh, 601, 4, 1) == MIC_OK && shell_find(&sh, 0xF611u) >= 0);
+    CHECK("mic badge label is Mic: Listening", strcmp(sh.w[shell_find(&sh, 0xF611u)].text, "Mic: Listening") == 0);
+    surf(); shell_draw(&sh, &S);
+    CHECK("mic badge renders inside surface", guards_ok());
+    shell_mic_owner_gone(&sh, 4, 2); /* stale gen ignored */
+    CHECK("stale gen owner_gone keeps mic badge", shell_find(&sh, 0xF611u) >= 0);
+    shell_mic_owner_gone(&sh, 4, 1); /* matching gen clears */
+    CHECK("matching owner_gone clears mic badge", shell_find(&sh, 0xF611u) < 0 && sh.mic.state == MIC_IND_OFF);
+
     printf("shell: %d passed, %d failed\n", passed, failed);
     free(base);
     return failed ? 1 : 0;

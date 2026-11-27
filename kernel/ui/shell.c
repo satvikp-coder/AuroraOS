@@ -1300,6 +1300,30 @@ static void toast_add(struct shell *sh)
     if (t) { t->font_size = bf.size; t->mag = bf.mag; t->bold = 1; t->ink = PAL(sh)->surface; }
 }
 
+/* Compositor-owned microphone listening indicator in the Horizon header slot.
+ * Never takes focus, cannot be clicked, and is cleared on owner exit or revocation. */
+static void mic_badge_add(struct shell *sh)
+{
+    if (sh->toast_on || sh->mic.state == MIC_IND_OFF) return;
+    const char *lbl = mic_ind_label(&sh->mic);
+    if (!lbl || !lbl[0]) return;
+    struct geo g = make_geo(sh);
+    struct fnt tf = pick_font(24, sh->text_pct), bf = pick_font(16, sh->text_pct), hf = pick_font(14, sh->text_pct);
+    int32_t row1 = lh_of(tf, 1) + 16; if (row1 < 64) row1 = 64;
+    if (row1 < g.btn_h + 16) row1 = g.btn_h + 16;
+    int32_t title_w = 8 * adv_of(tf, 1) + 16, hb = 4 * adv_of(bf, 0) + 32; if (hb < 96) hb = 96;
+    int32_t up_w = 9 * adv_of(hf, 0) + 16, up_x = g.W - 16 - hb - 12 - up_w;
+    int32_t w = 14 * adv_of(bf, 1) + 32, h = lh_of(bf, 1) + 24; if (h < 48) h = 48;
+    int32_t x = 24 + title_w + 16, y = (row1 - h) / 2;
+    if (x + w > up_x - 8) x = up_x - 8 - w;
+    if (x < 8) x = 8;
+    if (y < 0) y = 0;
+    struct ui_widget *p = add(sh, x, y, w, h, 12, UI_LAYER_TOAST, UI_PANEL, 0, PAL(sh)->ink, 0xF610u, SOLID);
+    if (p) { p->border_w = 2; p->border = PAL(sh)->surface; }
+    struct ui_widget *t = add(sh, x + 2, y + (h - lh_of(bf, 1)) / 2, w - 4, lh_of(bf, 1), 0, UI_LAYER_TOAST, UI_LABEL, lbl, PAL(sh)->ink, 0xF611u, SOLID);
+    if (t) { t->font_size = bf.size; t->mag = bf.mag; t->bold = 1; t->ink = PAL(sh)->surface; }
+}
+
 /* ---- Hold-to-confirm DEMO (Plan C5, spec 2d). The compositor owns it: the pure state machine (hold.c) decides, this code only feeds it real input events and shows
  * the result. It confirms nothing real and enables no action: env.hold_input stays 0 and S3 stays unavailable. No client can reach it (shell_handle is
  * never fed a client's events, and the screen has no protocol surface). ---- */
@@ -1478,6 +1502,7 @@ static void build(struct shell *sh)
     }
     if (sh->review_open) { struct geo g = make_geo(sh); review_flow(sh, &g); }                  /* above everything the shell and every client can draw */
     toast_add(sh);
+    mic_badge_add(sh);
     for (uint32_t i = 0; i < sh->n; i++) sh->c[i] = sh->w[i].c;
     sh->fx.c = sh->c; sh->fx.n = sh->n;
     sh->fx.focus = -1;
@@ -1501,9 +1526,32 @@ void shell_init(struct shell *sh, uint32_t width, uint32_t height)
     sh->px = (int32_t)(width / 2); sh->py = (int32_t)(height / 2);
     sh->last_activated = SHELL_NONE;
     scpy(sh->uptime_txt, 16, "Up 0:00");
+    mic_ind_init(&sh->mic);
     ui_init(&sh->fx, sh->c, 0);
     build(sh);
     sh->dirty = 1;
+}
+
+int shell_mic_begin(struct shell *sh, uint32_t principal, uint32_t pid, uint64_t gen)
+{
+    if (!sh) return MIC_E_ARG;
+    int rc = mic_ind_begin(&sh->mic, MIC_ACTOR_COMPOSITOR, principal, pid, gen);
+    if (rc == MIC_OK) { build(sh); sh->dirty = 1; }
+    return rc;
+}
+
+int shell_mic_stop(struct shell *sh)
+{
+    if (!sh) return MIC_E_ARG;
+    int rc = mic_ind_stop(&sh->mic, MIC_ACTOR_COMPOSITOR);
+    if (rc == MIC_OK) { build(sh); sh->dirty = 1; }
+    return rc;
+}
+
+void shell_mic_owner_gone(struct shell *sh, uint32_t pid, uint64_t gen)
+{
+    if (!sh) return;
+    if (mic_ind_owner_gone(&sh->mic, pid, gen)) { build(sh); sh->dirty = 1; }
 }
 
 int shell_set_text_scale(struct shell *sh, uint32_t pct)

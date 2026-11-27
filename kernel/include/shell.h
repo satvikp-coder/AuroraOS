@@ -22,6 +22,7 @@
 #include <procsnap.h>
 #include <aura_cmd.h>
 #include <review.h>
+#include <mic_indicator.h>
 #include <hold.h>
 
 enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_CLOCK, SCR_TRAIL, SCR_HOLD, SCR_COUNT };
@@ -145,6 +146,7 @@ struct shell {
     uint8_t clk_state, clk_preset, clk_err;   /* CK_*, 0..2 (1, 5, 25 min), error kind (1 limit, 2 refused, 3 lost) */
     int32_t clk_id; uint32_t clk_rem_s, clk_dur_s; uint32_t clk_seq;   /* the service's timer id, whole seconds left (rounded up), count of spoken-line changes */
     uint64_t now_ms, toast_until_ms; uint8_t toast_on;
+    struct mic_indicator mic;
     char clk_live[64], clk_val[12], clk_up[16];
     /* Hold-to-confirm demo (compositor-owned: no client can start, feed or confirm it). The pure state machine decides; the screen only shows it. */
     struct hold hd; uint16_t hd_key; uint8_t hd_msg, hd_seg; uint32_t hd_seq; char hd_live[40];
@@ -225,6 +227,9 @@ void shell_init(struct shell *sh, uint32_t width, uint32_t height);
 void shell_set_caps(struct shell *sh, struct shell_caps caps);
 void shell_set_launcher(struct shell *sh, const struct shell_launcher *l);   /* NULL: application entries in Index are listed as not available */
 void shell_set_uptime(struct shell *sh, uint32_t seconds);                   /* marks dirty only when the shown text changes */
+int  shell_mic_begin(struct shell *sh, uint32_t principal, uint32_t pid, uint64_t gen);
+int  shell_mic_stop(struct shell *sh);
+void shell_mic_owner_gone(struct shell *sh, uint32_t pid, uint64_t gen);
 void shell_set_pointer(struct shell *sh, int32_t x, int32_t y);
 /* Route one normalised input event. Returns 1 if anything visible may have changed. */
 int  shell_handle(struct shell *sh, const struct input_event *e);
