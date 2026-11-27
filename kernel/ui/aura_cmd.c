@@ -103,7 +103,7 @@ static const char *const TRAIL[] = { "please", "now", "thanks", "thank you", 0 }
 static const char *const OPEN_VERBS[] = { "open", "go to", "goto", "show me", "show", "launch", "take me to", "switch to", "navigate to", "view", 0 };
 static const char *const SET_VERBS[] = { "set", "change", "switch", "make", "turn", "use", "select", "adjust", 0 };
 
-static const char *const SCREEN_NAME[ASC_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Clock" };
+static const char *const SCREEN_NAME[ASC_COUNT] = { "Home", "Spaces", "Index", "Settings", "Pages", "Clock", "Trail" };
 static const char *const SPACE_NAME[4] = { "Study", "Work", "Projects", "Personal" };
 static const char *const THEME_NAME[3] = { "Auto", "Light", "Dark" };
 
@@ -115,6 +115,7 @@ static int screen_of(const char *w)
     if (eq(w, "settings") || eq(w, "preferences") || eq(w, "options")) return ASC_SETTINGS;
     if (eq(w, "pages") || eq(w, "processes")) return ASC_PAGES;
     if (eq(w, "clock")) return ASC_CLOCK;
+    if (eq(w, "trail") || eq(w, "activity")) return ASC_TRAIL;
     return -1;
 }
 static int space_of(const char *w)
@@ -127,7 +128,7 @@ static int space_of(const char *w)
 }
 static int is_prefix_of_known(const char *w)               /* a non-empty prefix of a known target name, but not a name itself */
 {
-    static const char *const K[] = { "home", "spaces", "index", "search", "settings", "preferences", "pages", "processes", "study", "work", "projects", "personal", "launcher", "options", "clock", 0 };
+    static const char *const K[] = { "home", "spaces", "index", "search", "settings", "preferences", "pages", "processes", "study", "work", "projects", "personal", "launcher", "options", "clock", "trail", "activity", 0 };
     int n = slen(w);
     if (n == 0) return 0;
     for (int k = 0; K[k]; k++) {
@@ -448,8 +449,8 @@ int aura_validate(const struct aura_intent *x, const struct aura_caps *caps_in)
                str_eq_n(x->preview, x->target == APP_CALCULATOR ? "Open Calculator" :
                         x->target == APP_NOTES ? "Open Notes" : x->target == APP_FILES ? "Open Files" : "Open Clock app");
     case AK_OPEN_SCREEN: {
-        static const char *const N[] = { "Open Home", "Open Spaces", "Open Index", "Open Settings", "Open Pages", "Open Clock" };
-        if (x->target >= 6 || x->arg_kind != AA_NONE || x->arg != 0) return 0;
+        static const char *const N[] = { "Open Home", "Open Spaces", "Open Index", "Open Settings", "Open Pages", "Open Clock", "Open Trail" };
+        if (x->target >= sizeof N / sizeof N[0] || x->arg_kind != AA_NONE || x->arg != 0) return 0;
         if (x->target == 4 && !caps->pages) return 0;                       /* opening Pages without a Pages screen is never valid */
         return x->status == AS_ACTIONABLE && x->reason == AR_NONE && x->risk == 0 && str_eq_n(x->preview, N[x->target]);
     }

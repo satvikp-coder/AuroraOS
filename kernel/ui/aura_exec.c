@@ -2,7 +2,7 @@
 #include <aura_exec.h>
 #include <apps.h>
 
-static const uint8_t SCREEN_OF[ASC_COUNT] = { SCR_HOME, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_CLOCK };
+static const uint8_t SCREEN_OF[ASC_COUNT] = { SCR_HOME, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_CLOCK, SCR_TRAIL };
 
 int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct aura_caps *caps)
 {
@@ -25,7 +25,8 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
         return 0;
     }
     if (in->kind == AK_OPEN_SCREEN) {
-        if (in->target >= ASC_COUNT) return 0;
+        if (in->target >= ASC_COUNT || (in->target == ASC_TRAIL && sh->review_open))
+            return 0;
         uint8_t want = SCREEN_OF[in->target];
         shell_go(sh, want);
         return sh->screen == want;                                                              /* verified against the real state */
@@ -124,7 +125,9 @@ void aura_run_queued(struct shell *sh, const struct bp_env *env, uint32_t pid, u
     struct bp_result d; d.decision = BP_DENY; d.reason = BPR_BAD_REQUESTER; d.risk = 0; d.principal = 0;
     uint64_t g = 0; uint32_t pr = 0, rt = 0;
     if (env->lookup(pid, &g, &pr, &rt) && g != 0 && g == gen && (rt & BP_RIGHT_NAVIGATE) &&
-        in->kind != AK_TIMER && in->kind != AK_OPEN_APP && aura_validate(in, env->caps) && in->status == AS_ACTIONABLE) {
+        in->kind != AK_TIMER && in->kind != AK_OPEN_APP &&
+        !(in->kind == AK_OPEN_SCREEN && in->target == ASC_TRAIL) &&
+        aura_validate(in, env->caps) && in->status == AS_ACTIONABLE) {
         int ok = env->nav_service ? aura_execute_s0(sh, in, env->caps) : 0;
         d.decision = BP_ALLOW_NOW; d.reason = BPR_NONE; d.principal = pr;
         aura_outcome_from(out, &d, ok);

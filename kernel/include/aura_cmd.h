@@ -38,7 +38,7 @@ enum aura_status { AS_ACTIONABLE = 0,      /* an S0 navigation the policy lets r
                    AS_COUNT };
 enum aura_reason { AR_NONE = 0, AR_EMPTY, AR_TOO_LONG, AR_BAD_ENCODING, AR_INJECTION, AR_MULTIPLE, AR_AMBIGUOUS, AR_MISSING_ARG, AR_RANGE, AR_NOT_UNDERSTOOD,
                    AR_NO_TIMER, AR_NO_HARDWARE, AR_NO_NOTES, AR_NO_MESSAGING, AR_NO_PAGES, AR_NEEDS_BROKER, AR_NO_APP, AR_COUNT };
-enum aura_screen { ASC_HOME = 0, ASC_SPACES, ASC_INDEX, ASC_SETTINGS, ASC_PAGES, ASC_CLOCK, ASC_COUNT };      /* AK_OPEN_SCREEN targets */
+enum aura_screen { ASC_HOME = 0, ASC_SPACES, ASC_INDEX, ASC_SETTINGS, ASC_PAGES, ASC_CLOCK, ASC_TRAIL, ASC_COUNT };      /* AK_OPEN_SCREEN targets */
 enum aura_arg { AA_NONE = 0, AA_ABS, AA_REL };
 
 /* AK_TIMER targets and limits. A duration must carry an explicit unit (seconds, minutes or hours): a bare number is never guessed. The bare
