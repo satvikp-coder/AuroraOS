@@ -130,3 +130,5 @@ cc $CFLAGS -o "$OUT/mic_indicator_test" "$ROOT/tests/kernel-host/mic_indicator_t
 "$OUT/mic_indicator_test"
 cc $CFLAGS -o "$OUT/speech_kw_test" "$ROOT/tests/kernel-host/speech_kw_test.c"
 "$OUT/speech_kw_test"
+cc $CFLAGS -o "$OUT/speech_pipeline_test" "$ROOT/tests/kernel-host/speech_pipeline_test.c" "$ROOT/kernel/proc/audio_vad.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/broker_policy.c"
+"$OUT/speech_pipeline_test"
