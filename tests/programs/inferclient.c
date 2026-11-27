@@ -17,6 +17,7 @@
 #include <tokenizer.h>
 #include <infer_runtime.h>
 #include <qwen3_ops.h>
+#include <qwen3_model.h>
 #define SYS_MODEL 11
 #define INFO 1
 #define READ 2
@@ -228,6 +229,65 @@ static int qwen3_layer_el0(void)
     return 0;
 }
 
+static void q3_put16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static void q3_put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
+static void q3_put64(uint8_t *p, uint64_t v) { q3_put32(p, (uint32_t)v); q3_put32(p + 4, (uint32_t)(v >> 32)); }
+
+struct q3_mem_ctx { const uint8_t *b; size_t len; };
+static int64_t q3_mem_rd(void *ctx, uint64_t off, uint8_t *buf, uint64_t len)
+{
+    struct q3_mem_ctx *m = (struct q3_mem_ctx *)ctx;
+    if (!m || len == 0 || len > Q3M_CHUNK || off >= m->len) return -1;
+    uint64_t n = m->len - off < len ? m->len - off : len;
+    for (uint64_t i = 0; i < n; i++) buf[i] = m->b[off + i];
+    return (int64_t)n;
+}
+
+/* Parse AURQ3V1 header, read tensor directory, stream weights, and run quant_matvec in EL0. */
+static int qwen3_stream_el0(void)
+{
+    static uint8_t img[Q3M_HDR_SIZE + Q3M_ENTRY_SIZE + 8];
+    for (size_t i = 0; i < sizeof(img); i++) img[i] = 0;
+    img[0] = 'A'; img[1] = 'U'; img[2] = 'R'; img[3] = 'Q';
+    img[4] = '3'; img[5] = 'V'; img[6] = '1'; img[7] = 0;
+    q3_put32(img + 8, 1);   /* version */
+    q3_put32(img + 12, 16); /* vocab_size */
+    q3_put32(img + 16, 4);  /* hidden_dim */
+    q3_put32(img + 20, 8);  /* intermediate_dim */
+    q3_put32(img + 24, 1);  /* num_layers */
+    q3_put32(img + 28, 1);  /* num_heads */
+    q3_put32(img + 32, 4);  /* head_dim */
+    q3_put32(img + 36, 1);  /* num_tensors */
+    q3_put64(img + 40, sizeof(img));
+
+    uint8_t *e0 = img + Q3M_HDR_SIZE;
+    q3_put16(e0 + 0, 0); q3_put16(e0 + 2, Q3M_T_WQ);
+    q3_put32(e0 + 4, 2); q3_put32(e0 + 8, 4); q3_put32(e0 + 12, 1);
+    q3_put64(e0 + 16, Q3M_HDR_SIZE + Q3M_ENTRY_SIZE);
+    q3_put64(e0 + 24, 8);
+
+    static const int8_t wq_data[8] = { 2, 1, 0, -1, 1, -2, 1, 0 };
+    for (size_t i = 0; i < 8; i++) img[Q3M_HDR_SIZE + Q3M_ENTRY_SIZE + i] = (uint8_t)wq_data[i];
+
+    struct q3m_header hdr;
+    if (q3m_parse_header(img, Q3M_HDR_SIZE, sizeof(img), &hdr) != Q3M_OK) return -1;
+
+    struct q3_mem_ctx ctx = { img, sizeof(img) };
+    struct q3m_tensor_desc td;
+    if (q3m_read_tensor_desc(&hdr, 0, q3_mem_rd, &ctx, &td) != Q3M_OK) return -1;
+
+    int8_t wq[8];
+    if (q3m_stream_tensor(&td, q3_mem_rd, &ctx, (uint8_t *)wq, sizeof(wq)) != Q3M_OK) return -1;
+
+    static const int8_t x[4] = { 4, 2, 0, -2 };
+    int8_t y[2];
+    if (quant_matvec(wq, td.rows, td.cols, x, 1, td.shift, 0, y) != 0) return -1;
+
+    put("ic: qwen3_stream layers "); putd(hdr.num_layers);
+    put(" y "); putd(y[0]); put(" "); putd(y[1]); flush();
+    return 0;
+}
+
 void __attribute__((section(".text._start"))) _start(u64 mode)
 {
     sayn("ic: mode ", mode);
@@ -250,5 +310,6 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
     if (mode == 1 && tiny_pipeline()) { say("ic: pipe rejected"); quit(3); }
     if (mode == 1 && runtime_el0_check()) { say("ic: runtime rejected"); quit(3); }
     if (mode == 1 && qwen3_layer_el0()) { say("ic: qwen3 rejected"); quit(3); }
+    if (mode == 1 && qwen3_stream_el0()) { say("ic: qwen3_stream rejected"); quit(3); }
     quit(0);
 }
