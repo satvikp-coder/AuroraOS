@@ -1,6 +1,6 @@
 #!/bin/sh
 # scripts/package-qemu.sh - build the LOCAL QEMU development package (kernel + AuroraFS image with the native applications installed).
-# Local only: nothing is published. Output directory (default build/pkg, override with PKG_DIR=...):
+# Local only: nothing is published. New output directory (default build/pkg, override with PKG_DIR=...):
 #   kernel.bin        the production kernel (no test flags)
 #   aurora-fresh.img  a pristine AuroraFS image: installer-owned native apps, nothing else (the TEMPLATE; never booted directly)
 #   apps/*.elf        the validated application executables
@@ -13,7 +13,12 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 PKG="${PKG_DIR:-$ROOT/build/pkg}"; SECTORS="${DISK_SECTORS:-2048}"
 CROSS="${CROSS_COMPILE:-aarch64-linux-gnu-}"
-rm -rf "$PKG"; mkdir -p "$PKG/apps" "$PKG/obj"
+mkdir -p -- "$(dirname -- "$PKG")"
+if ! mkdir -- "$PKG"; then
+    echo "package: cannot create $PKG; choose a new output directory with PKG_DIR" >&2
+    exit 1
+fi
+mkdir -- "$PKG/apps" "$PKG/obj"
 
 echo "package: building the production kernel"
 BUILD_DIR="$PKG/obj/k" ./build.sh >/dev/null
