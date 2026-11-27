@@ -62,7 +62,7 @@ AURORA_INFER_TEST=1 BUILD_DIR="$OUT/kernel" ./build.sh >/dev/null 2>&1 || { bad 
 KERNEL="$OUT/kernel/kernel.bin"
 CC="${CROSS_COMPILE:-aarch64-linux-gnu-}gcc"
 PF="-O1 -ffreestanding -fno-builtin -nostdlib -static -no-pie -fno-pic -fno-pie -mgeneral-regs-only -fno-stack-protector -Wall -Wextra -Werror -Wl,-T,tests/programs/user.ld -Wl,-z,noexecstack -Wl,-z,max-page-size=4096 -Wl,--build-id=none"
-$CC $PF -o "$OUT/inferclient.elf" -I kernel/include tests/programs/inferclient.c kernel/proc/quant_ops.c && ok "the EL0 matvec program compiles as a static AArch64 ET_EXEC with -mgeneral-regs-only (no floating point)" || { bad "inferclient failed to compile"; echo "infer-tests: $PASSES passed, $FAILS failed"; exit 1; }
+$CC $PF -o "$OUT/inferclient.elf" -I kernel/include tests/programs/inferclient.c kernel/proc/quant_ops.c kernel/proc/tokenizer.c kernel/proc/tensor.c && ok "the EL0 matvec program compiles as a static AArch64 ET_EXEC with -mgeneral-regs-only (no floating point)" || { bad "inferclient failed to compile"; echo "infer-tests: $PASSES passed, $FAILS failed"; exit 1; }
 cc -std=c11 -Wall -Wextra -O1 -I tests/tools/shim -I kernel/include -o "$OUT/mkafs" tests/tools/mkafs.c kernel/fs/afs.c && ok "mkafs compiled" || { bad "mkafs failed to compile"; exit 1; }
 cc -std=c11 -Wall -Wextra -O1 -I kernel/include -o "$OUT/mkmodel" tests/tools/mkmodel.c kernel/fs/modelstore.c kernel/crypto/sha256.c && ok "mkmodel compiled" || { bad "mkmodel failed to compile"; exit 1; }
 cc -std=c11 -Wall -Wextra -O1 -o "$OUT/mktensor" tests/tools/mktensor.c && ok "mktensor compiled" || { bad "mktensor failed to compile"; exit 1; }
@@ -148,6 +148,37 @@ else
     diff "$OUT/el0-graph.txt" "$OUT/graph.ref"
 fi
 count_is "$log" "\] ic: graph " 2 "valid: only the successful graph printed results"
+awk '
+    function scaled(acc, divisor,   q, truncated) {
+        q = (acc + divisor / 2) / divisor
+        truncated = int(q)
+        if (q < truncated) truncated--
+        return truncated < -128 ? -128 : truncated > 127 ? 127 : truncated
+    }
+    BEGIN {
+        p0 = 2 + 4 - 1 + 1; p1 = -1 + 3 + 2 + 0; p2 = 1 - 2 + 3 - 1
+        h0 = scaled(1*p0 + 2*p1 - 1*p2, 2)
+        h1 = scaled(-2*p0 + 1*p1 + 2*p2, 2)
+        h2 = scaled(2*p0 - 1*p1 + 1*p2, 2)
+        a0 = h0 > 0 ? h0 : 0; a1 = h1 > 0 ? h1 : 0; a2 = h2 > 0 ? h2 : 0
+        l0 = scaled(1*a0 - 1*a1 + 2*a2, 4)
+        l1 = scaled(2*a0 + 1*a1 - 1*a2, 4)
+        l2 = scaled(-1*a0 + 2*a1 + 1*a2, 4)
+        best = 0
+        if (l1 > l0) { best = 1; m = l1 } else { m = l0 }
+        if (l2 > m) best = 2
+        print "ic: pipe tokens 4 0 6 65569 1"
+        print "ic: pipe logits " l0 " " l1 " " l2 " argmax " best
+    }
+' > "$OUT/pipe.ref"
+grep '^ic: pipe ' "$OUT/valid-mode1.txt" > "$OUT/el0-pipe.txt"
+if cmp -s "$OUT/el0-pipe.txt" "$OUT/pipe.ref"; then
+    ok "valid: synthetic EL0 AI pipeline (tokenizer -> embed -> tensor -> quant_matvec -> quant_relu -> argmax) matches the host reference"
+else
+    bad "valid: synthetic EL0 AI pipeline differs from the host reference"
+    diff "$OUT/el0-pipe.txt" "$OUT/pipe.ref"
+fi
+count_is "$log" "\] ic: pipe " 2 "valid: only the successful AI pipeline printed results"
 count_is "$OUT/valid-mode1.txt" "^ic: done 37 rows 300 cols$" 1 "valid: tensor (37 x 300, 3 reads of payload) completed"
 count_is "$OUT/valid-mode2.txt" "^ic: done 1024 rows 4096 cols$" 1 "valid: maxdims (1024 x 4096, the dimension limits) completed"
 count_is "$OUT/valid-mode1.txt" "^ic: object 0 tensor size 11580 kind 1$" 1 "valid: EL0 saw the tensor's verified size and kind"
