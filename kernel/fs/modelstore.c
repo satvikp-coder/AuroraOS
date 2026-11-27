@@ -1,4 +1,5 @@
 #include <modelstore.h>
+#include <model_trust.h>
 #include <sha256.h>
 
 static uint32_t g32(const uint8_t *p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
@@ -76,4 +77,15 @@ int ms_verify_object(const struct ms_volume *v, uint32_t index, ms_read_fn rd, v
     }
     sha256_final(&c, d);
     return sha256_equal(d, o->digest) ? MS_OK : MS_EDATA;
+}
+
+int ms_verify_v2_trailer(const uint8_t *header,
+                         const struct mt_trust_table *trust,
+                         const uint8_t *trailer_buf,
+                         size_t trailer_len,
+                         ms_sig_verify_fn verify_fn,
+                         struct mt_trailer *out_parsed)
+{
+    if (!header) return MT_E_ARG;
+    return mt_verify_envelope(trust, header + 96, trailer_buf, trailer_len, verify_fn, out_parsed);
 }
