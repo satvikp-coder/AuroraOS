@@ -126,3 +126,5 @@ cc $CFLAGS -o "$OUT/speech_feat_test" "$ROOT/tests/kernel-host/speech_feat_test.
 "$OUT/speech_feat_test"
 cc $CFLAGS -o "$OUT/mic_indicator_test" "$ROOT/tests/kernel-host/mic_indicator_test.c"
 "$OUT/mic_indicator_test"
+cc $CFLAGS -o "$OUT/speech_kw_test" "$ROOT/tests/kernel-host/speech_kw_test.c"
+"$OUT/speech_kw_test"
