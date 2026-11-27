@@ -8,9 +8,8 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
 {
     if (!sh || !in || !caps) return 0;
     if (!aura_validate(in, caps) || in->status != AS_ACTIONABLE || in->risk != 0) return 0;      /* only a validated S0 navigation */
-    if (sh->about_open || sh->corner_open) return 0;                                            /* a modal owns the screen: never navigate behind it */
+    if (sh->about_open || sh->corner_open || sh->review_open) return 0;                                            /* a modal owns the screen: never navigate behind it */
     if (in->kind == AK_OPEN_APP) {
-        if (sh->review_open) return 0;                    /* a modal owns the screen: never launch behind it (#161) */
         if (!sh->launcher || !sh->launcher->available || !sh->launcher->launch) return 0;
         if (in->target <= APP_NONE || in->target >= APP_COUNT) return 0;
         if (!sh->launcher->available(in->target)) return 0;
@@ -25,8 +24,7 @@ int aura_execute_s0(struct shell *sh, const struct aura_intent *in, const struct
         return 0;
     }
     if (in->kind == AK_OPEN_SCREEN) {
-        if (in->target >= ASC_COUNT || (in->target == ASC_TRAIL && sh->review_open))
-            return 0;
+        if (in->target >= ASC_COUNT) return 0;
         uint8_t want = SCREEN_OF[in->target];
         shell_go(sh, want);
         return sh->screen == want;                                                              /* verified against the real state */
