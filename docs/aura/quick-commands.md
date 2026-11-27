@@ -1,6 +1,6 @@
 # Aura Quick Commands: the deterministic parser and the typed intent (issue #10 foundation)
 
-Status: **the parser and the validator are implemented and host-tested. Nothing executes an intent.** There is no native Action Broker, no Passport, no Trail and no trusted approval screen yet, so no command changes anything. This is the data layer the broker will consume. No language model is involved and none runs on AuroraOS (Qwen3-0.6B remains only the selected future baseline, `qwen3-local-feasibility.md`). Issue #10 stays open.
+The native Aura screen sends validated commands to the Action Broker. It supports navigation, opening installed apps, timers with explicit units, and supported settings changes with trusted review. Issue #10 tracks the remaining command families. The sections below also preserve the earlier parser and Cycle 18 milestones.
 
 Code: `kernel/include/aura_cmd.h`, `kernel/ui/aura_cmd.c`. Tests: `tests/kernel-host/aura_cmd_test.c` (ASan/UBSan), `tests/kernel-host/mutate_aura_cmd.py` (mutation check).
 
