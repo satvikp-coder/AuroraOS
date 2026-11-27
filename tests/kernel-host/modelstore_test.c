@@ -15,8 +15,8 @@ static void check(const char *what, int ok) { total_checks++; if (!ok) { fails++
 
 static int mock_sig_verify(const uint8_t sig[64], const uint8_t *msg, size_t msg_len, const uint8_t pk[32])
 {
-    if (!sig || !msg || msg_len != 32 || !pk) return -1;
-    for (size_t i = 0; i < 63; i++) if (sig[i] != (uint8_t)(msg[i % 32] ^ pk[i % 32] ^ 0x5Au)) return -1;
+    if (!sig || !msg || msg_len != 48 || !pk) return -1;
+    for (size_t i = 0; i < 63; i++) if (sig[i] != (uint8_t)(msg[i % 48] ^ pk[i % 32] ^ 0x5Au)) return -1;
     return sig[63] == 0x11u ? 0 : -1;
 }
 
@@ -185,7 +185,7 @@ int main(void)
         tr[0] = 'A'; tr[1] = 'U'; tr[2] = 'R'; tr[3] = 'S';
         p32(tr + 4, MT_TRAILER_VERSION); p32(tr + 8, 7); p32(tr + 12, 1);
         memcpy(tr + 16, img + 96, 32);
-        for (size_t i = 0; i < 63; i++) tr[48 + i] = (uint8_t)(img[96 + (i % 32)] ^ pk[i % 32] ^ 0x5Au);
+        for (size_t i = 0; i < 63; i++) tr[48 + i] = (uint8_t)(tr[i % 48] ^ pk[i % 32] ^ 0x5Au);
         tr[48 + 63] = 0x11u;
         struct mt_trailer parsed;
         check("v2 trailer authenticates unmodified sealed header", ms_verify_v2_trailer(img, &trust, tr, sizeof tr, mock_sig_verify, &parsed) == MT_AUTHENTICATED && parsed.key_id == 7);

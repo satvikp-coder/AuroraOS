@@ -12,12 +12,12 @@ static void put_le32(uint8_t *p, uint32_t v)
     p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
 
-/* Deterministic test verifier: expects sig[i] == (msg[i % 32] ^ pubkey[i % 32] ^ 0x5A) for i < 63, sig[63] == 0x11. */
+/* Deterministic test verifier: expects sig[i] == (msg[i % 48] ^ pubkey[i % 32] ^ 0x5A) for i < 63, sig[63] == 0x11. */
 static int mock_verify(const uint8_t sig[64], const uint8_t *msg, size_t msg_len, const uint8_t pubkey[32])
 {
-    if (!sig || !msg || msg_len != 32 || !pubkey) return -1;
+    if (!sig || !msg || msg_len != 48 || !pubkey) return -1;
     for (size_t i = 0; i < 63; i++) {
-        if (sig[i] != (uint8_t)(msg[i % 32] ^ pubkey[i % 32] ^ 0x5Au)) return -1;
+        if (sig[i] != (uint8_t)(msg[i % 48] ^ pubkey[i % 32] ^ 0x5Au)) return -1;
     }
     return sig[63] == 0x11u ? 0 : -1;
 }
@@ -34,7 +34,7 @@ static void build_valid_trailer(uint8_t out[MT_TRAILER_BYTES],
     put_le32(out + 8, key_id);
     put_le32(out + 12, model_ver);
     memcpy(out + 16, digest, 32);
-    for (size_t i = 0; i < 63; i++) out[48 + i] = (uint8_t)(digest[i % 32] ^ pubkey[i % 32] ^ 0x5Au);
+    for (size_t i = 0; i < 63; i++) out[48 + i] = (uint8_t)(out[i % 48] ^ pubkey[i % 32] ^ 0x5Au);
     out[48 + 63] = 0x11u;
     put_le32(out + 112, 0);
 }
@@ -64,6 +64,22 @@ int main(void)
           mt_verify_envelope(&trust, digest, tr, MT_TRAILER_BYTES, mock_verify, &parsed) == MT_AUTHENTICATED &&
           parsed.key_id == 101 && parsed.model_version == 3);
 
+    uint8_t edited[MT_TRAILER_BYTES];
+    memcpy(edited, tr, sizeof edited);
+    put_le32(edited + 12, 4);
+    parsed.model_version = 17;
+    CHECK("changed model version fails signature verification and leaves output unchanged",
+          mt_verify_envelope(&trust, digest, edited, sizeof edited, mock_verify, &parsed) == MT_E_BAD_SIG &&
+          parsed.model_version == 17);
+    trust.keys[1].active = 1;
+    memcpy(trust.keys[1].pubkey, pk1, sizeof pk1);
+    memcpy(edited, tr, sizeof edited);
+    put_le32(edited + 8, 102);
+    CHECK("key ID is bound even when trust entries share the same public key",
+          mt_verify_envelope(&trust, digest, edited, sizeof edited, mock_verify, 0) == MT_E_BAD_SIG);
+    trust.keys[1].active = 0;
+    memcpy(trust.keys[1].pubkey, pk2, sizeof pk2);
+
     /* Null verifier fails closed */
     CHECK("null verifier fails closed",
           mt_verify_envelope(&trust, digest, tr, MT_TRAILER_BYTES, 0, 0) == MT_E_NO_VERIFIER);
@@ -76,8 +92,8 @@ int main(void)
     memcpy(bad, tr, MT_TRAILER_BYTES); bad[0] = 'X';
     CHECK("bad magic rejected", mt_verify_envelope(&trust, digest, bad, MT_TRAILER_BYTES, mock_verify, 0) == MT_E_FORMAT);
 
-    memcpy(bad, tr, MT_TRAILER_BYTES); put_le32(bad + 4, 2);
-    CHECK("bad trailer version rejected", mt_verify_envelope(&trust, digest, bad, MT_TRAILER_BYTES, mock_verify, 0) == MT_E_VERSION);
+    memcpy(bad, tr, MT_TRAILER_BYTES); put_le32(bad + 4, 1);
+    CHECK("legacy digest-only trailer version rejected", mt_verify_envelope(&trust, digest, bad, MT_TRAILER_BYTES, mock_verify, 0) == MT_E_VERSION);
 
     memcpy(bad, tr, MT_TRAILER_BYTES); put_le32(bad + 112, 1);
     CHECK("non-zero reserved rejected", mt_verify_envelope(&trust, digest, bad, MT_TRAILER_BYTES, mock_verify, 0) == MT_E_FORMAT);

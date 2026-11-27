@@ -23,7 +23,8 @@
 #define MT_TRAILER_MAGIC1   'U'
 #define MT_TRAILER_MAGIC2   'R'
 #define MT_TRAILER_MAGIC3   'S'
-#define MT_TRAILER_VERSION  1u
+#define MT_TRAILER_VERSION  2u
+#define MT_SIGNED_BYTES     48u   /* magic, versions, key ID, header digest */
 #define MT_TRAILER_BYTES    116u  /* 4 magic + 4 ver + 4 key_id + 4 model_ver + 32 hdr_digest + 64 sig + 4 reserved */
 #define MT_MAX_TRUST_KEYS   8u
 
@@ -117,7 +118,6 @@ static inline int mt_verify_envelope(const struct mt_trust_table *trust,
     struct mt_trailer tr;
     int rc = mt_parse_trailer(trailer_buf, trailer_len, &tr);
     if (rc != MT_AUTHENTICATED) return rc;
-    if (out_parsed) *out_parsed = tr;
 
     if (tr.model_version < trust->min_model_version) return MT_E_ROLLBACK;
 
@@ -138,8 +138,9 @@ static inline int mt_verify_envelope(const struct mt_trust_table *trust,
     if (!found->active) return MT_E_REVOKED_KEY;
 
     if (!verify_fn) return MT_E_NO_VERIFIER;
-    if (verify_fn(tr.sig, tr.hdr_digest, 32, found->pubkey) != 0) return MT_E_BAD_SIG;
+    if (verify_fn(tr.sig, trailer_buf, MT_SIGNED_BYTES, found->pubkey) != 0) return MT_E_BAD_SIG;
 
+    if (out_parsed) *out_parsed = tr;
     return MT_AUTHENTICATED;
 }
 
