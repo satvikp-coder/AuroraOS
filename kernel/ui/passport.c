@@ -67,6 +67,41 @@ int passport_revoke(struct passport *p, const struct pp_actor *by, uint32_t prin
     return rc;
 }
 
+int passport_revoke_all(struct passport *p, const struct pp_actor *by, uint32_t principal)
+{
+    int rc = PP_OK, n = 0;
+    if (!p) return PP_E_ARG;
+    if (!actor_ok(by)) rc = PP_E_ACTOR;
+    else if (!principal_ok(principal)) rc = PP_E_PRINCIPAL;
+    else {
+        for (int i = 0; i < PP_MAX_GRANTS; i++) {
+            if (p->g[i].used && p->g[i].principal == principal) {
+                uint8_t perm = p->g[i].perm;
+                p->g[i].used = 0; p->g[i].principal = 0; p->g[i].gen = 0; p->g[i].perm = 0;
+                audit(p, PP_OP_REVOKE, perm, PP_OK, by, principal);
+                n++;
+            }
+        }
+        return n;
+    }
+    audit(p, PP_OP_REVOKE, PP_NONE, rc, by, principal);
+    return rc;
+}
+
+int passport_count_grants(const struct passport *p, uint32_t principal)
+{
+    if (!p || !principal_ok(principal)) return 0;
+    int n = 0;
+    for (int i = 0; i < PP_MAX_GRANTS; i++)
+        if (p->g[i].used && p->g[i].principal == principal) n++;
+    return n;
+}
+
+int passport_has_any(const struct passport *p, uint32_t principal)
+{
+    return passport_count_grants(p, principal) > 0;
+}
+
 int passport_peek(const struct passport *p, uint32_t principal, uint64_t gen, uint8_t perm)
 {
     if (!p || perm == PP_NONE || perm >= PP_COUNT || !principal_ok(principal)) return 0;
