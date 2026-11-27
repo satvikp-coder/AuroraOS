@@ -10,14 +10,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <virtio_snd.h>  /* AUDIO_CAP_RECORD */
 
 #define CAP_MAX_SESSIONS 4u
 #define CAP_MAX_BYTES    (16u * 1024u * 1024u) /* 16 MiB per session ceiling; prevents counter wrap */
 #define CAP_MAX_BUFFERS  64u
-
-#ifndef AUDIO_CAP_RECORD
-#define AUDIO_CAP_RECORD (1u << 0)
-#endif
 
 enum cap_state {
     CAP_IDLE = 0,
