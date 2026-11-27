@@ -2,7 +2,7 @@
  * kernel/include/speech_pipeline.h - End-to-end speech-to-Aura pipeline (SPEECH + AURA).
  *
  * Connects:
- *   PCM16 frame -> audio_vad_process_frame() -> fixed-point ZCR/energy feature classification
+ *   PCM16 frame -> audio_vad_process_frame() -> optional trusted recognizer (typed keyword ID)
  *   -> canonical command text -> aura_parse() -> aura_validate() -> bp_decide()
  *
  * Fail-closed:
@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <audio_vad.h>
+#include <speech_kw.h>
 #include <aura_cmd.h>
 #include <broker_policy.h>
 
@@ -53,16 +54,18 @@ static inline uint32_t sp_compute_zcr(const int16_t *samples, size_t count, int3
     return (uint32_t)(((uint64_t)cross * 1000ULL) / (uint64_t)(count - 1));
 }
 
-/* Classify active speech frame by fixed-point ZCR band into a canonical Aura command string:
- *   low  ZCR [20..150]  -> "open home"
- *   mid  ZCR [200..450] -> "open notes"
- *   high ZCR [600..900] -> "cancel timer" */
-static inline const char *sp_classify_zcr(uint32_t zcr_permille)
+/* Only trusted kernel integration code supplies this callback. A recognizer
+ * returns SKW_CMD_NONE for uncertain or unrecognized audio. */
+typedef enum skw_cmd (*sp_recognizer_fn)(const int16_t *pcm, size_t count);
+
+static inline const char *sp_command_phrase(enum skw_cmd command)
 {
-    if (zcr_permille >= 20u && zcr_permille <= 150u) return "open home";
-    if (zcr_permille >= 200u && zcr_permille <= 450u) return "open notes";
-    if (zcr_permille >= 600u && zcr_permille <= 900u) return "cancel timer";
-    return 0;
+    switch (command) {
+    case SKW_CMD_HOME:         return "open home";
+    case SKW_CMD_OPEN_NOTES:   return "open notes";
+    case SKW_CMD_CANCEL_TIMER: return "cancel timer";
+    default:                   return 0;
+    }
 }
 
 static inline size_t sp_cstr_len(const char *s)
@@ -72,7 +75,8 @@ static inline size_t sp_cstr_len(const char *s)
     return n;
 }
 
-static inline int sp_process_pcm_to_broker(audio_vad_state_t *vad_state,
+static inline int sp_process_with_recognizer(sp_recognizer_fn recognize,
+                                           audio_vad_state_t *vad_state,
                                            const audio_vad_config_t *vad_cfg,
                                            const int16_t *pcm,
                                            size_t count,
@@ -96,7 +100,7 @@ static inline int sp_process_pcm_to_broker(audio_vad_state_t *vad_state,
     }
 
     out->zcr_permille = sp_compute_zcr(pcm, count, out->vad.dc_offset);
-    out->matched_phrase = sp_classify_zcr(out->zcr_permille);
+    out->matched_phrase = recognize ? sp_command_phrase(recognize(pcm, count)) : 0;
     if (!out->matched_phrase) {
         out->stage_status = SP_E_NO_MATCH;
         return SP_E_NO_MATCH;
@@ -122,6 +126,18 @@ static inline int sp_process_pcm_to_broker(audio_vad_state_t *vad_state,
 
     out->stage_status = SP_OK;
     return SP_OK;
+}
+
+/* No trained offline recognizer is installed. ZCR is diagnostic only. */
+static inline int sp_process_pcm_to_broker(audio_vad_state_t *vad_state,
+                                           const audio_vad_config_t *vad_cfg,
+                                           const int16_t *pcm, size_t count,
+                                           const struct bp_env *env, struct bp_replay *replay,
+                                           uint32_t pid, uint64_t gen, uint64_t nonce,
+                                           struct sp_pipeline_out *out)
+{
+    return sp_process_with_recognizer(0, vad_state, vad_cfg, pcm, count,
+                                      env, replay, pid, gen, nonce, out);
 }
 
 #endif /* AURORA_SPEECH_PIPELINE_H */
