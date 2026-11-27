@@ -248,6 +248,30 @@ int main(void)
     info.channels_min = 2; p = good_params(); p.channels = 1;
     CHECK(vsnd_check_set_params(&p, &info, 2) == VSND_EARG, "channels below channels_min");
 
+    /* ---- capture authorization & bounds ---- */
+    put_info(b, 0, QEMU_FMTS, 0x3FFF, VIRTIO_SND_D_INPUT, 1, 2);
+    CHECK(vsnd_dec_pcm_info(b, 32, &info) == VSND_OK, "input stream info for capture");
+    struct vsnd_capture_req creq = { .principal = 10, .stream_id = 1, .buffer_bytes = 640, .owner_principal = 0 };
+    CHECK(vsnd_check_capture_req(&creq, AUDIO_CAP_RECORD, 2, &info) == VSND_OK, "valid capture request");
+    CHECK(vsnd_check_capture_req(&creq, AUDIO_CAP_PLAY, 2, &info) == VSND_EPERM, "capture requires AUDIO_CAP_RECORD");
+    CHECK(vsnd_check_capture_req(&creq, 0, 2, &info) == VSND_EPERM, "capture denied with no caps");
+    creq.owner_principal = 20;
+    CHECK(vsnd_check_capture_req(&creq, AUDIO_CAP_RECORD, 2, &info) == VSND_EPERM, "capture denied when owned by another principal");
+    creq.owner_principal = 10;
+    CHECK(vsnd_check_capture_req(&creq, AUDIO_CAP_RECORD, 2, &info) == VSND_OK, "capture allowed for current owner");
+    creq.stream_id = 2;
+    CHECK(vsnd_check_capture_req(&creq, AUDIO_CAP_RECORD, 2, &info) == VSND_EARG, "capture stream_id out of range");
+    creq.stream_id = 1;
+    creq.buffer_bytes = 0;
+    CHECK(vsnd_check_capture_req(&creq, AUDIO_CAP_RECORD, 2, &info) == VSND_EARG, "capture zero buffer_bytes refused");
+    creq.buffer_bytes = VSND_CAPTURE_MAX_BYTES + 1u;
+    CHECK(vsnd_check_capture_req(&creq, AUDIO_CAP_RECORD, 2, &info) == VSND_EARG, "capture oversized buffer_bytes refused");
+    creq.buffer_bytes = VSND_CAPTURE_MAX_BYTES;
+    CHECK(vsnd_check_capture_req(&creq, AUDIO_CAP_RECORD, 2, &info) == VSND_OK, "capture at max buffer_bytes accepted");
+    info.direction = VIRTIO_SND_D_OUTPUT;
+    CHECK(vsnd_check_capture_req(&creq, AUDIO_CAP_RECORD, 2, &info) == VSND_EARG, "capture on output stream refused");
+    CHECK(vsnd_check_capture_req(0, AUDIO_CAP_RECORD, 2, &info) == VSND_EARG, "capture null request refused");
+
     printf("virtio_snd_test: %d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;
 }
