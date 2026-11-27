@@ -80,14 +80,14 @@ python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/boot.sock" --serial "$L" --tmp "$
 rc=$?; tail -4 "$OUT/boot.check.log"
 if [ "$rc" -eq 0 ]; then ok "the packaged kernel and disk boot, run Calculator from Index and run Notes from Aura"; else bad "packaged boot checks failed (see $OUT/boot.check.log)"; fi
 stop_qemu
-L="$OUT/clock-restart.log"; : > "$L"
+L="$OUT/app-restart.log"; : > "$L"
 AURORA_SERIAL=file:"$L" "$P/run.sh" -display none -monitor none -qmp unix:"$OUT/restart.sock",server=on,wait=off &
 QPID=$!
-if python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/restart.sock" --serial "$L" --tmp "$OUT" --scenario clock-restart > "$OUT/clock-restart.check.log" 2>&1; then
-    ok "Clock restores the selected preset after reboot"
+if python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/restart.sock" --serial "$L" --tmp "$OUT" --scenario app-restart > "$OUT/app-restart.check.log" 2>&1; then
+    ok "Calculator recalls the saved result and Clock restores its preset after reboot"
 else
-    cat "$OUT/clock-restart.check.log"
-    bad "Clock preset restart checks failed"
+    cat "$OUT/app-restart.check.log"
+    bad "app state restart checks failed"
 fi
 stop_qemu
 echo "pkg-tests: $PASSES passed, $FAILS failed"
