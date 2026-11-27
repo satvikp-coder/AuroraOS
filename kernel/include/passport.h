@@ -49,6 +49,10 @@ struct pp_store { int (*write)(const uint8_t *buf, size_t len); int (*read)(uint
 void passport_init(struct passport *p);                                                         /* empty table: everything denied */
 int  passport_grant(struct passport *p, const struct pp_actor *by, uint32_t principal, uint64_t gen, uint8_t perm);
 int  passport_revoke(struct passport *p, const struct pp_actor *by, uint32_t principal, uint8_t perm);
+/* Revoke ALL grants (general and generation-bound) for a principal; returns count revoked or negative PP_E_*. Only PP_ACTOR_KERNEL may call. */
+int  passport_revoke_all(struct passport *p, const struct pp_actor *by, uint32_t principal);
+int  passport_count_grants(const struct passport *p, uint32_t principal);
+int  passport_has_any(const struct passport *p, uint32_t principal);
 /* 1 = allowed. Principal 0 and PRINCIPAL_NONE (0xFFFFFFFF) are never allowed. A generation-bound grant applies only to that generation. */
 int  passport_check(struct passport *p, uint32_t principal, uint64_t gen, uint8_t perm);
 /* Same decision as passport_check but with NO audit record (for internal lookups that must not flood the denial ring). */
