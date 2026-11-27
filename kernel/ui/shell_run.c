@@ -107,6 +107,7 @@ static void reap(void)
         timersys_owner_gone(pid, p->gen);                        /* and its timers */
         ledger_drop_instance(p->gen);                            /* and every Passport grant bound to this generation */
         vsnd_revoke_audio(p->principal);                         /* revoke audio capabilities for this principal */
+        shell_mic_owner_gone(&SH, (uint32_t)pid, p->gen);        /* clear compositor listening indicator on exit */
         shell_review_requester_gone(&SH, (uint32_t)pid, p->gen);  /* a review it asked for dies with it */
         proc_destroy(pid);
     }

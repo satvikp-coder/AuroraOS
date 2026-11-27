@@ -7,10 +7,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <modelstore.h>
+#include <model_trust.h>
 #include <sha256.h>
 
 static int total_checks, fails;
 static void check(const char *what, int ok) { total_checks++; if (!ok) { fails++; printf("  FAIL: %s\n", what); } }
+
+static int mock_sig_verify(const uint8_t sig[64], const uint8_t *msg, size_t msg_len, const uint8_t pk[32])
+{
+    if (!sig || !msg || msg_len != 32 || !pk) return -1;
+    for (size_t i = 0; i < 63; i++) if (sig[i] != (uint8_t)(msg[i % 32] ^ pk[i % 32] ^ 0x5Au)) return -1;
+    return sig[63] == 0x11u ? 0 : -1;
+}
 
 /* ---- an independent reference SHA-256: pads the WHOLE message first, then walks it ---- */
 static uint32_t rr(uint32_t x, int n) { return (x >> n) | (x << (32 - n)); }
@@ -165,6 +173,28 @@ int main(void)
       uint8_t *data = img + V.obj[1].first_sector * MS_SECTOR; data[0] ^= 0xFF; uint8_t *e = img + MS_SECTOR + 1 * MS_ENTRY; ref_sha256(data, 5000, e + 64); seal(3);
       V.nobjects = 3; int p = ms_parse(img, img + MS_SECTOR, MS_SECTOR, &V);
       check("KNOWN LIMIT: weights changed AND every digest recomputed still verifies, because an unkeyed digest authenticates nothing (a signature is required)", p == MS_OK && ms_verify_object(&V, 1, rd, 0) == MS_OK); }
+
+    /* ---- v2 signature envelope defeats the v1 digest-recompute attack ---- */
+    {
+        build(S3, 3);
+        uint8_t pk[32]; for (size_t i = 0; i < 32; i++) pk[i] = (uint8_t)(0x20u + i);
+        struct mt_trust_table trust; memset(&trust, 0, sizeof trust);
+        trust.count = 1; trust.min_model_version = 1;
+        trust.keys[0].key_id = 7; memcpy(trust.keys[0].pubkey, pk, 32); trust.keys[0].active = 1;
+        uint8_t tr[MT_TRAILER_BYTES]; memset(tr, 0, sizeof tr);
+        tr[0] = 'A'; tr[1] = 'U'; tr[2] = 'R'; tr[3] = 'S';
+        p32(tr + 4, MT_TRAILER_VERSION); p32(tr + 8, 7); p32(tr + 12, 1);
+        memcpy(tr + 16, img + 96, 32);
+        for (size_t i = 0; i < 63; i++) tr[48 + i] = (uint8_t)(img[96 + (i % 32)] ^ pk[i % 32] ^ 0x5Au);
+        tr[48 + 63] = 0x11u;
+        struct mt_trailer parsed;
+        check("v2 trailer authenticates unmodified sealed header", ms_verify_v2_trailer(img, &trust, tr, sizeof tr, mock_sig_verify, &parsed) == MT_AUTHENTICATED && parsed.key_id == 7);
+        /* Attacker flips weight byte and recomputes all SHA-256 digests */
+        V.nobjects = 3; ms_parse(img, img + MS_SECTOR, MS_SECTOR, &V);
+        uint8_t *data = img + V.obj[1].first_sector * MS_SECTOR; data[0] ^= 0xFF;
+        ref_sha256(data, 5000, img + MS_SECTOR + 1 * MS_ENTRY + 64); seal(3);
+        check("v2 trailer REJECTS volume when weights change and digests are recomputed", ms_verify_v2_trailer(img, &trust, tr, sizeof tr, mock_sig_verify, 0) == MT_E_DIGEST);
+    }
 
     printf("modelstore: %d passed, %d failed\n", total_checks - fails, fails);
     return fails != 0;

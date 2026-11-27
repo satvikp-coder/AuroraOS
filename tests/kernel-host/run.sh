@@ -119,6 +119,8 @@ cc $CFLAGS -o "$OUT/ai_pipeline_test" "$ROOT/tests/kernel-host/ai_pipeline_test.
 "$OUT/ai_pipeline_test"
 "$OUT/infer_runtime_test"
 "$OUT/qwen3_ops_test"
+cc $CFLAGS -o "$OUT/qwen3_model_test" "$ROOT/tests/kernel-host/qwen3_model_test.c"
+"$OUT/qwen3_model_test"
 
 cc $CFLAGS -o "$OUT/audio_vad_test" "$ROOT/tests/kernel-host/audio_vad_test.c" "$ROOT/kernel/proc/audio_vad.c"
 "$OUT/audio_vad_test"
@@ -126,5 +128,7 @@ cc $CFLAGS -o "$OUT/speech_feat_test" "$ROOT/tests/kernel-host/speech_feat_test.
 "$OUT/speech_feat_test"
 cc $CFLAGS -o "$OUT/mic_indicator_test" "$ROOT/tests/kernel-host/mic_indicator_test.c"
 "$OUT/mic_indicator_test"
+cc $CFLAGS -o "$OUT/speech_kw_test" "$ROOT/tests/kernel-host/speech_kw_test.c"
+"$OUT/speech_kw_test"
 cc $CFLAGS -o "$OUT/speech_pipeline_test" "$ROOT/tests/kernel-host/speech_pipeline_test.c" "$ROOT/kernel/proc/audio_vad.c" "$ROOT/kernel/ui/aura_cmd.c" "$ROOT/kernel/ui/broker_policy.c"
 "$OUT/speech_pipeline_test"
