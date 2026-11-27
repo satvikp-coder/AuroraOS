@@ -13,6 +13,8 @@
 #include "common.h"
 #include "matvec_core.h"
 #include <quant_ops.h>
+#include <tensor.h>
+#include <tokenizer.h>
 #define SYS_MODEL 11
 #define INFO 1
 #define READ 2
@@ -62,6 +64,84 @@ static int tiny_graph(void)
     return 0;
 }
 
+/* Execute the full synthetic AI pipeline:
+ * tokenizer -> embedding lookup -> bounded tensor -> quant_matvec -> quant_relu -> argmax. */
+static int tiny_pipeline(void)
+{
+    static const struct tok_entry vocab[] = {
+        { "ab", 4 },
+        { "cd", 5 },
+        { "abcd", 6 },
+    };
+    static const struct tok_merge merges[] = {
+        { TOK_BYTE_ID_BASE + 'a', TOK_BYTE_ID_BASE + 'b', 4, 0 },
+        { TOK_BYTE_ID_BASE + 'c', TOK_BYTE_ID_BASE + 'd', 5, 1 },
+        { 4, 5, 6, 2 },
+    };
+    static const int8_t embed[4][3] = {
+        {  2, -1,  1 }, /* 0: TOK_ID_BOS */
+        {  4,  3, -2 }, /* 1: merged token 6 ("abcd") */
+        { -1,  2,  3 }, /* 2: fallback byte '!' */
+        {  1,  0, -1 }, /* 3: TOK_ID_EOS */
+    };
+    static const int8_t w1[9] = {
+         1,  2, -1,
+        -2,  1,  2,
+         2, -1,  1,
+    };
+    static const int8_t w2[9] = {
+         1, -1,  2,
+         2,  1, -1,
+        -1,  2,  1,
+    };
+
+    static struct tokenizer tok;
+    static struct tok_tensor emb;
+    uint32_t tokens[8];
+    int8_t pooled[3] = { 0, 0, 0 };
+    int8_t hidden[3], active[3], logits[3];
+
+    tokenizer_init(&tok, vocab, 3, merges, 3);
+    int ntok = tokenizer_encode(&tok, "abcd!", 5, tokens, 8, 1, 1);
+    if (ntok != 4) return -1;
+
+    tensor_init(&emb);
+    for (int i = 0; i < ntok; i++) {
+        unsigned row = 2; /* fallback byte */
+        if (tokens[i] == TOK_ID_BOS) row = 0;
+        else if (tokens[i] == 6) row = 1;
+        else if (tokens[i] == TOK_ID_EOS) row = 3;
+        for (unsigned j = 0; j < 3; j++) {
+            if (tensor_push(&emb, embed[row][j]) != 0) return -1;
+        }
+    }
+    if (tensor_len(&emb) != 12) return -1;
+
+    for (int i = 0; i < ntok; i++) {
+        for (unsigned j = 0; j < 3; j++) {
+            int8_t v = 0;
+            if (tensor_get(&emb, (size_t)(i * 3 + (int)j), &v) != 0) return -1;
+            pooled[j] = (int8_t)(pooled[j] + v);
+        }
+    }
+
+    if (quant_matvec(w1, 3, 3, pooled, 1, 1, 0, hidden) ||
+        quant_relu(hidden, 3, active) ||
+        quant_matvec(w2, 3, 3, active, 1, 2, 0, logits)) return -1;
+
+    unsigned best = 0;
+    for (unsigned i = 1; i < 3; i++) {
+        if (logits[i] > logits[best]) best = i;
+    }
+
+    put("ic: pipe tokens "); putd(ntok);
+    for (int i = 0; i < ntok; i++) { put(" "); putd((i64)tokens[i]); }
+    flush();
+    put("ic: pipe logits "); putd(logits[0]); put(" "); putd(logits[1]); put(" "); putd(logits[2]);
+    put(" argmax "); putd((i64)best); flush();
+    return 0;
+}
+
 void __attribute__((section(".text._start"))) _start(u64 mode)
 {
     sayn("ic: mode ", mode);
@@ -81,5 +161,6 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
     for (u32 i = 0; i < R.h.rows; i++) { put("ic: y "); putd(i); put(" "); putd(R.out_acc[i]); put(" "); putd(R.out_q[i]); flush(); }
     put("ic: done "); putd(R.h.rows); put(" rows "); putd(R.h.cols); put(" cols"); flush();
     if (mode == 1 && tiny_graph()) { say("ic: graph rejected"); quit(3); }
+    if (mode == 1 && tiny_pipeline()) { say("ic: pipe rejected"); quit(3); }
     quit(0);
 }
