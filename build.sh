@@ -145,7 +145,7 @@ for c in kernel/kernel.c kernel/console.c kernel/mm/fdt.c kernel/mm/pmm.c kernel
 done
 
 echo "[build] Linking kernel..."
-$LD -T kernel/linker.ld -o "$KERNEL_ELF" $OBJS -Map "$MAP_FILE"
+$LD -z max-page-size=4096 -T kernel/linker.ld -o "$KERNEL_ELF" $OBJS -Map "$MAP_FILE"
 
 echo "[build] Creating raw binary..."
 $OBJCOPY -O binary "$KERNEL_ELF" "$KERNEL_BIN"
