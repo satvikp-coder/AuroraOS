@@ -119,6 +119,21 @@ int main(void)
     memcpy(clock_app.preview, "Open Clock", sizeof "Open Clock");
     CHECK("Clock app rejects the built-in screen preview", !aura_validate(&clock_app, &installed));
 
+    /* capability bounds and corrupt app intent rejection */
+    {
+        struct aura_intent bad = run_caps(&installed, "open calculator", 15);
+        bad.target = APP_NONE;
+        CHECK("app intent rejects APP_NONE target", !aura_validate(&bad, &installed));
+        bad.target = APP_COUNT;
+        CHECK("app intent rejects out-of-bounds target >= APP_COUNT", !aura_validate(&bad, &installed));
+        bad.target = APP_NOTES;
+        struct aura_caps only_calc = { .calculator = 1 };
+        CHECK("app intent rejects mismatched capability (notes target with only calculator cap)", !aura_validate(&bad, &only_calc));
+        bad = run_caps(&installed, "open notes", 10);
+        bad.risk = 1;
+        CHECK("app intent rejects elevated risk", !aura_validate(&bad, &installed));
+    }
+
     printf("aura_cmd tests\n");
 
     /* ---- the table ---- */
