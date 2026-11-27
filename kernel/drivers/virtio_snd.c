@@ -22,6 +22,7 @@
 #include <virtqueue.h>
 #include <vsnd.h>
 #include <proc.h>
+#include <capture_lifecycle.h>
 
 /* Fixed-point sine approximation (Q16.16 format) using Bhaskara I's formula.
  * sin(x) ≈ 16x(π - x) / (5π² - 4x(π - x)) for x in [0, π], extended to full period.
@@ -86,6 +87,7 @@ static struct {
 } audio_grants[AUDIO_MAX_GRANTS];
 
 static uint32_t capture_owner_principal;
+static struct cap_table capture_sessions;
 
 /* Grant audio capabilities to a principal. Kernel code only.
  * Returns 0 on success, -1 if principal is invalid (kernel, none, reserved) or table full. */
@@ -138,6 +140,7 @@ int vsnd_revoke_audio(uint32_t principal)
     if (capture_owner_principal == principal) {
         capture_owner_principal = 0;
     }
+    cap_table_revoke_principal(&capture_sessions, principal);
     for (int i = 0; i < AUDIO_MAX_GRANTS; i++) {
         if (audio_grants[i].used && audio_grants[i].principal == principal) {
             audio_grants[i].used = 0;
@@ -147,6 +150,38 @@ int vsnd_revoke_audio(uint32_t principal)
         }
     }
     return n;
+}
+
+int vsnd_capture_open(uint32_t principal, uint32_t stream_id, size_t *out_slot)
+{
+    if (!vsnd_check_audio_cap(principal, AUDIO_CAP_RECORD)) return CAP_E_CAP;
+    if (live && stream_id >= cfg.streams) return CAP_E_BOUNDS;
+    return cap_table_open(&capture_sessions, principal, AUDIO_CAP_RECORD, stream_id, out_slot);
+}
+
+int vsnd_capture_prepare(size_t slot, uint32_t principal, uint32_t buffer_count)
+{
+    if (slot >= CAP_MAX_SESSIONS) return CAP_E_BOUNDS;
+    return cap_prepare(&capture_sessions.sessions[slot], principal, buffer_count);
+}
+
+int vsnd_capture_start(size_t slot, uint32_t principal)
+{
+    if (slot >= CAP_MAX_SESSIONS) return CAP_E_BOUNDS;
+    if (!vsnd_check_audio_cap(principal, AUDIO_CAP_RECORD)) return CAP_E_CAP;
+    return cap_start(&capture_sessions.sessions[slot], principal);
+}
+
+int vsnd_capture_stop(size_t slot, uint32_t principal)
+{
+    if (slot >= CAP_MAX_SESSIONS) return CAP_E_BOUNDS;
+    return cap_stop(&capture_sessions.sessions[slot], principal);
+}
+
+int vsnd_capture_release(size_t slot, uint32_t principal)
+{
+    if (slot >= CAP_MAX_SESSIONS) return CAP_E_BOUNDS;
+    return cap_release(&capture_sessions.sessions[slot], principal);
 }
 
 static uint32_t rd(uint32_t off) { return *(volatile uint32_t *)(regs + off); }
