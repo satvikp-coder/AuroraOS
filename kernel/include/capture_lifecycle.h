@@ -175,8 +175,10 @@ static inline int cap_table_revoke_principal(struct cap_table *t, uint32_t princ
     if (!t || principal == 0) return 0;
     int n = 0;
     for (size_t i = 0; i < CAP_MAX_SESSIONS; i++) {
-        if (t->sessions[i].state != CAP_IDLE && t->sessions[i].principal == principal) {
-            cap_revoke(&t->sessions[i]);
+        struct cap_session *session = &t->sessions[i];
+        if (session->state != CAP_IDLE && session->state != CAP_REVOKED &&
+            session->principal == principal) {
+            cap_revoke(session);
             n++;
         }
     }
