@@ -100,6 +100,9 @@ int  ledger_ok(void);                                /* both ledgers OK: what an
 /* RAM-only, instance-bound grants (never stored, never counted in the commit): for the broker's process-bound rights. */
 int  ledger_grant_instance(uint32_t principal, uint64_t gen, uint8_t perm);
 int  ledger_drop_instance(uint64_t gen);
+int  ledger_revoke_principal(uint32_t principal);
+int  ledger_count_grants(uint32_t principal);
+int  ledger_has_any(uint32_t principal);
 
 /* Kernel-initiated, AUDITED durable changes: the Passport commit as above, then a Trail record (kind 12 grant / 13 revoke, target = permission, requester = the
  * principal concerned, outcome done). The grant stands even if the Trail cannot record it (the rc of the audit is logged); an action that MUST be recorded

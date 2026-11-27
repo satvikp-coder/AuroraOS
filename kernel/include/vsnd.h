@@ -1,6 +1,7 @@
 #ifndef AURORA_VSND_H
 #define AURORA_VSND_H
 #include <stdint.h>
+#include <stddef.h>
 #include <virtio_snd.h>   /* for AUDIO_CAP_PLAY, AUDIO_CAP_RECORD */
 
 /*
@@ -35,6 +36,13 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms);
 /* Audio capability management (kernel code only). */
 int vsnd_grant_audio(uint32_t principal, uint8_t caps);   /* grant audio capabilities to a principal; 0 on success, -1 on error */
 int vsnd_revoke_audio(uint32_t principal);                 /* revoke all audio capabilities for a principal; returns count revoked */
+
+/* Bounded capture session lifecycle (backed by capture_lifecycle.h and AUDIO_CAP_RECORD). */
+int vsnd_capture_open(uint32_t principal, uint32_t stream_id, size_t *out_slot);
+int vsnd_capture_prepare(size_t slot, uint32_t principal, uint32_t buffer_count);
+int vsnd_capture_start(size_t slot, uint32_t principal);
+int vsnd_capture_stop(size_t slot, uint32_t principal);
+int vsnd_capture_release(size_t slot, uint32_t principal);
 
 #ifdef AURORA_SND_PLAY_TEST
 int vsnd_playback_selftest(void);
