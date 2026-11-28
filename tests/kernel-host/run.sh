@@ -154,3 +154,5 @@ cc $CFLAGS -o "$OUT/speech_pipeline_test" "$ROOT/tests/kernel-host/speech_pipeli
 "$OUT/speech_pipeline_test"
 cc $CFLAGS -o "$OUT/qwen3_token_select_test" "$ROOT/tests/kernel-host/qwen3_token_select_test.c" "$ROOT/kernel/proc/quant_ops.c"
 "$OUT/qwen3_token_select_test"
+cc $CFLAGS -o "$OUT/model_shed_test" "$ROOT/tests/kernel-host/model_shed_test.c" "$ROOT/kernel/ui/aura_cmd.c"
+"$OUT/model_shed_test"
