@@ -18,6 +18,7 @@
 #include <infer_runtime.h>
 #include <qwen3_ops.h>
 #include <qwen3_projection.h>
+#include <qwen3_gqa.h>
 #define SYS_MODEL 11
 #define INFO 1
 #define READ 2
@@ -229,6 +230,27 @@ static int qwen3_layer_el0(void)
     return 0;
 }
 
+/* Exercise Q/K preparation and a causal query with shared KV heads. */
+static int qwen3_gqa_el0(void)
+{
+    const struct q3_gqa_shape shape = { 4, 2, 2, 3 };
+    const int16_t zeros[12] = { 0 };
+    const int16_t gains[] = { 4096, 4096 };
+    const int16_t cosine = 32767, sine = 0;
+    const int16_t values[] = { 4, -8, 12, 28, 8, -4, 20, 36, 120, 120, -120, -120 };
+    int16_t query[8], out[8];
+    for (size_t head = 0; head < 4; ++head)
+        if (q3_qk_prepare(zeros, gains, &cosine, &sine, 2, query + head * 2) != Q3_OK)
+            return -1;
+    if (q3_gqa_context(&shape, 1, query, 8, zeros, values, 12, out, 8) != Q3_OK)
+        return -1;
+    const int16_t expected[] = { 6, -6, 6, -6, 16, 32, 16, 32 };
+    for (size_t i = 0; i < 8; ++i)
+        if (out[i] != expected[i]) return -1;
+    say("ic: qwen3_gqa four query heads share two causal KV heads");
+    return 0;
+}
+
 /* Chain two synthetic projections fetched from the verified model volume. */
 static int qwen3_stream_el0(u64 object, u64 size)
 {
@@ -284,5 +306,6 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
     if (mode == 1 && tiny_pipeline()) { say("ic: pipe rejected"); quit(3); }
     if (mode == 1 && runtime_el0_check()) { say("ic: runtime rejected"); quit(3); }
     if (mode == 1 && qwen3_layer_el0()) { say("ic: qwen3 rejected"); quit(3); }
+    if (mode == 1 && qwen3_gqa_el0()) { say("ic: qwen3_gqa rejected"); quit(3); }
     quit(0);
 }
