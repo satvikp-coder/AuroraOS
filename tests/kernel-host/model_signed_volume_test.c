@@ -63,16 +63,24 @@ int main(void)
 
     struct ms_signed_scratch scratch;
     struct ms_volume volume;
+#define VERIFY() ms_verify_signed_volume(read_sectors, &image, 4, &trust, &scratch, &volume)
 #define PREFLIGHT() ms_preflight_signed(read_sectors, &image, 4, &trust, &scratch, &volume)
     CHECK(PREFLIGHT() == MS_OK && volume.nobjects == 1);
+    CHECK(VERIFY() == MS_OK && volume.nobjects == 1);
     CHECK(ms_verify_object(&volume, 0, read_sectors, &image) == MS_OK);
     image.sectors[2][0] ^= 1;
     CHECK(PREFLIGHT() == MS_OK);
     CHECK(ms_verify_object(&volume, 0, read_sectors, &image) == MS_EDATA);
+    volume.nobjects = 99;
+    CHECK(VERIFY() == MS_EDATA && volume.nobjects == 99);
     image.sectors[2][0] ^= 1;
     volume.nobjects = 99;
+    image.sectors[2][MS_SECTOR - 1] = 1;
+    CHECK(VERIFY() == MS_EDATA && volume.nobjects == 99);
+    image.sectors[2][MS_SECTOR - 1] = 0;
     sig[50] ^= 1;
     CHECK(PREFLIGHT() == MS_EAUTH && volume.nobjects == 99);
+    CHECK(VERIFY() == MS_EAUTH && volume.nobjects == 99);
     sig[50] ^= 1;
     sig[MT_TRAILER_BYTES] = 1;
     CHECK(PREFLIGHT() == MS_EFORMAT);

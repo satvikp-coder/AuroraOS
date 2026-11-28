@@ -22,4 +22,11 @@ int ms_preflight_signed(ms_read_fn rd, void *ctx, uint64_t volume_sectors,
                         const struct mt_trust_table *trust, struct ms_signed_scratch *scratch,
                         struct ms_volume *out);
 
+/* Verify V2 metadata and every payload against the signed table before publishing
+ * the volume. The backing image must remain immutable throughout verification
+ * and later use. Returns the specific read or digest error on payload failure. */
+int ms_verify_signed_volume(ms_read_fn rd, void *ctx, uint64_t volume_sectors,
+                            const struct mt_trust_table *trust, struct ms_signed_scratch *scratch,
+                            struct ms_volume *out);
+
 #endif
