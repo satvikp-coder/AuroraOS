@@ -183,6 +183,34 @@ int main(void)
         CHECK(vsnd_dec_pcm_status(b, VSND_PSTATUS_SIZE, &lat) == VSND_EIO && lat == 128, "rx io_err status");
     }
 
+    {
+        uint8_t packed[1 + 6 + VSND_PSTATUS_SIZE] = {0};
+        uint8_t *src = packed + 1;  /* unaligned S16LE input */
+        const uint32_t posted = sizeof(packed) - 1u;
+        int16_t samples[4] = {7, 7, 7, 7};
+        src[1] = 0x80; src[2] = 0xff; src[3] = 0x7f; src[4] = 0xff; src[5] = 0xff;
+        le32(src + 6, VIRTIO_SND_S_OK);
+        CHECK(vsnd_copy_rx_s16_period(src, posted, posted - 1u, samples, 3) == VSND_EPROTO,
+              "partial RX completion refused");
+        CHECK(vsnd_copy_rx_s16_period(src, posted, UINT32_MAX, samples, 3) == VSND_EPROTO,
+              "oversized RX completion refused");
+        CHECK(vsnd_copy_rx_s16_period(src, posted, posted, samples, 2) == VSND_EARG &&
+              vsnd_copy_rx_s16_period(src, posted - 1u, posted - 1u, samples, 3) == VSND_EARG,
+              "short destination and odd PCM byte counts refused");
+        le32(src + 6, VIRTIO_SND_S_IO_ERR);
+        CHECK(vsnd_copy_rx_s16_period(src, posted, posted, samples, 3) == VSND_EIO,
+              "RX device error propagated");
+        le32(src + 6, 0);
+        CHECK(vsnd_copy_rx_s16_period(src, posted, posted, samples, 3) == VSND_EPROTO,
+              "invalid RX status refused");
+        CHECK(samples[0] == 7 && samples[1] == 7 && samples[2] == 7 && samples[3] == 7,
+              "failed RX copies leave destination unchanged");
+        le32(src + 6, VIRTIO_SND_S_OK);
+        CHECK(vsnd_copy_rx_s16_period(src, posted, posted, samples, 4) == VSND_OK &&
+              samples[0] == INT16_MIN && samples[1] == INT16_MAX && samples[2] == -1 &&
+              samples[3] == 7, "full signed period copied within destination bounds");
+    }
+
     /* ---- events ---- */
     struct vsnd_config ecfg = { .jacks = 1, .streams = 2, .chmaps = 0 };
     struct vsnd_event ev = { 0, 0 };
