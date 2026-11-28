@@ -77,6 +77,8 @@ npx http-server aurora-glass/prototype -p 3000   # to look at it yourself
 ./tests/qemu/scale-tests.sh        # native text scaling and high contrast (4 boots)
 ./tests/qemu/settings-ui-tests.sh  # native Settings screen: no disk, save, restart, read-only, destroyed filesystem
 ```
+For a persistent QEMU install with native applications, see [Build and run the local QEMU package](docs/kernel/qemu-local-package.md).
+
 Always boot `build/kernel.bin` (the ELF gets no device tree). On Windows, run the shell commands inside WSL, not PowerShell.
 
 ## Documents
