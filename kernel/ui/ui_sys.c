@@ -146,4 +146,10 @@ int ui_sys_key(uint16_t code, uint16_t mods, uint8_t down, uint8_t repeat)
 }
 
 int ui_sys_has_focus(void) { return G.focus >= 0; }
+int ui_sys_focus_owner(int pid, uint64_t gen)
+{
+    return pid >= 1 && pid <= UIP_MAX_CLIENTS &&
+           uip_focus_owner(&G, (uint8_t)pid, gen) == UIP_OK;
+}
+
 void ui_sys_focus_clear(void) { (void)uip_set_focus(&G, -1); }

@@ -37,5 +37,6 @@ const struct uip_state *ui_sys_state(void);                      /* read-only vi
 int  ui_sys_pointer(int x, int y, uint8_t kind /* 0 move, 1 down, 2 up */, uint8_t buttons);   /* a press on a surface also gives it focus */
 int  ui_sys_key(uint16_t code, uint16_t mods, uint8_t down, uint8_t repeat);                   /* to the owner of the FOCUSED surface only */
 int  ui_sys_has_focus(void);
+int ui_sys_focus_owner(int pid, uint64_t gen);                         /* trusted compositor only, returns 1 if focused */
 void ui_sys_focus_clear(void);                                    /* focus returns to the shell */
 #endif

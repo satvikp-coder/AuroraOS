@@ -15,7 +15,7 @@ static int f_avail, f_rc, n_launch, last_app, n_avail;
 static int l_avail(uint32_t app) { n_avail++; return (app == 1 || app == 3) && f_avail; }
 static int l_launch(uint32_t app) { n_launch++; last_app = (int)app; return f_rc; }
 static const char *l_desc(int rc) { return rc == -2 ? "Already open. See Pages." : rc == -3 ? "Not installed on this disk." : "Not available."; }
-static const struct shell_launcher L = { l_avail, l_launch, l_desc };
+static const struct shell_launcher L = { l_avail, l_launch, l_desc, NULL };
 
 static void fresh(int with_launcher)
 {

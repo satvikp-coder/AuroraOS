@@ -156,6 +156,7 @@ void uip_client_gone(struct uip_state *st, uint8_t pid, uint64_t gen);
 
 /* ---- compositor-only controls: no client message reaches these ---- */
 int  uip_place(struct uip_state *st, int slot, int16_t x, int16_t y);       /* the whole surface must lie inside the region; 0 or UIP_EBADARG / UIP_ESTALE */
+int  uip_focus_owner(struct uip_state *st, uint8_t pid, uint64_t gen);    /* raise the topmost placed surface of this instance */
 int  uip_set_focus(struct uip_state *st, int slot);                         /* -1 clears; raises the surface; 0 or UIP_ESTALE */
 const struct uip_surface *uip_surface(const struct uip_state *st, int slot);
 int  uip_slot_of(uint32_t handle);                                          /* slot encoded in a handle, or -1 */

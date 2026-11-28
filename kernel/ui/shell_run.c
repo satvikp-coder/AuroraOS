@@ -116,7 +116,7 @@ static void reap(void)
 static struct shell SH;
 
 /* The launcher the shell sees: application ids only. The kernel decides the executable, the identity and the capability (kernel/include/apps.h). */
-static const struct shell_launcher LAUNCHER = { apps_available, apps_launch, apps_describe };
+static const struct shell_launcher LAUNCHER = { apps_available, apps_launch, apps_describe, apps_focus };
 
 /* The Trail screen's source: a COPY of the ledgers' state (the screen never holds a pointer into them, and no system call reads or mutates either ledger). */
 static int trail_view_take(struct shell_trail_view *v)
