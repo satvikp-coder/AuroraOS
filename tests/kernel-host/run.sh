@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="$ROOT/build/host-tests"
 mkdir -p "$OUT"
 cd "$ROOT"   # a few tests read repository files (generated font header, licence notices) by relative path
+python3 -B -m unittest discover -s tools/model
 CFLAGS="-std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -I $ROOT/kernel/include"
 cc $CFLAGS -o "$OUT/fdt_pmm_test" "$ROOT/tests/kernel-host/fdt_pmm_test.c" "$ROOT/kernel/mm/fdt.c" "$ROOT/kernel/mm/pmm.c"
 cc $CFLAGS -o "$OUT/policy_test" "$ROOT/tests/kernel-host/policy_test.c" "$ROOT/kernel/mm/mmpolicy.c"
