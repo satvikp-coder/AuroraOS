@@ -45,6 +45,7 @@ enum {
     SID_HOLD_BTN = 270, SID_HOLD_HOME,  /* Hold-to-confirm DEMO: the hold button and Home. It confirms nothing real and enables no action (env.hold_input stays 0) */
     SID_TRAIL_NEWER = 260, SID_TRAIL_OLDER, SID_TRAIL_HOME,  /* Trail: show newer / older records, Home. There is no other control: the screen is read-only */
     SID_PIN_UNLOCK = 280,                                    /* Lock screen: submit entered PIN */
+    SID_MIC_ALLOW = 285, SID_MIC_DENY = 286,                 /* Mic permission modal: Allow / Deny */
     SID_REVIEW_CANCEL = 21, SID_REVIEW_APPROVE = 22          /* the trusted review: Cancel (or Close once it ended) and Approve */
 };
 
@@ -181,6 +182,12 @@ struct shell {
     uint8_t pin_len;
     char pin_dots[PIN_MAX_LEN + 1];
     char pin_msg[48];
+    /* Microphone permission prompt (compositor-owned modal). */
+    uint8_t mic_prompt_open;
+    uint8_t mic_perm_decision; /* 0 = pending, 1 = allowed, 2 = denied */
+    uint32_t mic_req_principal, mic_req_pid;
+    uint64_t mic_req_gen;
+    char mic_req_line[64];
 };
 
 #define SHELL_NONE 0xffffffffu
@@ -246,6 +253,8 @@ void shell_mic_owner_gone(struct shell *sh, uint32_t pid, uint64_t gen);
 int  shell_pin_set(struct shell *sh, const uint8_t salt[PIN_SALT_LEN], const char *digits, size_t len);
 int  shell_pin_lock(struct shell *sh);
 int  shell_is_locked(const struct shell *sh);
+int  shell_mic_prompt_open(struct shell *sh, uint32_t principal, uint32_t pid, uint64_t gen, const char *requester_name);
+int  shell_mic_take_decision(struct shell *sh, uint32_t *principal, uint32_t *pid, uint64_t *gen, int *allowed);
 void shell_set_pointer(struct shell *sh, int32_t x, int32_t y);
 /* Route one normalised input event. Returns 1 if anything visible may have changed. */
 int  shell_handle(struct shell *sh, const struct input_event *e);
