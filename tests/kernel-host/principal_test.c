@@ -10,6 +10,12 @@ static int passed, failed;
 int main(void)
 {
     printf("principal policy tests\n");
+    CHECK("kernel control context uses the requested shell identity",
+          principal_for_caller(0, 0xffffffffu, PRINCIPAL_SHELL) == PRINCIPAL_SHELL);
+    CHECK("unassigned user process retains no identity",
+          principal_for_caller(1, 0xffffffffu, PRINCIPAL_SHELL) == 0xffffffffu);
+    CHECK("assigned process retains its own identity",
+          principal_for_caller(1, 601, PRINCIPAL_SHELL) == 601);
     CHECK("the kernel (0) is never assignable", !principal_assignable(0));
     CHECK("PRINCIPAL_NONE (0xFFFFFFFF) is never assignable", !principal_assignable(0xFFFFFFFFu));
     CHECK("installer 0x7F000001, settings 0x7F000002 and shell 0x7F000003 are reserved", principal_is_reserved(0x7F000001u) && principal_is_reserved(0x7F000002u) && principal_is_reserved(PRINCIPAL_SHELL));

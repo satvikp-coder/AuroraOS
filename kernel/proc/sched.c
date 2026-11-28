@@ -70,10 +70,10 @@ static void tick_hook(void)
 
 static struct proc *current(void) { return cur_pid ? proc_get(cur_pid) : 0; }
 
-uint32_t proc_current_principal(void)
+uint32_t proc_current_principal_or(uint32_t kernel_identity)
 {
     struct proc *p = current();
-    return p ? p->principal : PRINCIPAL_NONE;
+    return principal_for_caller(cur_pid, p ? p->principal : PRINCIPAL_NONE, kernel_identity);
 }
 
 static int pick_next(void)
