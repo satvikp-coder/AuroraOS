@@ -148,36 +148,40 @@ int vsnd_revoke_audio(uint32_t principal)
     return n;
 }
 
-int vsnd_capture_open(uint32_t principal, uint32_t stream_id, size_t *out_slot)
+int vsnd_capture_open(struct cap_owner owner, uint32_t stream_id, struct cap_handle *out)
 {
-    if (!vsnd_check_audio_cap(principal, AUDIO_CAP_RECORD)) return CAP_E_CAP;
+    if (!vsnd_check_audio_cap(owner.principal, AUDIO_CAP_RECORD)) return CAP_E_CAP;
     if (live && stream_id >= cfg.streams) return CAP_E_BOUNDS;
-    return cap_table_open(&capture_sessions, principal, AUDIO_CAP_RECORD, stream_id, out_slot);
+    return cap_table_open(&capture_sessions, owner, AUDIO_CAP_RECORD, stream_id, out);
 }
 
-int vsnd_capture_prepare(size_t slot, uint32_t principal, uint32_t buffer_count)
+int vsnd_capture_prepare(struct cap_handle handle, struct cap_owner owner, uint32_t buffer_count)
 {
-    if (slot >= CAP_MAX_SESSIONS) return CAP_E_BOUNDS;
-    return cap_prepare(&capture_sessions.sessions[slot], principal, buffer_count);
+    struct cap_session *session = cap_table_session(&capture_sessions, handle);
+    if (!session) return CAP_E_BOUNDS;
+    return cap_prepare(session, owner, buffer_count);
 }
 
-int vsnd_capture_start(size_t slot, uint32_t principal)
+int vsnd_capture_start(struct cap_handle handle, struct cap_owner owner)
 {
-    if (slot >= CAP_MAX_SESSIONS) return CAP_E_BOUNDS;
-    if (!vsnd_check_audio_cap(principal, AUDIO_CAP_RECORD)) return CAP_E_CAP;
-    return cap_start(&capture_sessions.sessions[slot], principal);
+    struct cap_session *session = cap_table_session(&capture_sessions, handle);
+    if (!session) return CAP_E_BOUNDS;
+    if (!vsnd_check_audio_cap(owner.principal, AUDIO_CAP_RECORD)) return CAP_E_CAP;
+    return cap_start(session, owner);
 }
 
-int vsnd_capture_stop(size_t slot, uint32_t principal)
+int vsnd_capture_stop(struct cap_handle handle, struct cap_owner owner)
 {
-    if (slot >= CAP_MAX_SESSIONS) return CAP_E_BOUNDS;
-    return cap_stop(&capture_sessions.sessions[slot], principal);
+    struct cap_session *session = cap_table_session(&capture_sessions, handle);
+    if (!session) return CAP_E_BOUNDS;
+    return cap_stop(session, owner);
 }
 
-int vsnd_capture_release(size_t slot, uint32_t principal)
+int vsnd_capture_release(struct cap_handle handle, struct cap_owner owner)
 {
-    if (slot >= CAP_MAX_SESSIONS) return CAP_E_BOUNDS;
-    return cap_release(&capture_sessions.sessions[slot], principal);
+    struct cap_session *session = cap_table_session(&capture_sessions, handle);
+    if (!session) return CAP_E_BOUNDS;
+    return cap_release(session, owner);
 }
 
 static uint32_t rd(uint32_t off) { return *(volatile uint32_t *)(regs + off); }

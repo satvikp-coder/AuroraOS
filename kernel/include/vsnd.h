@@ -2,6 +2,7 @@
 #define AURORA_VSND_H
 #include <stdint.h>
 #include <stddef.h>
+#include <capture_lifecycle.h>
 #include <virtio_snd.h>   /* for AUDIO_CAP_PLAY, AUDIO_CAP_RECORD */
 
 /*
@@ -39,12 +40,13 @@ int vsnd_play_tts(uint32_t stream_id, const char *text, size_t len);
 int vsnd_grant_audio(uint32_t principal, uint8_t caps);   /* grant audio capabilities to a principal; 0 on success, -1 on error */
 int vsnd_revoke_audio(uint32_t principal);                 /* revoke all audio capabilities for a principal; returns count revoked */
 
-/* Bounded capture session lifecycle (backed by capture_lifecycle.h and AUDIO_CAP_RECORD). */
-int vsnd_capture_open(uint32_t principal, uint32_t stream_id, size_t *out_slot);
-int vsnd_capture_prepare(size_t slot, uint32_t principal, uint32_t buffer_count);
-int vsnd_capture_start(size_t slot, uint32_t principal);
-int vsnd_capture_stop(size_t slot, uint32_t principal);
-int vsnd_capture_release(size_t slot, uint32_t principal);
+/* Kernel-only capture session lifecycle. Supply the caller's attested principal
+ * and process generation on every operation. Each open returns a fresh handle. */
+int vsnd_capture_open(struct cap_owner owner, uint32_t stream_id, struct cap_handle *out);
+int vsnd_capture_prepare(struct cap_handle handle, struct cap_owner owner, uint32_t buffer_count);
+int vsnd_capture_start(struct cap_handle handle, struct cap_owner owner);
+int vsnd_capture_stop(struct cap_handle handle, struct cap_owner owner);
+int vsnd_capture_release(struct cap_handle handle, struct cap_owner owner);
 
 #ifdef AURORA_SND_PLAY_TEST
 int vsnd_playback_selftest(void);
