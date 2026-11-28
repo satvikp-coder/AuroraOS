@@ -15,7 +15,7 @@
 
 #define SKW_FEAT_DIM      4u
 #define SKW_MAX_TEMPLATES 8u
-#define SKW_MAX_DIST      40u   /* max L1 distance over 4 int8 [0..127] dims to accept */
+#define SKW_MAX_DIST      20u   /* max L1 distance over 4 int8 [0..127] dims to accept */
 #define SKW_MIN_MARGIN    10u   /* min L1 gap over runner-up command to avoid ambiguity */
 
 enum skw_cmd {
