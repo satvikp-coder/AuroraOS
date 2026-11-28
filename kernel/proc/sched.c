@@ -18,6 +18,7 @@
 #include <timersys.h>
 #include <modelsys.h>
 #include <ui_sys.h>
+#include <audiosys.h>
 #include <rosys.h>
 
 #define SVC_ENTER_SCHED 0x5c4e
@@ -242,10 +243,13 @@ static void do_syscall(struct exc_frame *f, struct proc *p)
     case SYS_RO_MAP:
         f->x[0] = (uint64_t)ro_syscall(p, f->x[0], f->x[1], f->x[2]);
         return;
+    case SYS_AUDIO:
+        f->x[0] = (uint64_t)audio_syscall(p, f->x[0], f->x[1], f->x[2], f->x[3]);
+        return;
     case SYS_GETPID: f->x[0] = (uint64_t)p->pid; return;
     case SYS_TICKS:  f->x[0] = ticks; return;
     case SYS_EXIT:
-        p->exit_code = (int)(int64_t)f->x[0]; ipc_cleanup(p);
+        p->exit_code = (int)(int64_t)f->x[0]; ipc_cleanup(p); audio_proc_cleanup(p);
         pmm_bounded_cleanup_proc((uint32_t)p->pid, &p->as);
         set_state(p, PROC_TERMINATED);
         reschedule(f);
@@ -273,6 +277,7 @@ static void do_fault(struct exc_frame *f, struct proc *p, uint64_t ec)
     console_puts(" ELR="); console_hex(f->elr); console_puts("; process stopped, kernel continues\n");
     p->ctx = *f;                                             /* kept for post-mortem; a FAULTED process is never scheduled */
     ipc_cleanup(p);
+    audio_proc_cleanup(p);
     ro_cleanup_proc(&p->as);
     pmm_bounded_cleanup_proc((uint32_t)p->pid, &p->as);
     set_state(p, PROC_FAULTED);
