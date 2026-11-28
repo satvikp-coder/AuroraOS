@@ -176,6 +176,18 @@ int main(void)
     CHECK("a queued client cannot open Trail", o.state == AX_DENIED &&
           !o.executed && sh.screen == SCR_HOME);
 
+    fresh();
+    sh.review_open = 1;
+    before = shell_digest();
+    struct aura_intent navigation;
+    aura_parse("open pages", 10, &CAPS, &navigation);
+    aura_run_queued(&sh, &ENV, 2, T[2].gen, &navigation, &o);
+    CHECK("a queued navigation leaves the trusted review and underlying screen unchanged",
+          o.state == AX_FAILED && !o.executed && sh.review_open && shell_digest() == before);
+    o = run(0, "switch to work space");
+    CHECK("trusted review also prevents switching Spaces",
+          o.state == AX_FAILED && !o.executed && sh.review_open && shell_digest() == before);
+
     /* ---- queued requests (from an EL0 client): the requester must still be the same live instance ---- */
     fresh(); { struct aura_intent in; aura_parse("open pages", 10, &CAPS, &in);
       aura_run_queued(&sh, &ENV, 2, 20, &in, &o);
