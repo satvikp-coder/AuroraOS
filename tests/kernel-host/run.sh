@@ -109,6 +109,8 @@ cc $CFLAGS -o "$OUT/ledger_test" "$ROOT/tests/kernel-host/ledger_test.c" "$ROOT/
 "$OUT/aura_timer_test"
 "$OUT/passport_test"
 "$OUT/passport_enforce_test"
+cc $CFLAGS -o "$OUT/pin_lock_test" "$ROOT/tests/kernel-host/pin_lock_test.c" "$ROOT/kernel/crypto/sha256.c"
+"$OUT/pin_lock_test"
 "$OUT/trail_test"
 "$OUT/index_model_test"
 python3 "$ROOT/tests/aura-eval/selftest.py"
