@@ -38,6 +38,8 @@ python3 -c "
 import struct, zlib, sys
 body = b'kept'; mid = struct.pack('<BBHI', 1, 0, len(body), 1)
 open(sys.argv[1], 'wb').write(b'ANTE' + mid + struct.pack('<I', zlib.crc32(body, zlib.crc32(mid))) + body)" "$OUT/kept.bin"
+# Slot B may be found and written by Notes, but reads fail with FS_EACCES.
+mk unreadable.img 602 3 note.a "$OUT/kept.bin" 602 2 note.b "$OUT/foreign.bin"
 python3 "$SCRIPT_DIR/fill_image.py" "$OUT/mkafs" "$OUT/spacefull.img" 256 4 installer 0x7 calc.elf "$A/calc.elf" installer 0x7 notes.elf "$A/notes.elf" 602 3 note.a "$OUT/kept.bin" > "$OUT/spacefull.mkafs.log" 2>&1 && ok "$(tail -1 "$OUT/spacefull.mkafs.log")" || { bad "could not build the full-disk image"; cat "$OUT/spacefull.mkafs.log"; }
 
 boot() {   # scenario image|none [extra drive options]
@@ -67,6 +69,21 @@ boot foreign foreign.img "" foreign
 boot truncated truncated.img "" truncated
 boot short short.img "" short
 boot full full.img "" full
+# AuroraFS sector 2 holds inodes 2 and 3, the two Notes slots provisioned after the executables.
+# Compare the inode pointers as well as the payload bytes: copy-on-write can leave obsolete bytes on disk.
+dd if="$OUT/unreadable.img" of="$OUT/unreadable.inodes" bs=512 skip=2 count=1 2>/dev/null || exit 1
+boot unreadable unreadable.img "" unreadable
+dd if="$OUT/unreadable.img" of="$OUT/unreadable.after" bs=512 skip=2 count=1 2>/dev/null || exit 1
+python3 -c "
+from pathlib import Path
+import sys
+disk, before, after, *slots = map(Path, sys.argv[1:])
+image = disk.read_bytes()
+sys.exit(0 if before.read_bytes() == after.read_bytes() and
+         all(image.count(slot.read_bytes()) == 1 for slot in slots) else 1)
+" "$OUT/unreadable.img" "$OUT/unreadable.inodes" "$OUT/unreadable.after" "$OUT/kept.bin" "$OUT/foreign.bin" \
+    && ok "unreadable: both note slots retain their original inodes and bytes" \
+    || bad "unreadable: a note slot changed or was duplicated"
 NOTE_BEFORE=$(sha256sum "$OUT/spacefull.img" | cut -d' ' -f1)
 boot spacefull spacefull.img "" spacefull
 boot spacefull2 spacefull.img "" spacefull2
