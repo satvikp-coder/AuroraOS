@@ -10,9 +10,9 @@ static int check_signature(const uint8_t sig[64], const uint8_t *message, size_t
     return crypto_ed25519_check(sig, public_key, message, len);
 }
 
-int ms_preflight_signed(ms_read_fn rd, void *ctx, uint64_t volume_sectors,
-                        const struct mt_trust_table *trust, struct ms_signed_scratch *s,
-                        struct ms_volume *out)
+static int verify_signed(ms_read_fn rd, void *ctx, uint64_t volume_sectors,
+                         const struct mt_trust_table *trust, struct ms_signed_scratch *s,
+                         struct ms_volume *out, int with_payloads)
 {
     if (!rd || !trust || !s || !out || out == &s->candidate) return MS_EARG;
     if (volume_sectors < 2 || volume_sectors > MS_MAX_TOTAL_SECTORS) return MS_EGEOM;
@@ -34,6 +34,26 @@ int ms_preflight_signed(ms_read_fn rd, void *ctx, uint64_t volume_sectors,
     rc = ms_verify_v2_trailer(s->header, trust, s->trailer, MT_TRAILER_BYTES,
                               check_signature, NULL);
     if (rc != MT_AUTHENTICATED) return MS_EAUTH;
+    if (with_payloads) {
+        for (uint32_t i = 0; i < s->candidate.nobjects; ++i) {
+            rc = ms_verify_object(&s->candidate, i, rd, ctx);
+            if (rc != MS_OK) return rc;
+        }
+    }
     *out = s->candidate;
     return MS_OK;
+}
+
+int ms_preflight_signed(ms_read_fn rd, void *ctx, uint64_t volume_sectors,
+                        const struct mt_trust_table *trust, struct ms_signed_scratch *s,
+                        struct ms_volume *out)
+{
+    return verify_signed(rd, ctx, volume_sectors, trust, s, out, 0);
+}
+
+int ms_verify_signed_volume(ms_read_fn rd, void *ctx, uint64_t volume_sectors,
+                            const struct mt_trust_table *trust, struct ms_signed_scratch *s,
+                            struct ms_volume *out)
+{
+    return verify_signed(rd, ctx, volume_sectors, trust, s, out, 1);
 }
