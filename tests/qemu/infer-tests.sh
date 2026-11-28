@@ -61,7 +61,7 @@ echo "== building =="
 AURORA_INFER_TEST=1 BUILD_DIR="$OUT/kernel" ./build.sh >/dev/null 2>&1 || { bad "infer-test kernel build failed"; echo "infer-tests: $PASSES passed, $FAILS failed"; exit 1; }
 KERNEL="$OUT/kernel/kernel.bin"
 CC="${CROSS_COMPILE:-aarch64-linux-gnu-}gcc"
-PF="-O1 -ffreestanding -fno-builtin -nostdlib -static -no-pie -fno-pic -fno-pie -mgeneral-regs-only -fno-stack-protector -Wall -Wextra -Werror -Wl,-T,tests/programs/user.ld -Wl,-z,noexecstack -Wl,-z,max-page-size=4096 -Wl,--build-id=none"
+PF="-Os -ffreestanding -fno-builtin -nostdlib -static -no-pie -fno-pic -fno-pie -mgeneral-regs-only -fno-stack-protector -Wall -Wextra -Werror -Wl,-T,tests/programs/user.ld -Wl,-z,noexecstack -Wl,-z,max-page-size=4096 -Wl,--build-id=none"
 $CC $PF -o "$OUT/inferclient.elf" -I kernel/include tests/programs/inferclient.c kernel/proc/quant_ops.c kernel/proc/tokenizer.c kernel/proc/tensor.c && ok "the EL0 matvec program compiles as a static AArch64 ET_EXEC with -mgeneral-regs-only (no floating point)" || { bad "inferclient failed to compile"; echo "infer-tests: $PASSES passed, $FAILS failed"; exit 1; }
 cc -std=c11 -Wall -Wextra -O1 -I tests/tools/shim -I kernel/include -o "$OUT/mkafs" tests/tools/mkafs.c kernel/fs/afs.c && ok "mkafs compiled" || { bad "mkafs failed to compile"; exit 1; }
 cc -std=c11 -Wall -Wextra -O1 -I kernel/include -o "$OUT/mkmodel" tests/tools/mkmodel.c kernel/fs/modelstore.c kernel/crypto/sha256.c && ok "mkmodel compiled" || { bad "mkmodel failed to compile"; exit 1; }
@@ -204,6 +204,7 @@ fi
 grep -qx 'ic: runtime logits 13 -3 argmax 0' "$OUT/valid-mode1.txt" && ok "valid: reusable infer_runtime.h executed in EL0 and matched [13, -3] argmax 0" || bad "valid: reusable infer_runtime.h EL0 output mismatch"
 grep -Eq '^ic: qwen3 norm 64 -64 attn [0-9]+ [0-9]+ mlp [0-9]+ [0-9]+$' "$OUT/valid-mode1.txt" && ok "valid: qwen3_ops.h decoder block (RMSNorm -> RoPE -> KV-attn -> SwiGLU) executed in EL0" || bad "valid: qwen3_ops.h EL0 output missing or invalid"
 grep -qx 'ic: qwen3_gqa four query heads share two causal KV heads' "$OUT/valid-mode1.txt" && ok "valid: Qwen3-style grouped-query attention ran in EL0" || bad "valid: grouped-query attention output missing or invalid"
+grep -qx 'ic: qwen3_generate total 3 tokens 0 1 1' "$OUT/valid-mode1.txt" && ok "valid: 2-layer autoregressive Qwen3 generation ran in EL0" || bad "valid: qwen3_generate EL0 output missing or invalid"
 grep -qx 'ic: qwen3_stream layers 2 y 5 -3' "$OUT/valid-mode12.txt" && ok "valid: EL0 streamed both AURQ3V1 projection tensors via SYS_MODEL with one row of scratch" || bad "valid: EL0 AURQ3V1 projection output mismatch"
 grep -qx 'ic: qwen3 greedy token 1' "$OUT/valid-mode12.txt" && ok "valid: EL0 selected the lowest ID among tied streamed logits" || bad "valid: streamed token selection mismatch"
 grep -qx 'ic: qwen3 model embedding row 2 matched' "$OUT/valid-mode12.txt" && ok "valid: EL0 read exactly the requested embedding row" || bad "valid: selected embedding row mismatch"

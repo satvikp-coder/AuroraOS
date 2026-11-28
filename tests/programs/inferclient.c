@@ -20,6 +20,7 @@
 #include <qwen3_projection.h>
 #include <qwen3_gqa.h>
 #include <qwen3_token_select.h>
+#include <qwen3_generate.h>
 #define SYS_MODEL 11
 #define INFO 1
 #define READ 2
@@ -31,8 +32,20 @@ _Static_assert(MV_CHUNK <= 4096, "a SYS_MODEL read is at most 4096 bytes");
 struct obj { u64 size; u32 kind, reserved; char name[32]; u8 digest[32]; };
 static i64 mc(i64 op, i64 a, i64 b, i64 c, i64 d) { return sc(SYS_MODEL, op, a, b, c, d); }
 
-static struct mv_run R;
-static u8 buf[MV_CHUNK];
+struct q3g_mem_blob { uint8_t data[1024]; size_t used; };
+static union {
+    struct {
+        struct mv_run run;
+        u8 buf[MV_CHUNK];
+    } mv;
+    struct {
+        struct q3g_work w;
+        struct q3g_model m;
+        struct q3g_mem_blob blob;
+    } q3g;
+} U;
+#define R U.mv.run
+#define buf U.mv.buf
 static struct obj o;
 
 /* one line, one SYS_WRITE */
@@ -252,6 +265,85 @@ static int qwen3_gqa_el0(void)
     return 0;
 }
 
+static int64_t q3g_blob_rd(void *ctx, uint64_t off, uint8_t *dst, uint64_t len)
+{
+    struct q3g_mem_blob *b = (struct q3g_mem_blob *)ctx;
+    if (!b || len == 0 || len > Q3M_CHUNK || off > b->used || len > b->used - off) return -1;
+    for (uint64_t i = 0; i < len; ++i) dst[i] = b->data[off + i];
+    return (int64_t)len;
+}
+
+static struct q3m_tensor_desc q3g_add_tensor(struct q3g_mem_blob *b, uint16_t layer, uint16_t role,
+                                             uint32_t rows, uint32_t cols, uint32_t shift, int8_t fill)
+{
+    struct q3m_tensor_desc d;
+    d.layer = layer; d.role = role; d.rows = rows; d.cols = cols; d.shift = shift;
+    d.offset = b->used;
+    d.bytes = (uint64_t)rows * cols;
+    for (uint64_t i = 0; i < d.bytes; ++i) b->data[b->used + i] = (uint8_t)fill;
+    b->used += (size_t)d.bytes;
+    return d;
+}
+
+static int qwen3_generate_el0(void)
+{
+    static const int16_t gain4[4] = { 256, 256, 256, 256 };
+    static const int16_t head_gain[2] = { 256, 256 };
+    int16_t cosine[Q3L_TOKENS], sine[Q3L_TOKENS];
+    for (uint32_t i = 0; i < Q3L_TOKENS; ++i) { cosine[i] = 32767; sine[i] = 0; }
+    U.q3g.blob.used = 0;
+
+    uint8_t *mp = (uint8_t *)&U.q3g.m;
+    for (size_t i = 0; i < sizeof(U.q3g.m); ++i) mp[i] = 0;
+    U.q3g.m.hidden = 4; U.q3g.m.inter = 4; U.q3g.m.num_layers = 2;
+    U.q3g.m.attn.tokens = 1; U.q3g.m.attn.query_heads = 2; U.q3g.m.attn.kv_heads = 1; U.q3g.m.attn.width = 2;
+    U.q3g.m.final_norm_gain = gain4;
+
+    U.q3g.m.embed = q3g_add_tensor(&U.q3g.blob, 0, Q3M_T_EMBED, 4, 4, 0, 1);
+    for (size_t i = 0; i < 4; ++i) {
+        U.q3g.blob.data[U.q3g.m.embed.offset + i] = 2;
+        U.q3g.blob.data[U.q3g.m.embed.offset + 4 + i] = 4;
+        U.q3g.blob.data[U.q3g.m.embed.offset + 8 + i] = 1;
+        U.q3g.blob.data[U.q3g.m.embed.offset + 12 + i] = 8;
+    }
+
+    U.q3g.m.lm_head = q3g_add_tensor(&U.q3g.blob, 0, Q3M_T_LM_HEAD, 4, 4, 0, 0);
+    for (size_t i = 0; i < 4; ++i) {
+        U.q3g.blob.data[U.q3g.m.lm_head.offset + i] = 1;
+        U.q3g.blob.data[U.q3g.m.lm_head.offset + 4 + i] = 5;
+        U.q3g.blob.data[U.q3g.m.lm_head.offset + 8 + i] = 2;
+        U.q3g.blob.data[U.q3g.m.lm_head.offset + 12 + i] = (uint8_t)-3;
+    }
+
+    for (uint32_t l = 0; l < 2; ++l) {
+        struct q3m_tensor_desc *const dst[7] = {
+            &U.q3g.m.layers[l].q, &U.q3g.m.layers[l].k, &U.q3g.m.layers[l].v, &U.q3g.m.layers[l].o,
+            &U.q3g.m.layers[l].gate, &U.q3g.m.layers[l].up, &U.q3g.m.layers[l].down
+        };
+        static const uint16_t roles[7] = {
+            Q3M_T_WQ, Q3M_T_WK, Q3M_T_WV, Q3M_T_WO, Q3M_T_WGATE, Q3M_T_WUP, Q3M_T_WDOWN
+        };
+        static const uint8_t rows[7] = { 4, 2, 2, 4, 4, 4, 4 };
+        for (int j = 0; j < 7; ++j)
+            *dst[j] = q3g_add_tensor(&U.q3g.blob, (uint16_t)l, roles[j], rows[j], 4, 4, 2);
+        U.q3g.m.layers[l].input_gain = gain4;
+        U.q3g.m.layers[l].post_gain = gain4;
+        U.q3g.m.layers[l].q_gain = head_gain;
+        U.q3g.m.layers[l].k_gain = head_gain;
+    }
+
+    uint32_t tokens[Q3L_TOKENS] = { 0 };
+    uint32_t total = 0;
+    if (q3g_generate(&U.q3g.m, q3g_blob_rd, &U.q3g.blob, cosine, sine, Q3L_TOKENS,
+                     tokens, 1, 6, 2, 3, 0, 0, &U.q3g.w, &total) != Q3M_OK)
+        return -1;
+    if (total != 3 || tokens[1] != 1 || tokens[2] != 1)
+        return -1;
+    put("ic: qwen3_generate total "); putd(total);
+    put(" tokens "); putd(tokens[0]); put(" "); putd(tokens[1]); put(" "); putd(tokens[2]); flush();
+    return 0;
+}
+
 /* Chain two synthetic projections fetched from the verified model volume. */
 static int qwen3_stream_el0(u64 object, u64 size)
 {
@@ -323,5 +415,6 @@ void __attribute__((section(".text._start"))) _start(u64 mode)
     if (mode == 1 && runtime_el0_check()) { say("ic: runtime rejected"); quit(3); }
     if (mode == 1 && qwen3_layer_el0()) { say("ic: qwen3 rejected"); quit(3); }
     if (mode == 1 && qwen3_gqa_el0()) { say("ic: qwen3_gqa rejected"); quit(3); }
+    if (mode == 1 && qwen3_generate_el0()) { say("ic: qwen3_generate rejected"); quit(3); }
     quit(0);
 }
