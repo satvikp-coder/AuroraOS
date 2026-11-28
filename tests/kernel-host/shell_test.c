@@ -378,6 +378,22 @@ int main(void)
     /* Explicit re-lock works */
     CHECK("shell_pin_lock re-locks", shell_pin_lock(&sh) == PIN_OK && shell_is_locked(&sh));
 
+    /* Unlock and test Microphone Permission Request modal */
+    for (int i = 0; i < 4; i++) shell_handle(&sh, &((struct input_event){ .kind = IN_TEXT, .ch = good_pin[i] }));
+    shell_handle(&sh, &((struct input_event){ .kind = IN_KEY_DOWN, .key = KEY_ENTER }));
+    CHECK("mic prompt opens when unlocked", shell_mic_prompt_open(&sh, 601, 7, 2, "Aura") == 0 && shell_find(&sh, 0xF712u) >= 0);
+    surf(); shell_draw(&sh, &S);
+    CHECK("mic prompt renders inside surface", guards_ok());
+    /* Escape denies */
+    shell_handle(&sh, &((struct input_event){ .kind = IN_KEY_DOWN, .key = KEY_ESC }));
+    uint32_t dp = 0, dpid = 0; uint64_t dgen = 0; int dallow = -1;
+    CHECK("Escape denies mic prompt", shell_mic_take_decision(&sh, &dp, &dpid, &dgen, &dallow) == 1 && dallow == 0 && dp == 601 && dpid == 7 && dgen == 2);
+    /* Reopen and approve via Tab (Deny -> Allow Mic) + Enter */
+    CHECK("mic prompt reopens", shell_mic_prompt_open(&sh, 601, 7, 3, "Aura") == 0);
+    shell_handle(&sh, &((struct input_event){ .kind = IN_KEY_DOWN, .key = KEY_TAB }));
+    shell_handle(&sh, &((struct input_event){ .kind = IN_KEY_DOWN, .key = KEY_ENTER }));
+    CHECK("Allow Mic approves prompt", shell_mic_take_decision(&sh, &dp, &dpid, &dgen, &dallow) == 1 && dallow == 1 && dgen == 3);
+
     printf("shell: %d passed, %d failed\n", passed, failed);
     free(base);
     return failed ? 1 : 0;
