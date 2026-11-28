@@ -16,11 +16,21 @@
 #define AURORA_QWEN3_FULL_H
 
 #include <qwen3_model.h>
+#ifndef Q3F_SINGLE_POSITION
 #include <math.h>
+#endif
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef Q3F_SINGLE_POSITION
+#define Q3F_MAX_CTX    1u
+#define Q3F_HIDDEN     1024u
+#define Q3F_INTER      3072u
+#else
 #define Q3F_MAX_CTX    32u
+#define Q3F_HIDDEN     Q3M_MAX_HIDDEN
+#define Q3F_INTER      Q3M_MAX_INTER
+#endif
 #define Q3F_MAX_Q_DIM  2048u  /* 16 * 128 */
 #define Q3F_MAX_KV_DIM 1024u  /* 8 * 128 */
 
@@ -45,16 +55,21 @@ struct q3f_arena {
     struct q3m_tensor_desc lm_head;
     struct q3f_layer_descs layers[Q3M_MAX_LAYERS];
 
-    float x[Q3M_MAX_HIDDEN];
+    float x[Q3F_HIDDEN];
     float xb[Q3M_MAX_HIDDEN];
-    float xb2[Q3M_MAX_HIDDEN];
+    float xb2[Q3F_HIDDEN];
+#ifndef Q3F_SINGLE_POSITION
     float q[Q3F_MAX_Q_DIM];
     float k[Q3F_MAX_KV_DIM];
+#endif
     float v[Q3F_MAX_KV_DIM];
+#ifndef Q3F_SINGLE_POSITION
     float att[Q3F_MAX_CTX];
-    float hb[Q3M_MAX_INTER];
-    float hb2[Q3M_MAX_INTER];
-    float norm_w[Q3M_MAX_HIDDEN];
+#endif
+    float hb[Q3F_INTER];
+    float hb2[Q3F_INTER];
+    float norm_w[Q3F_HIDDEN];
+#ifndef Q3F_SINGLE_POSITION
     float q_norm_w[Q3M_MAX_HEAD_DIM];
     float k_norm_w[Q3M_MAX_HEAD_DIM];
 
@@ -62,13 +77,21 @@ struct q3f_arena {
     float k_cache[Q3M_MAX_LAYERS][Q3F_MAX_CTX][Q3F_MAX_KV_DIM];
     float v_cache[Q3M_MAX_LAYERS][Q3F_MAX_CTX][Q3F_MAX_KV_DIM];
 
+#endif
+
+    float last_logit;
     uint8_t read_buf[Q3M_CHUNK];
 };
 
 static inline float q3f_scale_for_shift(uint32_t raw_shift)
 {
     int32_t s = (int32_t)raw_shift;
+#ifdef Q3F_SINGLE_POSITION
+    return s < 0 ? (float)(UINT32_C(1) << (unsigned)-s) :
+                   1.0f / (float)(UINT32_C(1) << (unsigned)s);
+#else
     return ldexpf(1.0f, -s);
+#endif
 }
 
 static inline int q3f_load_index(struct q3f_arena *a, q3m_read_fn rd, void *ctx, uint64_t total_bytes)
@@ -80,6 +103,8 @@ static inline int q3f_load_index(struct q3f_arena *a, q3m_read_fn rd, void *ctx,
     rc = q3m_parse_header(hbuf, Q3M_V2_HDR_SIZE, total_bytes, &a->hdr);
     if (rc != Q3M_OK) return rc;
     if (a->hdr.version != 2u) return Q3M_E_VERSION;
+    if (a->hdr.hidden_dim > Q3F_HIDDEN || a->hdr.intermediate_dim > Q3F_INTER)
+        return Q3M_E_DIMS;
     if (a->hdr.num_heads * a->hdr.head_dim > Q3F_MAX_Q_DIM ||
         a->hdr.num_kv_heads * a->hdr.head_dim > Q3F_MAX_KV_DIM ||
         a->hdr.num_kv_heads == 0 ||
@@ -145,7 +170,7 @@ static inline void q3f_rmsnorm(float *out, const float *x, const float *w, uint3
 {
     float ss = 0.0f;
     for (uint32_t i = 0; i < n; ++i) ss += x[i] * x[i];
-    ss = 1.0f / sqrtf(ss / (float)n + 1e-6f);
+    ss = 1.0f / __builtin_sqrtf(ss / (float)n + 1e-6f);
     for (uint32_t i = 0; i < n; ++i) out[i] = x[i] * ss * w[i];
 }
 
@@ -174,6 +199,7 @@ static inline int q3f_matvec(const struct q3m_tensor_desc *d, q3m_read_fn rd, vo
     return Q3M_OK;
 }
 
+#ifndef Q3F_SINGLE_POSITION
 static inline void q3f_rope_head(float *vec, uint32_t head_dim, uint32_t pos, float theta)
 {
     uint32_t half = head_dim / 2u;
@@ -185,6 +211,29 @@ static inline void q3f_rope_head(float *vec, uint32_t head_dim, uint32_t pos, fl
         vec[i]        = v0 * c - v1 * s;
         vec[i + half] = v0 * s + v1 * c;
     }
+}
+
+#endif
+
+static inline float q3f_silu(float x)
+{
+#ifndef Q3F_SINGLE_POSITION
+    return x / (1.0f + expf(-x));
+#else
+    if (x != x || x >= 20.0f) return x;
+    if (x <= -20.0f) return 0.0f;
+    float abs_x = x < 0.0f ? -x : x;
+    const float ln2 = 0.6931471805599453f;
+    unsigned power = (unsigned)(abs_x / ln2);
+    float remainder = abs_x - (float)power * ln2;
+    float exp_r = 1.0f, term = 1.0f;
+    for (unsigned n = 1; n <= 8; ++n) {
+        term *= remainder / (float)n;
+        exp_r += term;
+    }
+    float e = exp_r * (float)(UINT32_C(1) << power);
+    return x < 0.0f ? x / (1.0f + e) : (x * e) / (1.0f + e);
+#endif
 }
 
 static inline int q3f_forward_token(struct q3f_arena *a, q3m_read_fn rd, void *ctx,
@@ -211,6 +260,14 @@ static inline int q3f_forward_token(struct q3f_arena *a, q3m_read_fn rd, void *c
         if ((rc = q3f_read_vec(&L->in_norm, rd, ctx, a->read_buf, a->norm_w, H)) != Q3M_OK) return rc;
         q3f_rmsnorm(a->xb, a->x, a->norm_w, H);
 
+#ifdef Q3F_SINGLE_POSITION
+        /* At position zero each causal head has exactly one value.
+         * Its softmax weight is one, independent of Q/K or their rotation. */
+        if ((rc = q3f_matvec(&L->v_proj, rd, ctx, a->read_buf, a->xb, a->v)) != Q3M_OK) return rc;
+        for (uint32_t head = 0; head < NH; ++head)
+            for (uint32_t d = 0; d < HD; ++d)
+                a->xb[head * HD + d] = a->v[(head / KV_MUL) * HD + d];
+#else
         if ((rc = q3f_matvec(&L->q_proj, rd, ctx, a->read_buf, a->xb, a->q)) != Q3M_OK) return rc;
         if ((rc = q3f_matvec(&L->k_proj, rd, ctx, a->read_buf, a->xb, a->k)) != Q3M_OK) return rc;
         if ((rc = q3f_matvec(&L->v_proj, rd, ctx, a->read_buf, a->xb, a->v)) != Q3M_OK) return rc;
@@ -263,6 +320,8 @@ static inline int q3f_forward_token(struct q3f_arena *a, q3m_read_fn rd, void *c
             }
         }
 
+#endif
+
         if ((rc = q3f_matvec(&L->o_proj, rd, ctx, a->read_buf, a->xb, a->xb2)) != Q3M_OK) return rc;
         for (uint32_t i = 0; i < H; ++i) a->x[i] += a->xb2[i];
 
@@ -273,7 +332,7 @@ static inline int q3f_forward_token(struct q3f_arena *a, q3m_read_fn rd, void *c
         if ((rc = q3f_matvec(&L->up_proj, rd, ctx, a->read_buf, a->xb, a->hb2)) != Q3M_OK) return rc;
         for (uint32_t i = 0; i < I; ++i) {
             float g = a->hb[i];
-            a->hb[i] = (g / (1.0f + expf(-g))) * a->hb2[i];
+            a->hb[i] = q3f_silu(g) * a->hb2[i];
         }
         if ((rc = q3f_matvec(&L->down_proj, rd, ctx, a->read_buf, a->hb, a->xb)) != Q3M_OK) return rc;
         for (uint32_t i = 0; i < H; ++i) a->x[i] += a->xb[i];
@@ -299,6 +358,7 @@ static inline int q3f_forward_token(struct q3f_arena *a, q3m_read_fn rd, void *c
             const int8_t *wrow = (const int8_t *)(a->read_buf + (size_t)b * H);
             float sum = 0.0f;
             for (uint32_t c = 0; c < H; ++c) sum += (float)wrow[c] * a->x[c];
+            if (!__builtin_isfinite(sum)) return Q3M_E_FORMAT;
             if (sum > best_logit) {
                 best_logit = sum;
                 best_id = r + b;
@@ -306,6 +366,7 @@ static inline int q3f_forward_token(struct q3f_arena *a, q3m_read_fn rd, void *c
         }
         r += cnt;
     }
+    a->last_logit = best_logit * q3f_scale_for_shift(a->lm_head.shift);
     *out_next_token = best_id;
     return Q3M_OK;
 }
