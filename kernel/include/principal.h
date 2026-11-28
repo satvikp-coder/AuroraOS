@@ -31,4 +31,10 @@ static inline int principal_is_reserved(uint32_t p) { return (p & PRINCIPAL_RESE
 static inline int principal_assignable(uint32_t p) { return p != 0 && p != 0xFFFFFFFFu && !principal_is_reserved(p); }
 /* 1 only for the reserved service identities kernel code may put on a process through proc_set_service_principal(): today exactly PRINCIPAL_INFER. */
 static inline int principal_service_holdable(uint32_t p) { return p == PRINCIPAL_INFER; }
+/* The scheduler supplies pid and identity. Only PID zero denotes kernel control
+ * context. A process without an identity retains PRINCIPAL_NONE. */
+static inline uint32_t principal_for_caller(int pid, uint32_t identity, uint32_t kernel_identity)
+{
+    return pid == 0 ? kernel_identity : identity;
+}
 #endif

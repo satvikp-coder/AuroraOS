@@ -174,8 +174,9 @@ int copy_to_user(uint64_t uva, const void *src, size_t n);   /* same guarantees;
 int user_writable(uint64_t uva, size_t n);
 
 /* ---- current process principal (for capability checks from kernel subsystems) ---- */
-/* Returns the principal of the currently running EL0 process, or PRINCIPAL_NONE if in kernel context (no process). */
-uint32_t proc_current_principal(void);
+/* Use kernel_identity only when no process owns the CPU. An unassigned or
+ * missing process with a nonzero scheduler PID always yields PRINCIPAL_NONE. */
+uint32_t proc_current_principal_or(uint32_t kernel_identity);
 
 /* ---- IPC (kernel/proc/ipc.c) ---- */
 int  proc_ipc_allow(int from, int to);                                /* kernel-only grant: 0, or -1 unless BOTH are live processes; bound to that recipient instance */

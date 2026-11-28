@@ -1437,7 +1437,8 @@ static void build_clients(struct shell *sh)
 {
     if (!sh->clients) return;
     const struct pal *P = PAL(sh);
-    for (int slot = 0; slot < UIP_MAX_SURFACES; slot++) {
+    for (int layer = 0; layer < sh->clients->nz; layer++) {
+        int slot = sh->clients->z[layer];
         const struct uip_surface *c = uip_surface(sh->clients, slot);
         if (!c || !c->placed) continue;
         int32_t w = UIP_SIZE_W[c->size_class], h = UIP_SIZE_H[c->size_class];

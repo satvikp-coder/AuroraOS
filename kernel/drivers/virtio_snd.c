@@ -116,15 +116,10 @@ int vsnd_grant_audio(uint32_t principal, uint8_t caps)
 }
 
 /* Check if a principal has the required audio capability.
- * Returns 1 if allowed, 0 if denied.
- * Kernel context (PRINCIPAL_NONE) is treated as the shell principal (PRINCIPAL_SHELL)
- * for capability checks, since the shell runs in kernel mode. */
+ * The caller must supply its resolved identity. Explicit session owners
+ * are checked verbatim, including when kernel code calls on their behalf. */
 static int vsnd_check_audio_cap(uint32_t principal, uint8_t cap)
 {
-    /* Kernel context: use shell principal for capability checks */
-    if (principal == PRINCIPAL_NONE) {
-        principal = PRINCIPAL_SHELL;
-    }
     for (int i = 0; i < AUDIO_MAX_GRANTS; i++) {
         if (audio_grants[i].used && audio_grants[i].principal == principal) {
             return (audio_grants[i].caps & cap) != 0;
@@ -433,7 +428,7 @@ int vsnd_set_params(uint32_t stream_id, uint32_t format, uint32_t rate, uint32_t
     if (!live) return SND_ENODEV;
 
     /* Permission check: caller must have AUDIO_CAP_PLAY */
-    uint32_t principal = proc_current_principal();
+    uint32_t principal = proc_current_principal_or(PRINCIPAL_SHELL);
     if (!vsnd_check_audio_cap(principal, AUDIO_CAP_PLAY)) return VSND_EPERM;
 
     if (stream_id >= cfg.streams) return SND_EPROTO;
@@ -465,7 +460,7 @@ int vsnd_set_params(uint32_t stream_id, uint32_t format, uint32_t rate, uint32_t
 static int playback_ctl(uint32_t stream_id, uint32_t code)
 {
     if (!live) return SND_ENODEV;
-    if (!vsnd_check_audio_cap(proc_current_principal(), AUDIO_CAP_PLAY)) return VSND_EPERM;
+    if (!vsnd_check_audio_cap(proc_current_principal_or(PRINCIPAL_SHELL), AUDIO_CAP_PLAY)) return VSND_EPERM;
     if (stream_id >= cfg.streams || info[stream_id].direction != VIRTIO_SND_D_OUTPUT) return SND_EPROTO;
 
     uint8_t *req = (uint8_t *)(ctrl_page + OFF_REQ);
@@ -555,7 +550,7 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
     if (!live) return SND_ENODEV;
 
     /* Permission check: caller must have AUDIO_CAP_PLAY */
-    uint32_t principal = proc_current_principal();
+    uint32_t principal = proc_current_principal_or(PRINCIPAL_SHELL);
     if (!vsnd_check_audio_cap(principal, AUDIO_CAP_PLAY)) return VSND_EPERM;
 
     if (stream_id >= cfg.streams) return SND_EPROTO;
@@ -598,7 +593,7 @@ int vsnd_play_tone(uint32_t stream_id, uint32_t freq_hz, uint32_t duration_ms)
 int vsnd_play_tts(uint32_t stream_id, const char *text, size_t len)
 {
     if (!live) return SND_ENODEV;
-    uint32_t principal = proc_current_principal();
+    uint32_t principal = proc_current_principal_or(PRINCIPAL_SHELL);
     if (!vsnd_check_audio_cap(principal, AUDIO_CAP_PLAY)) return VSND_EPERM;
     if (stream_id >= cfg.streams || info[stream_id].direction != VIRTIO_SND_D_OUTPUT) return SND_EPROTO;
     if (!text || len == 0 || len > 6u) return VSND_EARG;
@@ -673,7 +668,7 @@ static int capture_command(size_t request)
 
 static int capture_probe(void)
 {
-    if (!vsnd_check_audio_cap(proc_current_principal(), AUDIO_CAP_RECORD)) return VSND_EPERM;
+    if (!vsnd_check_audio_cap(proc_current_principal_or(PRINCIPAL_SHELL), AUDIO_CAP_RECORD)) return VSND_EPERM;
     if (!live) return SND_ENODEV;
     struct sq *q = &Q[VIRTIO_SND_VQ_RX];
     if (q->vq.qn < 2u * RX_SLOTS) return SND_EPROTO;

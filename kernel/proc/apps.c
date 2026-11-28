@@ -44,6 +44,12 @@ int apps_running(uint32_t app)
     return run[app].pid;
 }
 
+int apps_focus(uint32_t app)
+{
+    int pid = apps_running(app);
+    return pid > 0 && ui_sys_focus_owner(pid, run[app].gen);
+}
+
 int apps_available(uint32_t app)
 {
     const struct appdef *d = def(app);

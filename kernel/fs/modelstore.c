@@ -80,14 +80,21 @@ int ms_verify_object(const struct ms_volume *v, uint32_t index, ms_read_fn rd, v
 {
     if (!v || !rd || index >= v->nobjects) return MS_EARG;
     const struct ms_object *o = &v->obj[index];
-    struct sha256 c; uint8_t buf[MS_SECTOR], d[32]; sha256_init(&c);
+    struct sha256 c;
+    uint8_t buf[MS_VERIFY_BATCH_SECTORS * MS_SECTOR], d[32];
+    sha256_init(&c);
     uint64_t left = o->size;
-    for (uint64_t s = 0; s < o->sectors; s++) {
-        if (rd(ctx, o->first_sector + s, 1, buf) != 0) return MS_EIO;
-        uint64_t take = left < MS_SECTOR ? left : MS_SECTOR;
-        sha256_update(&c, buf, (size_t)take);
-        if (take < MS_SECTOR && !all_zero(buf + take, MS_SECTOR - (size_t)take)) return MS_EDATA;   /* the tail of the last sector is zero */
+    for (uint64_t sector = 0; sector < o->sectors;) {
+        uint64_t remaining = o->sectors - sector;
+        uint32_t count = remaining < MS_VERIFY_BATCH_SECTORS ?
+                         (uint32_t)remaining : MS_VERIFY_BATCH_SECTORS;
+        if (rd(ctx, o->first_sector + sector, count, buf) != 0) return MS_EIO;
+        size_t bytes = (size_t)count * MS_SECTOR;
+        size_t take = left < bytes ? (size_t)left : bytes;
+        sha256_update(&c, buf, take);
+        if (take < bytes && !all_zero(buf + take, bytes - take)) return MS_EDATA;
         left -= take;
+        sector += count;
     }
     sha256_final(&c, d);
     return sha256_equal(d, o->digest) ? MS_OK : MS_EDATA;

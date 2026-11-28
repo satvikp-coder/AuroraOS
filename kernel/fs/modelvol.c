@@ -3,8 +3,8 @@
 #include <blk.h>
 #include <console.h>
 
-/* Static, bounded storage: the header sector, the largest legal table (MS_MAX_OBJECTS entries) and the parsed volume. Object data is streamed one sector at a
- * time by ms_verify_object(); nothing proportional to the volume size is ever held. */
+/* Static, bounded storage: the header sector, the largest legal table (MS_MAX_OBJECTS entries) and the parsed volume. Object data is streamed in 4 KiB batches by
+ * ms_verify_object(). The amount of scratch stays fixed for all volume sizes. */
 static uint8_t HDR[MS_SECTOR];
 static uint8_t TBL[((MS_MAX_OBJECTS * MS_ENTRY + MS_SECTOR - 1) / MS_SECTOR) * MS_SECTOR];
 static struct ms_volume VOL;

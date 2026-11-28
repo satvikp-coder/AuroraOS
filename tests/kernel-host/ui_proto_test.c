@@ -267,6 +267,7 @@ int main(void)
         CHECK("when focus moves, B receives the keys and A none", n == 14 && to.pid == 2 && to.gen == 200);
         CHECK("an unknown slot cannot take focus", uip_set_focus(&S, 7) == UIP_ESTALE && uip_set_focus(&S, -2) == UIP_ESTALE && uip_set_focus(&S, 99) == UIP_ESTALE && S.focus == sb);
         CHECK("focusing raises the surface to the top of the z-order", S.z[S.nz - 1] == sb);
+        CHECK("an unplaced instance cannot take focus", uip_focus_owner(&S, A.pid, A.gen) == UIP_ESTALE && S.focus == sb);
         CHECK("an unplaced surface receives no pointer events", uip_route_pointer(&S, 100, 100, 1, 1, &to, ev, sizeof ev) == 0);
         CHECK("placement outside the content region is refused (left, top, right, bottom, overflow)", uip_place(&S, sa, 39, 96) == UIP_EBADARG && uip_place(&S, sa, 40, 95) == UIP_EBADARG && uip_place(&S, sa, 40 + 944 - 255, 96) == UIP_EBADARG && uip_place(&S, sa, 40, 96 + 520 - 159) == UIP_EBADARG && uip_place(&S, sa, 32767, 32767) == UIP_EBADARG);
         CHECK("placement inside the region, flush with its edges, is accepted", uip_place(&S, sa, 40, 96) == UIP_OK && uip_place(&S, sb, 40 + 944 - 256, 96 + 520 - 160) == UIP_OK);
@@ -276,6 +277,14 @@ int main(void)
         uip_place(&S, sb, 40, 96);                                       /* now B overlaps A exactly and is on top */
         n = uip_route_pointer(&S, 60, 110, 1, 1, &to, ev, sizeof ev);
         CHECK("where surfaces overlap the topmost one gets the event, the other none", n == 14 && to.pid == 2);
+        CHECK("a stale generation cannot focus a recycled PID's surface",
+              uip_focus_owner(&S, A.pid, A.gen + 1) == UIP_ESTALE && S.focus == sb && S.z[S.nz - 1] == sb);
+        CHECK("activation focuses and raises the matching live generation",
+              uip_focus_owner(&S, A.pid, A.gen) == UIP_OK && S.focus == sa && S.z[S.nz - 1] == sa);
+        CHECK("the activated app receives keys and pointer events in the overlap",
+              uip_route_key(&S, 30, 0, 1, 0, &to, ev, sizeof ev) == 14 && to.pid == A.pid && to.gen == A.gen &&
+              uip_route_pointer(&S, 60, 110, 1, 1, &to, ev, sizeof ev) == 14 && to.pid == A.pid && to.gen == A.gen);
+        uip_set_focus(&S, sb);
         CHECK("a close request goes to the focused surface's owner only", uip_route_close(&S, &to, ev, sizeof ev) == 8 && to.pid == 2 && ev[1] == UIP_CLOSE_REQUEST);
         do_simple(&B, UIP_DESTROY_SURFACE, hb);
         CHECK("destroying the focused surface clears focus, so no key reaches anyone", S.focus == -1 && uip_route_key(&S, 30, 0, 1, 0, &to, ev, sizeof ev) == 0 && uip_route_close(&S, &to, ev, sizeof ev) == 0);
