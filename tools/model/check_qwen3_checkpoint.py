@@ -47,7 +47,7 @@ def unique_keys(items):
     return result
 
 
-def check_checkpoint(stream):
+def read_checkpoint_directory(stream):
     size = stream.seek(0, os.SEEK_END)
     stream.seek(0)
     prefix = stream.read(8)
@@ -89,7 +89,12 @@ def check_checkpoint(stream):
         cursor = end
     if cursor != size - length - 8:
         raise ValueError("payload extent differs from file size")
-    return len(header), cursor
+    return header, length + 8, cursor
+
+
+def check_checkpoint(stream):
+    header, _, payload = read_checkpoint_directory(stream)
+    return len(header), payload
 
 
 def main():
