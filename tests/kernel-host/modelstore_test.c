@@ -81,6 +81,19 @@ static void build(const struct spec *s, uint32_t n)
 static int rd(void *ctx, uint64_t sector, uint32_t count, uint8_t *buf) { (void)ctx; if (sector + count > TOTAL) return -1; memcpy(buf, img + sector * MS_SECTOR, count * MS_SECTOR); return 0; }
 static struct ms_volume V;
 static int parse(void) { return ms_parse(img, img + MS_SECTOR, MS_SECTOR, &V); }                    /* the table is sector 1 (up to 4 entries fit one sector) */
+struct batch_reads { uint64_t next; uint32_t calls, sectors; int fail_second; };
+
+static int batch_rd(void *ctx, uint64_t sector, uint32_t count, uint8_t *buf)
+{
+    struct batch_reads *trace = ctx;
+    if (sector != trace->next || !count || count > 8) return -1;
+    trace->calls++;
+    if (trace->fail_second && trace->calls == 2) return -1;
+    trace->next += count;
+    trace->sectors += count;
+    return rd(0, sector, count, buf);
+}
+
 static int bad_rd(void *c, uint64_t s, uint32_t n, uint8_t *b) { (void)c; (void)s; (void)n; (void)b; return -1; }
 
 int main(void)
@@ -118,6 +131,14 @@ int main(void)
       }
       printf("    (%d single-byte mutations of the header and table; %d accepted)\n", tried, survived);
       check("every single-byte change anywhere in the header sector or the table sector is rejected (0 accepted)", survived == 0 && tried == 3 * 2 * MS_SECTOR); }
+    struct batch_reads trace = { .next = V.obj[1].first_sector };
+    check("ten sectors verify in two ordered reads using one page of scratch",
+          ms_verify_object(&V, 1, batch_rd, &trace) == MS_OK &&
+          trace.calls == 2 && trace.sectors == 10);
+    trace = (struct batch_reads){ .next = V.obj[1].first_sector, .fail_second = 1 };
+    check("a failed final batch returns I/O error",
+          ms_verify_object(&V, 1, batch_rd, &trace) == MS_EIO && trace.calls == 2);
+
     /* ---- every single-byte change inside an object's sectors, including the zero tail, is detected ---- */
     { int survived = 0, tried = 0; V.nobjects = 3; ms_parse(img, img + MS_SECTOR, MS_SECTOR, &V);
       for (uint32_t o = 0; o < 3; o++)
