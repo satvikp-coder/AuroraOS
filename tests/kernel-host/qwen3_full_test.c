@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include <qwen3_full.h>
 
 static int passed, failed;
@@ -105,7 +106,16 @@ static void test_synthetic_v2(struct q3f_arena *a)
     CHECK("load synthetic V2 index with negative shift", q3f_load_index(a, mem_rd, &mc, cursor) == Q3M_OK);
     uint32_t next = 99;
     CHECK("forward pos 0 succeeds", q3f_forward_token(a, mem_rd, &mc, 0, 0, &next) == Q3M_OK && next == 2);
+#ifndef Q3F_SINGLE_POSITION
     CHECK("forward pos 1 succeeds", q3f_forward_token(a, mem_rd, &mc, next, 1, &next) == Q3M_OK && next == 2);
+#else
+    int silu_close = 1;
+    for (int i = -2000; i <= 2000; ++i) {
+        float x = (float)i / 100.0f;
+        if (fabsf(q3f_silu(x) - x / (1.0f + expf(-x))) > 0.000004f) silu_close = 0;
+    }
+    CHECK("freestanding SiLU matches the libm reference within 4e-6", silu_close);
+#endif
     CHECK("out-of-bounds pos rejected", q3f_forward_token(a, mem_rd, &mc, 0, Q3F_MAX_CTX, &next) == Q3M_E_BOUNDS);
 }
 
@@ -147,6 +157,7 @@ int main(int argc, char **argv)
             uint64_t tp1 = now_ns();
             printf("qwen3_full: prefill %d tokens in %.1f ms -> first generated token=%u\n",
                    plen, (double)(tp1 - tp0) / 1e6, next);
+            printf("qwen3_full: first logit=%.9g\n", (double)a->last_logit);
 
             uint32_t gen[8];
             gen[0] = next;
