@@ -630,6 +630,7 @@ int vsnd_playback_selftest(void)
     if (rc == SND_OK) rc = vsnd_prepare(0);
     if (rc == SND_OK) rc = vsnd_start(0);
     if (rc == SND_OK) rc = vsnd_play_tone(0, 440, 20);
+    if (rc == SND_OK) rc = vsnd_play_tts(0, "Home", 4);
     if (rc == SND_OK) rc = vsnd_stop(0);
     if (rc == SND_OK) rc = vsnd_release(0);
     (void)vsnd_revoke_audio(PRINCIPAL_SHELL);
