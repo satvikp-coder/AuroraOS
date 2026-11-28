@@ -1439,6 +1439,30 @@ static void pin_lock_scaled(struct shell *sh, const struct geo *g)
     if (d) d->c.h = iy + bh + 16 - y;
 }
 
+static void mic_prompt_scaled(struct shell *sh, const struct geo *g)
+{
+    const struct pal *P = PAL(sh);
+    add(sh, 0, 0, g->W, g->H, 0, UI_LAYER_SCRIM, UI_PANEL, 0, P->scrim, 0xF710u, SOLID);
+    int32_t w = 460 * (int32_t)sh->text_pct / 100; if (w < 460) w = 460; if (w > g->W - 48) w = g->W - 48;
+    int32_t x = (g->W - w) / 2, y = g->hdr_h + 24;
+    struct ui_widget *d = add(sh, x, y, w, 100, 20, UI_LAYER_MODAL, UI_PANEL, 0, P->surface, 0xF711u, SOLID);
+    if (d) { d->border_w = 2; d->border = P->focus; }
+    int32_t iy = y + 16, iw = w - 32;
+    struct fnt f18 = pick_font(18, sh->text_pct), f14 = pick_font(14, sh->text_pct);
+    int32_t th = lh_of(f18, 1) + 4;
+    struct ui_widget *t = add(sh, x + 16, iy, iw, th, 0, UI_LAYER_MODAL, UI_LABEL, "Microphone Permission", P->surface, 0xF712u, SOLID);
+    if (t) { t->font_size = f18.size; t->mag = f18.mag; t->bold = 1; t->ink = P->ink; }
+    iy += th + 8;
+    int32_t mh = lh_of(f14, 0) + 4;
+    struct ui_widget *ml = add(sh, x + 16, iy, iw, mh, 0, UI_LAYER_MODAL, UI_LABEL, sh->mic_req_line, P->surface, 0xF713u, SOLID);
+    if (ml) { ml->font_size = f14.size; ml->mag = f14.mag; ml->ink = P->ink; }
+    iy += mh + 12;
+    int32_t bw = (iw - 12) / 2; if (bw > 180) bw = 180;
+    int32_t bh = sb(sh, x + 16, iy, bw, 48, "Deny", SID_MIC_DENY, 1, UI_LAYER_MODAL);
+    (void)sb(sh, x + 16 + bw + 12, iy, bw, 48, "Allow Mic", SID_MIC_ALLOW, 1, UI_LAYER_MODAL);
+    if (d) d->c.h = iy + bh + 16 - y;
+}
+
 static void build_clients(struct shell *sh);
 
 static void build_scaled(struct shell *sh)
@@ -1538,6 +1562,7 @@ static void build(struct shell *sh)
     build_corner(sh);
     }
     if (sh->review_open) { struct geo g = make_geo(sh); review_flow(sh, &g); }                  /* above everything the shell and every client can draw */
+    if (sh->mic_prompt_open && !shell_is_locked(sh)) { struct geo g = make_geo(sh); mic_prompt_scaled(sh, &g); }
     if (shell_is_locked(sh)) { struct geo g = make_geo(sh); pin_lock_scaled(sh, &g); }
     toast_add(sh);
     mic_badge_add(sh);
@@ -1581,6 +1606,7 @@ int shell_pin_set(struct shell *sh, const uint8_t salt[PIN_SALT_LEN], const char
     if (!sh) return PIN_E_ARG;
     int rc = pin_set(&sh->pin, salt, digits, len);
     if (rc == PIN_OK) {
+        (void)mic_ind_stop(&sh->mic, MIC_ACTOR_COMPOSITOR);
         for (size_t i = 0; i < sizeof(sh->pin_buf); ++i) sh->pin_buf[i] = 0;
         sh->pin_len = 0;
         scpy(sh->pin_msg, sizeof sh->pin_msg, "Enter PIN to unlock");
@@ -1596,6 +1622,7 @@ int shell_pin_lock(struct shell *sh)
     if (!sh) return PIN_E_ARG;
     int rc = pin_lock_now(&sh->pin);
     if (rc == PIN_OK && shell_is_locked(sh)) {
+        (void)mic_ind_stop(&sh->mic, MIC_ACTOR_COMPOSITOR);
         for (size_t i = 0; i < sizeof(sh->pin_buf); ++i) sh->pin_buf[i] = 0;
         sh->pin_len = 0;
         scpy(sh->pin_msg, sizeof sh->pin_msg, "Screen locked");
@@ -1625,7 +1652,46 @@ int shell_mic_stop(struct shell *sh)
 void shell_mic_owner_gone(struct shell *sh, uint32_t pid, uint64_t gen)
 {
     if (!sh) return;
-    if (mic_ind_owner_gone(&sh->mic, pid, gen)) { build(sh); sh->dirty = 1; }
+    int changed = mic_ind_owner_gone(&sh->mic, pid, gen);
+    if (sh->mic_prompt_open && sh->mic_req_pid == pid && sh->mic_req_gen == gen) {
+        sh->mic_prompt_open = 0;
+        sh->mic_perm_decision = 0;
+        ui_modal_pop(&sh->fx);
+        changed = 1;
+    }
+    if (changed) { build(sh); sh->dirty = 1; }
+}
+
+int shell_mic_prompt_open(struct shell *sh, uint32_t principal, uint32_t pid, uint64_t gen, const char *requester_name)
+{
+    if (!sh || !requester_name || !requester_name[0] || !pid) return -1;
+    if (shell_is_locked(sh) || sh->review_open || sh->about_open || sh->corner_open || sh->mic_prompt_open)
+        return -2;
+    sh->mic_prompt_open = 1;
+    sh->mic_perm_decision = 0;
+    sh->mic_req_principal = principal;
+    sh->mic_req_pid = pid;
+    sh->mic_req_gen = gen;
+    uint32_t n = 0;
+    for (; n + 1 < sizeof(sh->mic_req_line) && requester_name[n]; ++n) sh->mic_req_line[n] = requester_name[n];
+    const char *suf = " requests microphone access";
+    for (uint32_t j = 0; n + 1 < sizeof(sh->mic_req_line) && suf[j]; ++j) sh->mic_req_line[n++] = suf[j];
+    sh->mic_req_line[n] = 0;
+    build(sh);
+    ui_modal_push(&sh->fx, UI_LAYER_MODAL);
+    sh->dirty = 1;
+    return 0;
+}
+
+int shell_mic_take_decision(struct shell *sh, uint32_t *principal, uint32_t *pid, uint64_t *gen, int *allowed)
+{
+    if (!sh || !sh->mic_perm_decision) return 0;
+    if (principal) *principal = sh->mic_req_principal;
+    if (pid) *pid = sh->mic_req_pid;
+    if (gen) *gen = sh->mic_req_gen;
+    if (allowed) *allowed = (sh->mic_perm_decision == 1) ? 1 : 0;
+    sh->mic_perm_decision = 0;
+    return 1;
 }
 
 int shell_set_text_scale(struct shell *sh, uint32_t pct)
@@ -1791,6 +1857,12 @@ static void activate(struct shell *sh, uint32_t id)
     case SID_CLOCK_CANCEL: clk_cancel(sh); build(sh); { int32_t k = shell_find(sh, SID_CLOCK_START); if (k >= 0) ui_focus_set(&sh->fx, k); } break;
     case SID_CLOCK_HOME: shell_go(sh, SCR_HOME); break;
     case SID_REVIEW_CANCEL: review_decline(sh); break;
+    case SID_MIC_ALLOW:
+        if (sh->mic_prompt_open) { sh->mic_perm_decision = 1; sh->mic_prompt_open = 0; ui_modal_pop(&sh->fx); build(sh); }
+        break;
+    case SID_MIC_DENY:
+        if (sh->mic_prompt_open) { sh->mic_perm_decision = 2; sh->mic_prompt_open = 0; ui_modal_pop(&sh->fx); build(sh); }
+        break;
     case SID_REVIEW_APPROVE: {
         if (!sh->review_open) break;
         int rc = rv_approve(&sh->rv, sh->now_ms, sh->rv.ticket);
@@ -1821,7 +1893,7 @@ static void activate(struct shell *sh, uint32_t id)
  * Escape clears a non-empty query. Returns 1 when the event was consumed here. Printable ASCII only; the field never exceeds IDX_MAX_QUERY. */
 static int index_input(struct shell *sh, const struct input_event *e)
 {
-    if (sh->screen != SCR_INDEX || sh->about_open || sh->corner_open || sh->review_open) return 0;
+    if (sh->screen != SCR_INDEX || sh->about_open || sh->corner_open || sh->review_open || sh->mic_prompt_open) return 0;
     if (e->kind == IN_TEXT) {
         sh->fx.focus = -1;                                       /* typing means the search field has the focus, not a button */
         if (e->ch >= 0x20 && e->ch <= 0x7e && sh->qlen < IDX_MAX_QUERY) { sh->query[sh->qlen++] = (char)e->ch; index_refresh(sh); }
@@ -1899,7 +1971,7 @@ static int shell_handle_core(struct shell *sh, const struct input_event *e)
     switch (e->kind) {
     case IN_KEY_DOWN:
         r = ui_key(&sh->fx, e);
-        if (r == UI_ESCAPE) { r = SHELL_NONE; if (sh->review_open) review_decline(sh); else if (sh->about_open) set_about(sh, 0); else if (sh->corner_open) set_corner(sh, 0); else shell_back(sh); }
+        if (r == UI_ESCAPE) { r = SHELL_NONE; if (sh->review_open) review_decline(sh); else if (sh->mic_prompt_open) { sh->mic_perm_decision = 2; sh->mic_prompt_open = 0; ui_modal_pop(&sh->fx); } else if (sh->about_open) set_about(sh, 0); else if (sh->corner_open) set_corner(sh, 0); else shell_back(sh); }
         break;
     case IN_PTR_MOVE: shell_set_pointer(sh, e->x, e->y); return 1;
     case IN_PTR_DOWN: shell_set_pointer(sh, e->x, e->y); ui_pointer_down(&sh->fx, e->x, e->y); break;

@@ -20,6 +20,9 @@ int         modelvol_state(void);        /* MODELVOL_ABSENT / VALID / INVALID */
 int         modelvol_error(void);        /* MS_OK when valid or absent, else the ms_* code (or MODELVOL_ETRUNC) that rejected it */
 uint32_t    modelvol_objects(void);      /* number of verified objects when VALID, else 0 */
 struct ms_object;
+struct mt_trust_table;
 const struct ms_object *modelvol_object(uint32_t index);   /* the verified table entry when VALID and index < modelvol_objects(), else 0 */
 const char *modelvol_strerror(int rc);
+/* Configure trusted publisher keys and optional fail-closed V2-only policy (for boot/selftests). */
+void        modelvol_set_trust(const struct mt_trust_table *trust, int require_signed);
 #endif

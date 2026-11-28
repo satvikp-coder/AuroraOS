@@ -21,7 +21,7 @@
 #define Q3M_ENTRY_SIZE     32u
 #define Q3M_CHUNK          4096u
 #define Q3M_MAX_LAYERS     32u
-#define Q3M_MAX_TENSORS    256u
+#define Q3M_MAX_TENSORS    512u
 #define Q3M_MAX_VOCAB      151936u
 #define Q3M_MAX_HIDDEN     2048u
 #define Q3M_MAX_INTER      8192u
@@ -238,7 +238,13 @@ static inline int q3m_read_tensor_desc(const struct q3m_header *h,
     } else if (layer >= h->num_layers || role < Q3M_T_EMBED || role > Q3M_T_LM_HEAD) {
         return Q3M_E_FORMAT;
     }
-    if (rows == 0 || cols == 0 || shift > 31u) return Q3M_E_DIMS;
+    int32_t sshift = (int32_t)shift;
+    if (rows == 0 || cols == 0) return Q3M_E_DIMS;
+    if (h->version == 2u) {
+        if (sshift < -15 || sshift > 31) return Q3M_E_DIMS;
+    } else if (shift > 31u) {
+        return Q3M_E_DIMS;
+    }
 
     uint64_t expected_elems = (uint64_t)rows * (uint64_t)cols;
     if (tbytes != expected_elems) return Q3M_E_BOUNDS;

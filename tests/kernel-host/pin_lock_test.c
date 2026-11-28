@@ -59,6 +59,34 @@ int main(void)
     CHECK("old PIN rejected after change", pin_unlock(&pl, 4000, "482910", 6) == PIN_E_BAD_PIN);
     CHECK("new PIN unlocks", pin_unlock(&pl, 4100, "7777", 4) == PIN_OK && pl.state == PIN_STATE_UNLOCKED);
 
+    /* PBKDF2-HMAC-SHA256 RFC 6070-equivalent test vectors (iterations = 1 and 2) */
+    uint8_t kdf[32];
+    static const uint8_t exp_c1[32] = {
+        0x12,0x0f,0xb6,0xcf,0xfc,0xf8,0xb3,0x2c,0x43,0xe7,0x22,0x52,0x56,0xc4,0xf8,0x37,
+        0xa8,0x65,0x48,0xc9,0x2c,0xcc,0x35,0x48,0x08,0x05,0x98,0x7c,0xb7,0x0b,0xe1,0x7b
+    };
+    static const uint8_t exp_c2[32] = {
+        0xae,0x4d,0x0c,0x95,0xaf,0x6b,0x46,0xd3,0x2d,0x0a,0xdf,0xf9,0x28,0xf0,0x6d,0xd0,
+        0x2a,0x30,0x3f,0x8e,0xf3,0xc2,0x51,0xdf,0xd6,0xe2,0xd8,0x5a,0x95,0x47,0x4c,0x43
+    };
+    pbkdf2_hmac_sha256("password", 8, "salt", 4, 1, kdf);
+    CHECK("PBKDF2-HMAC-SHA256 c=1 vector", sha256_equal(kdf, exp_c1));
+    pbkdf2_hmac_sha256("password", 8, "salt", 4, 2, kdf);
+    CHECK("PBKDF2-HMAC-SHA256 c=2 vector", sha256_equal(kdf, exp_c2));
+
+    /* Persistence export/import across reboot: always starts LOCKED, rejects corruption */
+    uint8_t rec[PIN_REC_BYTES];
+    CHECK("export enrolled PIN succeeds", pin_export(&pl, rec) == PIN_OK);
+    struct pin_lock pl2;
+    pin_init(&pl2);
+    CHECK("import valid record starts LOCKED", pin_import(&pl2, rec, 5000) == PIN_OK && pl2.state == PIN_STATE_LOCKED);
+    CHECK("imported record verifies PIN", pin_unlock(&pl2, 5100, "7777", 4) == PIN_OK && pl2.state == PIN_STATE_UNLOCKED);
+
+    rec[20] ^= 0x01;
+    struct pin_lock pl_bad;
+    pin_init(&pl_bad);
+    CHECK("corrupted record rejected fail-closed", pin_import(&pl_bad, rec, 5200) == PIN_E_FORMAT && pl_bad.state == PIN_STATE_UNSET);
+
     printf("pin_lock: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;
 }
