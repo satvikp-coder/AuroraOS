@@ -178,7 +178,7 @@ static const char *client_name(uint8_t pid) { struct proc *p = proc_get(pid); re
  * the event was consumed and the shell must not see it. */
 static int route_client(const struct input_event *e)
 {
-    int blocked = SH.about_open || SH.corner_open || SH.review_open;     /* a modal (the trusted review included) withholds EVERYTHING from clients */
+    int blocked = SH.about_open || SH.corner_open || SH.review_open || shell_is_locked(&SH);     /* a modal (review or PIN lock included) withholds EVERYTHING from clients */
     switch (e->kind) {
     case IN_PTR_MOVE:
         if (!blocked) ui_sys_pointer(e->x, e->y, 0, 0);
