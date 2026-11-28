@@ -111,6 +111,12 @@ static void full(void)
             good && off == SIZES[k] && chunks == (k == 0 ? 3 : 1));
     }
     { i64 r = mc(READ, 0, 500, (i64)buf, 1000); ok_("read: offset 500 length 1000 (crosses two sector boundaries) -> 1000 right bytes", r == 1000 && same(0, 500, buf, 1000)); }
+    {
+        buf[4096] = 0xA5;
+        i64 r = mc(READ, 0, 511, (i64)buf, 4096);
+        ok_("read: unaligned max request spans nine sectors and preserves the guard byte",
+            r == 4096 && same(0, 511, buf, 4096) && buf[4096] == 0xA5);
+    }
     { i64 r = mc(READ, 0, 9990, (i64)buf, 4096); ok_("read: 10 bytes before the end with length 4096 -> clamped to 10", r == 10 && same(0, 9990, buf, 10)); }
     { i64 r = mc(READ, 1, 699, (i64)buf + 4095, 1); ok_("read: the last byte, into the last byte of the buffer -> 1", r == 1 && buf[4095] == want(1, 699)); }
     ok_("read: offset == size -> 0 (EOF)", mc(READ, 2, 512, (i64)buf, 4096) == 0);
