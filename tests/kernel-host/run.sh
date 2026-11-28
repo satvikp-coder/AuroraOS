@@ -14,6 +14,10 @@ cc $CFLAGS -o "$OUT/uvlayout_test" "$ROOT/tests/kernel-host/uvlayout_test.c"
 cc $CFLAGS -o "$OUT/heapacct_test" "$ROOT/tests/kernel-host/heapacct_test.c"
 cc $CFLAGS -o "$OUT/modelstore_test" "$ROOT/tests/kernel-host/modelstore_test.c" "$ROOT/kernel/fs/modelstore.c" "$ROOT/kernel/crypto/sha256.c"
 monocypher="$ROOT/third_party/monocypher/src"
+cc $CFLAGS -I"$monocypher" -I"$monocypher/optional" -o "$OUT/model_signed_volume_test" \
+    "$ROOT/tests/kernel-host/model_signed_volume_test.c" "$ROOT/kernel/fs/model_signed_volume.c" \
+    "$ROOT/kernel/fs/modelstore.c" "$ROOT/kernel/crypto/sha256.c" \
+    "$monocypher/monocypher.c" "$monocypher/optional/monocypher-ed25519.c"
 cc $CFLAGS -I"$monocypher" -I"$monocypher/optional" -o "$OUT/ed25519_test" \
     "$ROOT/tests/kernel-host/ed25519_test.c" "$monocypher/monocypher.c" "$monocypher/optional/monocypher-ed25519.c"
 cc $CFLAGS -o "$OUT/model_trust_test" "$ROOT/tests/kernel-host/model_trust_test.c"
@@ -70,6 +74,7 @@ cc $CFLAGS -o "$OUT/ledger_test" "$ROOT/tests/kernel-host/ledger_test.c" "$ROOT/
 "$OUT/modelstore_test"
 "$OUT/model_trust_test"
 "$OUT/ed25519_test"
+"$OUT/model_signed_volume_test"
 "$OUT/modelsys_test"
 "$OUT/matvec_test"
 "$OUT/fwcfg_test"
