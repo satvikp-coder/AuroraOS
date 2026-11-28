@@ -20,12 +20,12 @@ static int name_ok(const uint8_t *n, char *out)
 }
 static int same_name(const char *a, const char *b) { for (size_t i = 0; i <= MS_NAME_MAX; i++) { if (a[i] != b[i]) return 0; if (!a[i]) return 1; } return 1; }
 
-int ms_parse(const uint8_t *h, const uint8_t *t, size_t table_len, struct ms_volume *out)
+static int parse_metadata(const uint8_t *h, const uint8_t *t, size_t table_len, struct ms_volume *out, uint32_t version)
 {
     if (!h || !out || (!t && table_len)) return MS_EARG;
     static const uint8_t MAGIC[8] = { 'A', 'U', 'R', 'M', 'O', 'D', 'E', 'L' };
     for (int i = 0; i < 8; i++) if (h[i] != MAGIC[i]) return MS_EMAGIC;
-    if (g32(h + 8) != 1) return MS_EVERSION;
+    if (g32(h + 8) != version) return MS_EVERSION;
     if (g32(h + 12) != MS_SECTOR) return MS_EGEOM;
     uint64_t total = g64(h + 16); uint32_t n = g32(h + 24), ts = g32(h + 28), tn = g32(h + 32);
     if (n > MS_MAX_OBJECTS) return MS_ECOUNT;
@@ -43,6 +43,9 @@ int ms_parse(const uint8_t *h, const uint8_t *t, size_t table_len, struct ms_vol
     if (!sha256_equal(d, h + 64)) return MS_ETBLDIG;
     if (!all_zero(t + need, padded - need)) return MS_EFORMAT;                         /* padding after the last entry is zero */
     uint64_t data_start = (uint64_t)ts + tn;
+    /* V2 dedicates the last sector to the signature envelope. */
+    uint64_t data_end = version == 2 ? total - 1 : total;
+    if (data_start > data_end) return MS_EGEOM;
     out->total_sectors = total; out->nobjects = n; out->table_sector = ts; out->table_sectors = tn;
     for (uint32_t i = 0; i < n; i++) {
         const uint8_t *e = t + (size_t)i * MS_ENTRY; struct ms_object *o = &out->obj[i];
@@ -52,7 +55,7 @@ int ms_parse(const uint8_t *h, const uint8_t *t, size_t table_len, struct ms_vol
         for (int k = 0; k < 32; k++) o->digest[k] = e[64 + k];
         if (o->size == 0 || o->size > total * MS_SECTOR) return MS_EEXTENT;
         if (o->sectors != (o->size + MS_SECTOR - 1) / MS_SECTOR) return MS_EEXTENT;    /* size <= 2^49 so the addition cannot wrap */
-        if (o->first_sector < data_start || o->first_sector > total || o->sectors > total - o->first_sector) return MS_EEXTENT;
+        if (o->first_sector < data_start || o->first_sector > data_end || o->sectors > data_end - o->first_sector) return MS_EEXTENT;
         for (uint32_t j = 0; j < i; j++) {
             if (same_name(out->obj[j].name, o->name)) return MS_EDUP;
             const struct ms_object *p = &out->obj[j];
@@ -60,6 +63,17 @@ int ms_parse(const uint8_t *h, const uint8_t *t, size_t table_len, struct ms_vol
         }
     }
     return MS_OK;
+}
+
+int ms_parse(const uint8_t *h, const uint8_t *t, size_t table_len, struct ms_volume *out)
+{
+    return parse_metadata(h, t, table_len, out, 1);
+}
+
+/* Internal geometry check; ms_preflight_signed is the public V2 entry point. */
+int ms_parse_v2_geometry(const uint8_t *h, const uint8_t *t, size_t len, struct ms_volume *out)
+{
+    return parse_metadata(h, t, len, out, 2);
 }
 
 int ms_verify_object(const struct ms_volume *v, uint32_t index, ms_read_fn rd, void *ctx)
