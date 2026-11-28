@@ -1399,8 +1399,44 @@ int shell_tick(struct shell *sh, uint64_t now_ms)
         }
         if (changed) clk_update_live(sh);
     }
+    uint8_t prev_pin = sh->pin.state;
+    pin_tick(&sh->pin, now_ms);
+    if (prev_pin == PIN_STATE_LOCKOUT && sh->pin.state == PIN_STATE_LOCKED) {
+        scpy(sh->pin_msg, sizeof sh->pin_msg, "Enter PIN to unlock");
+        changed = 1;
+    }
     if (changed) { build(sh); sh->dirty = 1; }
     return changed;
+}
+
+static void pin_lock_scaled(struct shell *sh, const struct geo *g)
+{
+    const struct pal *P = PAL(sh);
+    add(sh, 0, 0, g->W, g->H, 0, UI_LAYER_SCRIM, UI_PANEL, 0, P->scrim, 0xF700u, SOLID);
+    int32_t w = 440 * (int32_t)sh->text_pct / 100; if (w < 440) w = 440; if (w > g->W - 48) w = g->W - 48;
+    int32_t x = (g->W - w) / 2, y = g->hdr_h + 24;
+    struct ui_widget *d = add(sh, x, y, w, 100, 20, UI_LAYER_MODAL, UI_PANEL, 0, P->surface, 0xF701u, SOLID);
+    if (d) { d->border_w = 2; d->border = P->focus; }
+    int32_t iy = y + 16, iw = w - 32;
+    struct fnt f18 = pick_font(18, sh->text_pct), f14 = pick_font(14, sh->text_pct);
+    int32_t th = lh_of(f18, 1) + 4;
+    struct ui_widget *t = add(sh, x + 16, iy, iw, th, 0, UI_LAYER_MODAL, UI_LABEL, "AuroraOS Locked", P->surface, 0xF702u, SOLID);
+    if (t) { t->font_size = f18.size; t->mag = f18.mag; t->bold = 1; t->ink = P->ink; }
+    iy += th + 8;
+    for (uint8_t i = 0; i < sh->pin_len && i < PIN_MAX_LEN; i++) sh->pin_dots[i] = '*';
+    sh->pin_dots[sh->pin_len <= PIN_MAX_LEN ? sh->pin_len : PIN_MAX_LEN] = 0;
+    const char *dots = sh->pin_len ? sh->pin_dots : "(enter 4-8 digit PIN)";
+    int32_t dh = lh_of(f14, 0) + 12;
+    struct ui_widget *df = add(sh, x + 16, iy, iw, dh, 8, UI_LAYER_MODAL, UI_LABEL, dots, P->canvas, 0xF703u, SOLID);
+    if (df) { df->font_size = f14.size; df->mag = f14.mag; df->ink = P->ink; df->border_w = 1; df->border = P->border; }
+    iy += dh + 8;
+    int32_t mh = lh_of(f14, 0) + 4;
+    struct ui_widget *ml = add(sh, x + 16, iy, iw, mh, 0, UI_LAYER_MODAL, UI_LABEL, sh->pin_msg[0] ? sh->pin_msg : "Enter PIN to unlock", P->surface, 0xF704u, SOLID);
+    if (ml) { ml->font_size = f14.size; ml->mag = f14.mag; ml->ink = P->muted; }
+    iy += mh + 12;
+    int32_t bw = 180 < iw ? 180 : iw;
+    int32_t bh = sb(sh, x + (w - bw) / 2, iy, bw, 48, "Unlock", SID_PIN_UNLOCK, 1, UI_LAYER_MODAL);
+    if (d) d->c.h = iy + bh + 16 - y;
 }
 
 static void build_clients(struct shell *sh);
@@ -1502,6 +1538,7 @@ static void build(struct shell *sh)
     build_corner(sh);
     }
     if (sh->review_open) { struct geo g = make_geo(sh); review_flow(sh, &g); }                  /* above everything the shell and every client can draw */
+    if (shell_is_locked(sh)) { struct geo g = make_geo(sh); pin_lock_scaled(sh, &g); }
     toast_add(sh);
     mic_badge_add(sh);
     for (uint32_t i = 0; i < sh->n; i++) sh->c[i] = sh->w[i].c;
@@ -1528,9 +1565,45 @@ void shell_init(struct shell *sh, uint32_t width, uint32_t height)
     sh->last_activated = SHELL_NONE;
     scpy(sh->uptime_txt, 16, "Up 0:00");
     mic_ind_init(&sh->mic);
+    pin_init(&sh->pin);
     ui_init(&sh->fx, sh->c, 0);
     build(sh);
     sh->dirty = 1;
+}
+
+int shell_is_locked(const struct shell *sh)
+{
+    return sh && (sh->pin.state == PIN_STATE_LOCKED || sh->pin.state == PIN_STATE_LOCKOUT);
+}
+
+int shell_pin_set(struct shell *sh, const uint8_t salt[PIN_SALT_LEN], const char *digits, size_t len)
+{
+    if (!sh) return PIN_E_ARG;
+    int rc = pin_set(&sh->pin, salt, digits, len);
+    if (rc == PIN_OK) {
+        for (size_t i = 0; i < sizeof(sh->pin_buf); ++i) sh->pin_buf[i] = 0;
+        sh->pin_len = 0;
+        scpy(sh->pin_msg, sizeof sh->pin_msg, "Enter PIN to unlock");
+        build(sh);
+        ui_modal_push(&sh->fx, UI_LAYER_MODAL);
+        sh->dirty = 1;
+    }
+    return rc;
+}
+
+int shell_pin_lock(struct shell *sh)
+{
+    if (!sh) return PIN_E_ARG;
+    int rc = pin_lock_now(&sh->pin);
+    if (rc == PIN_OK && shell_is_locked(sh)) {
+        for (size_t i = 0; i < sizeof(sh->pin_buf); ++i) sh->pin_buf[i] = 0;
+        sh->pin_len = 0;
+        scpy(sh->pin_msg, sizeof sh->pin_msg, "Screen locked");
+        build(sh);
+        ui_modal_push(&sh->fx, UI_LAYER_MODAL);
+        sh->dirty = 1;
+    }
+    return rc;
 }
 
 int shell_mic_begin(struct shell *sh, uint32_t principal, uint32_t pid, uint64_t gen)
@@ -1771,9 +1844,57 @@ static int index_input(struct shell *sh, const struct input_event *e)
     }
 }
 
+static void pin_submit(struct shell *sh)
+{
+    int rc = pin_unlock(&sh->pin, sh->now_ms, sh->pin_buf, sh->pin_len);
+    for (size_t i = 0; i < sizeof(sh->pin_buf); ++i) sh->pin_buf[i] = 0;
+    sh->pin_len = 0;
+    if (rc == PIN_OK) {
+        sh->pin_msg[0] = 0;
+        ui_modal_pop(&sh->fx);
+    } else if (rc == PIN_E_LOCKOUT) {
+        scpy(sh->pin_msg, sizeof sh->pin_msg, "Too many attempts; locked out");
+    } else {
+        scpy(sh->pin_msg, sizeof sh->pin_msg, "Incorrect PIN");
+    }
+}
+
+static int pin_input(struct shell *sh, const struct input_event *e)
+{
+    if (!shell_is_locked(sh)) return 0;
+    if (e->kind == IN_TEXT) {
+        if (e->ch >= '0' && e->ch <= '9' && sh->pin_len < PIN_MAX_LEN) {
+            sh->pin_buf[sh->pin_len++] = (char)e->ch;
+            sh->pin_buf[sh->pin_len] = 0;
+        }
+        return 1;
+    }
+    if (e->kind == IN_KEY_DOWN) {
+        if (e->key == KEY_BACKSPACE) {
+            if (sh->pin_len) { sh->pin_len--; sh->pin_buf[sh->pin_len] = 0; }
+            return 1;
+        }
+        if (e->key == KEY_ENTER && !e->repeat) {
+            pin_submit(sh);
+            return 1;
+        }
+        return 1; /* block all other keys while locked */
+    }
+    if (e->kind == IN_PTR_MOVE) { shell_set_pointer(sh, e->x, e->y); return 1; }
+    if (e->kind == IN_PTR_DOWN) { shell_set_pointer(sh, e->x, e->y); ui_pointer_down(&sh->fx, e->x, e->y); return 1; }
+    if (e->kind == IN_PTR_UP) {
+        shell_set_pointer(sh, e->x, e->y);
+        uint32_t r = ui_pointer_up(&sh->fx, e->x, e->y);
+        if (r == SID_PIN_UNLOCK) pin_submit(sh);
+        return 1;
+    }
+    return 1;
+}
+
 static int shell_handle_core(struct shell *sh, const struct input_event *e)
 {
     uint32_t r = SHELL_NONE;
+    if (pin_input(sh, e)) { build(sh); sh->dirty = 1; return 1; }
     if (index_input(sh, e) || aura_input(sh, e)) { build(sh); sh->dirty = 1; return 1; }   /* rebuild: hit testing must see the layout the user sees */
     switch (e->kind) {
     case IN_KEY_DOWN:

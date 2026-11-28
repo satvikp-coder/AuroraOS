@@ -356,6 +356,28 @@ int main(void)
     shell_mic_owner_gone(&sh, 4, 1); /* matching gen clears */
     CHECK("matching owner_gone clears mic badge", shell_find(&sh, 0xF611u) < 0 && sh.mic.state == MIC_IND_OFF);
 
+    /* PIN lock overlay integration */
+    static const uint8_t pin_salt[PIN_SALT_LEN] = { 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 };
+    CHECK("shell_pin_set locks shell", shell_pin_set(&sh, pin_salt, "2468", 4) == PIN_OK && shell_is_locked(&sh));
+    CHECK("lock overlay title present", shell_find(&sh, 0xF702u) >= 0 && strcmp(sh.w[shell_find(&sh, 0xF702u)].text, "AuroraOS Locked") == 0);
+    surf(); shell_draw(&sh, &S);
+    CHECK("lock overlay renders inside surface", guards_ok());
+
+    /* Typing wrong PIN keeps shell locked and shows Incorrect PIN */
+    for (int i = 0; i < 4; i++) shell_handle(&sh, &((struct input_event){ .kind = IN_TEXT, .ch = '9' }));
+    CHECK("PIN entry masked as ****", strcmp(sh.w[shell_find(&sh, 0xF703u)].text, "****") == 0);
+    shell_handle(&sh, &((struct input_event){ .kind = IN_KEY_DOWN, .key = KEY_ENTER }));
+    CHECK("wrong PIN keeps locked and sets message", shell_is_locked(&sh) && strcmp(sh.pin_msg, "Incorrect PIN") == 0);
+
+    /* Typing correct PIN unlocks and removes overlay */
+    const char *good_pin = "2468";
+    for (int i = 0; i < 4; i++) shell_handle(&sh, &((struct input_event){ .kind = IN_TEXT, .ch = good_pin[i] }));
+    shell_handle(&sh, &((struct input_event){ .kind = IN_KEY_DOWN, .key = KEY_ENTER }));
+    CHECK("correct PIN unlocks shell", !shell_is_locked(&sh) && shell_find(&sh, 0xF702u) < 0);
+
+    /* Explicit re-lock works */
+    CHECK("shell_pin_lock re-locks", shell_pin_lock(&sh) == PIN_OK && shell_is_locked(&sh));
+
     printf("shell: %d passed, %d failed\n", passed, failed);
     free(base);
     return failed ? 1 : 0;

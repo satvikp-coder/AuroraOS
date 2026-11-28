@@ -23,6 +23,7 @@
 #include <aura_cmd.h>
 #include <review.h>
 #include <mic_indicator.h>
+#include <pin_lock.h>
 #include <hold.h>
 
 enum shell_screen { SCR_HOME = 0, SCR_SPACES, SCR_INDEX, SCR_SETTINGS, SCR_PAGES, SCR_AURA, SCR_CLOCK, SCR_TRAIL, SCR_HOLD, SCR_COUNT };
@@ -43,6 +44,7 @@ enum {
     SID_CLOCK_P1 = 250, SID_CLOCK_P5, SID_CLOCK_P25, SID_CLOCK_START, SID_CLOCK_CANCEL, SID_CLOCK_HOME,  /* Clock: presets 1/5/25 min, Start, Cancel, Home */
     SID_HOLD_BTN = 270, SID_HOLD_HOME,  /* Hold-to-confirm DEMO: the hold button and Home. It confirms nothing real and enables no action (env.hold_input stays 0) */
     SID_TRAIL_NEWER = 260, SID_TRAIL_OLDER, SID_TRAIL_HOME,  /* Trail: show newer / older records, Home. There is no other control: the screen is read-only */
+    SID_PIN_UNLOCK = 280,                                    /* Lock screen: submit entered PIN */
     SID_REVIEW_CANCEL = 21, SID_REVIEW_APPROVE = 22          /* the trusted review: Cancel (or Close once it ended) and Approve */
 };
 
@@ -173,6 +175,12 @@ struct shell {
     uint32_t set_seq;                   /* number of Settings actions so far (tests, log) */
     char set_val[SHELL_SET_ROWS][24];   /* displayed value text per row */
     char set_lab[SHELL_SET_ROWS][56];   /* displayed row label per row */
+    /* PIN lock screen (compositor-owned modal overlay; blocks underlying UI while locked). */
+    struct pin_lock pin;
+    char pin_buf[PIN_MAX_LEN + 1];
+    uint8_t pin_len;
+    char pin_dots[PIN_MAX_LEN + 1];
+    char pin_msg[48];
 };
 
 #define SHELL_NONE 0xffffffffu
@@ -235,6 +243,9 @@ void shell_set_uptime(struct shell *sh, uint32_t seconds);                   /* 
 int  shell_mic_begin(struct shell *sh, uint32_t principal, uint32_t pid, uint64_t gen);
 int  shell_mic_stop(struct shell *sh);
 void shell_mic_owner_gone(struct shell *sh, uint32_t pid, uint64_t gen);
+int  shell_pin_set(struct shell *sh, const uint8_t salt[PIN_SALT_LEN], const char *digits, size_t len);
+int  shell_pin_lock(struct shell *sh);
+int  shell_is_locked(const struct shell *sh);
 void shell_set_pointer(struct shell *sh, int32_t x, int32_t y);
 /* Route one normalised input event. Returns 1 if anything visible may have changed. */
 int  shell_handle(struct shell *sh, const struct input_event *e);
