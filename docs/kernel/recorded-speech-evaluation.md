@@ -27,3 +27,22 @@ The scorer counts correct, missed and wrong commands, correct rejections and fal
 ## Proposed native boundary
 
 Use a bounded utterance of mono 16 kHz signed PCM. The trusted capture service owns permission, the visible listening state and a capture session tied to the requester generation. A decoder service in EL0 receives read-only samples and verified model assets and returns a supported command ID or no match for that utterance. The kernel attests the requester and session when accepting a result. Reject stale results after revocation, generation change or session completion, and reject unsupported formats, overlong inputs and unavailable models. Deliver accepted IDs through Aura validation and the existing Action Broker. Measure peak memory, CPU time, end-of-utterance latency and negative false accepts before choosing a native backend. No recorded Aurora command or native model was evaluated in the host reference above.
+
+## Public recorded negative controls
+
+We selected one recording of the spoken digit zero from each of the six speakers in the Free Spoken Digit Dataset (FSDD), using take index 0 for everyone. The upstream test split contains indices 0 through 4. This is a recording-level holdout; FSDD includes the same speakers in its training split. Independence from a decoder's own pretraining data is unknown. Credit the FSDD contributors for the original clips. The dataset is distributed under CC BY-SA 4.0. [Pinned dataset, split and license](https://github.com/Jakobovski/free-spoken-digit-dataset/blob/26eb9aaf76e81b692f806f9140c2d2777410d7a1/README.md) and [license terms](https://creativecommons.org/licenses/by-sa/4.0/).
+
+The table records the original WAV digests and hypotheses from the host PocketSphinx configuration above. Each clip used a fresh decoder. We converted mono signed PCM from 8 to 16 kHz by retaining each original sample and inserting the rounded-down average of adjacent samples, repeating the final sample. No audio is redistributed here. [Pinned recordings](https://github.com/Jakobovski/free-spoken-digit-dataset/tree/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings).
+
+| Clip | SHA-256 | Host transcript |
+| --- | --- | --- |
+| `0_george_0.wav` | `228ab63fccdf262d2e05817b6ec918b15e7d9e4bfb6bb20183c46ae088405240` | you know |
+| `0_jackson_0.wav` | `eea86018ce1730baaf7f5dd6ec88c1f727dd90203521a9115b489310a248ea05` | you are |
+| `0_lucas_0.wav` | `1d942e79c200ae1f84618314f2669d9c154718276b38ccf341630635073f7c06` | here are |
+| `0_nicolas_0.wav` | `527b1d27c2b931204b24995f035580dd248b908978a27756b4698ce0aa7e1aa8` | no |
+| `0_theo_0.wav` | `d5833196a91e5da8703a8afe1f944cbf0d0bae55e5af6a4eb7e92e62070bf280` | you are |
+| `0_yweweler_0.wav` | `c2d53137898d6d32ae86e9703676bcaf595080a1f4e2e3efa5ede5a49f54b6a5` | you're all |
+
+Using the complete-utterance command vocabulary, the host decoder produced **0 false accepts in 6 recorded negatives**. It transcribed zero correctly in 0 of 6 clips. This measures rejection of a single out-of-vocabulary word. Aurora command recall, rejection of confusable phrases, and native recognition remain unmeasured.
+
+To score by condition, append an optional third column named `group` to the labels TSV and pass `--breakdown` to the scorer. Each row of the breakdown includes the clip count and five outcome counts for one group and expected command. For a command row, recall is correct commands divided by clips. For a negative row, the false-accept fraction is false accepts divided by clips. An absent row has no observations.
