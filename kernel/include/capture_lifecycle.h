@@ -154,7 +154,8 @@ static inline int cap_stop(struct cap_session *s, struct cap_owner owner)
 static inline int cap_release(struct cap_session *s, struct cap_owner owner)
 {
     if (!s || !owner.generation || owner.principal == 0) return CAP_E_ARG;
-    if (s->state != CAP_PREPARED && s->state != CAP_STOPPED && s->state != CAP_REVOKED) return CAP_E_STATE;
+    if (s->state != CAP_AUTHORIZED && s->state != CAP_PREPARED &&
+        s->state != CAP_STOPPED && s->state != CAP_REVOKED) return CAP_E_STATE;
     if (!cap_owner_matches(s, owner)) return CAP_E_OWNER;
     cap_session_init(s);
     return CAP_OK;

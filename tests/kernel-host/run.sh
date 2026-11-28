@@ -164,3 +164,5 @@ cc $CFLAGS -o "$OUT/model_shed_test" "$ROOT/tests/kernel-host/model_shed_test.c"
 "$OUT/model_shed_test"
 cc $CFLAGS -o "$OUT/qwen3_full_test" "$ROOT/tests/kernel-host/qwen3_full_test.c" -lm
 "$OUT/qwen3_full_test"
+cc $CFLAGS -o "$OUT/audiosys_test" "$ROOT/tests/kernel-host/audiosys_test.c" "$ROOT/kernel/proc/audiosys.c"
+"$OUT/audiosys_test"

@@ -1,5 +1,5 @@
 /*
- * kernel/include/audiosys.h - SYS_AUDIO (42): Passport-controlled EL0 audio capture & TTS playback.
+ * kernel/include/audiosys.h - SYS_AUDIO (43): Passport-controlled EL0 audio capture & TTS playback.
  */
 #ifndef AURORA_AUDIOSYS_H
 #define AURORA_AUDIOSYS_H
