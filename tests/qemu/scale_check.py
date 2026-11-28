@@ -7,7 +7,8 @@ can be clicked), but every pass/fail rule below is stated here from the Aurora G
   * no text spills out of any control (a 2 px band around each control is background-only),
   * focus rings, active indicators, scrim and sheets have the colours of the mode,
   * the dock, Spaces, Index (type, Down, open), the About modal and the Glass Corner sheet work with real clicks and keys."""
-import shutil, argparse, math, os, sys, time
+import shutil, argparse, math, os, struct, sys, time
+from functools import lru_cache
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gfx_check import Qmp, read_ppm, wait_serial
 
@@ -66,10 +67,12 @@ def main():
     def last(prefix):
         t = log()
         return t.rsplit(prefix, 1)[-1].split(chr(10))[0].strip() if prefix in t else None
-    def wait_last(prefix, value, secs=25):
+    def wait_last(prefix, value, secs=25, *, allow_suffix=False):
         end = time.time() + secs
         while time.time() < end:
-            if last(prefix) == value: return True
+            observed = last(prefix)
+            if observed == value or (allow_suffix and observed is not None and observed.startswith(value)):
+                return True
             time.sleep(0.2)
         return False
     def layout():
@@ -113,9 +116,11 @@ def main():
                 if pred(img2) and img[2][64 * 1024 * 3:] == img2[2][64 * 1024 * 3:]: return img2
             if time.time() > end: return img
             time.sleep(0.3)
+    @lru_cache(maxsize=1)
     def colors(img):
-        w, h, d = img
-        return {tuple(d[o:o + 3]) for o in range(0, w * h * 3, 3)}
+        # read_ppm validates that the payload contains exactly w * h RGB pixels.
+        # Reuse the same exact set for diagnostics and the pass/fail assertion.
+        return set(struct.iter_unpack("BBB", img[2]))
     def key(k, d): return {"type": "key", "data": {"down": d, "key": {"type": "qcode", "data": k}}}
     def tap(k, *mods): q.cmd("input-send-event", events=[key(m, True) for m in mods] + [key(k, True), key(k, False)] + [key(m, False) for m in reversed(mods)])
     def move(x, y): q.cmd("input-send-event", events=[{"type": "abs", "data": {"axis": "x", "value": raw_for(x, 1024)}}, {"type": "abs", "data": {"axis": "y", "value": raw_for(y, 768)}}])
@@ -189,11 +194,11 @@ def main():
     # ---------------- Index: type, select, open ----------------
     check("clicking the dock Index item opens Index", click_ctrl(4) and wait_last("shell: screen=", "Index history=2"))
     for k in ("s", "e", "t"): tap(k); time.sleep(0.3)
-    check("typing 'set' reaches the search field", wait_last("shell: query=", "[set] results=1 sel=none") or (last("shell: query=") or "").startswith("[set]"))
+    check("typing 'set' reaches the search field", wait_last("shell: query=", "[set]", allow_suffix=True))
     i1 = shot("index_set")
     check("Index with a query: palette only, nothing spills out of any row", palette_ok(i1) and not band_clean(i1, layout()))
     tap("backspace"); tap("backspace"); tap("backspace"); time.sleep(0.5)
-    check("Backspace clears the field", wait_last("shell: query=", "[] results=8 sel=home") or (last("shell: query=") or "").startswith("[]"))
+    check("Backspace clears the field", wait_last("shell: query=", "[]", allow_suffix=True))
     nq = count("shell: query=")
     for _ in range(3): tap("down")
     wait_count("shell: query=", nq + 3)                                   # the guest logs each move; wait for all three instead of sleeping
