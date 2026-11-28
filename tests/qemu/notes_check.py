@@ -188,6 +188,17 @@ def main():
         check("saving fails HONESTLY: the status says the disk is full and nothing is reported saved", wait_for(lambda: last_status(1) == "Disk or quota is full", 25) and not has(1, "notes save ok"))
         check("the text stays in the editor, still unsaved", last_text(1) == "abc|")
         check("exit", quit_notes(1))
+    elif sc == "unreadable":
+        check("Notes launches with one write-only slot", launch(1))
+        check("the app says the saved state could not be read",
+              wait_for(lambda: last_status(1) == "Could not read saved state" and
+                       has(1, "notes load storage unreadable rc=107"), 20))
+        focus_surface(1); type_note("abc"); ctrl("s")
+        check("Ctrl+S refuses to choose a slot when the save order is unknown",
+              wait_for(lambda: has(1, "notes save refused unknown state") and
+                       last_status(1) == "Reopen Notes to check saved state", 20) and not has(1, "notes save ok"))
+        check("the unsaved edit stays in the editor", last_text(1) == "abc|")
+        check("exit", quit_notes(1))
     elif sc == "spacefull":
         check("Notes launches on a disk with ZERO free data blocks and loads the note that was already saved", launch(1) and wait_for(lambda: has(1, "notes load ok slot=0"), 20) and last_text(1) == "kept|")
         focus_surface(1); type_note("abc"); ctrl("s")
