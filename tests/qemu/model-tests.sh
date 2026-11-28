@@ -18,7 +18,7 @@ cd "$ROOT" || exit 1
 
 EXPECTED_VALID=9         # setup + identity + full + denied x2 + 3 lifecycle + no leaks (keep in sync with kernel/modeltest.c)
 EXPECTED_NOVOL=5         # setup + identity + novol + denied + no leaks
-EXPECTED_CLIENT_PASS=45  # "mc: PASS" lines of one FULL run (keep in sync with tests/programs/modelclient.c)
+EXPECTED_CLIENT_PASS=46  # "mc: PASS" lines of one FULL run (keep in sync with tests/programs/modelclient.c)
 EXPECTED_PROC_TESTS=128
 
 OUT="$ROOT/build/model-tests"
@@ -97,7 +97,7 @@ for order in sysfirst modelfirst; do
     count_is "$sec" "\[user p[0-9]+\] mc: PASS (count|info|read|hostile|identity|after)" $((EXPECTED_CLIENT_PASS * 6)) "valid-$order: every check of the 6 authorised FULL runs passed inside EL0"
     count_is "$sec" "\[user p[0-9]+\] mc: failures 0" 7 "valid-$order: 6 FULL runs + 1 DENIED run report 0 failures"
     count_is "$sec" "\[user p[0-9]+\] mc: PASS denied: every op" 1 "valid-$order: the DENIED run saw EPERM for every op and nothing written"
-    count_is "$sec" "\[user p[0-9]+\] mc: FAIL" 45 "valid-$order: the only FAIL lines are the 45 checks of the FULL mode run under an ordinary identity (it was refused everything)"
+    count_is "$sec" "\[user p[0-9]+\] mc: FAIL" "$EXPECTED_CLIENT_PASS" "valid-$order: the only FAIL lines are the $EXPECTED_CLIENT_PASS checks of the FULL mode run under an ordinary identity (it was refused everything)"
     count_is "$sec" "\[user p[0-9]+\] mc: PASS mid-read" 10 "valid-$order: 10 mid-object runs read their first chunk before crashing / exiting"
     count_is "$sec" "FAULT at EL0" 5 "valid-$order: exactly the 5 crash runs faulted"
     for k in 0 1 2; do
