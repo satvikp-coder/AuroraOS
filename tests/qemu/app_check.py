@@ -36,7 +36,7 @@ def main():
         return False
     q = Qmp(a.qmp, dl)
     if a.expect_offline:
-        network = q.cmd("human-monitor-command", command_line="info network")
+        network = q.cmd("human-monitor-command", **{"command-line": "info network"})
         check("QEMU reports no guest network devices or backends", not network.strip())
     check("the real kernel reached the interactive shell", wait_serial(a.serial, "shell: ready keyboards=1 pointers=1", dl))
     check("no panic or failed self-test", "KERNEL PANIC" not in log() and "SELFTEST FAILED" not in log())
