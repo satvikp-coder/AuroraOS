@@ -64,3 +64,80 @@ int sha256_equal(const uint8_t a[32], const uint8_t b[32])
     for (int i = 0; i < 32; i++) d |= (uint8_t)(a[i] ^ b[i]);
     return d == 0;
 }
+
+void hmac_sha256(const void *key, size_t key_len, const void *msg, size_t msg_len, uint8_t out[32])
+{
+    uint8_t k0[64], pad[64], inner[32];
+    struct sha256 s;
+    for (size_t i = 0; i < 64; i++) k0[i] = 0;
+    if (key_len > 64) {
+        sha256_init(&s);
+        sha256_update(&s, key, key_len);
+        sha256_final(&s, k0);
+    } else if (key_len > 0) {
+        const uint8_t *kp = (const uint8_t *)key;
+        for (size_t i = 0; i < key_len; i++) k0[i] = kp[i];
+    }
+    for (size_t i = 0; i < 64; i++) pad[i] = (uint8_t)(k0[i] ^ 0x36u);
+    sha256_init(&s);
+    sha256_update(&s, pad, 64);
+    if (msg_len) sha256_update(&s, msg, msg_len);
+    sha256_final(&s, inner);
+
+    for (size_t i = 0; i < 64; i++) pad[i] = (uint8_t)(k0[i] ^ 0x5cu);
+    sha256_init(&s);
+    sha256_update(&s, pad, 64);
+    sha256_update(&s, inner, 32);
+    sha256_final(&s, out);
+
+    for (size_t i = 0; i < 64; i++) { k0[i] = 0; pad[i] = 0; }
+    for (size_t i = 0; i < 32; i++) inner[i] = 0;
+}
+
+void pbkdf2_hmac_sha256(const void *pw, size_t pw_len, const void *salt, size_t salt_len, uint32_t iterations, uint8_t out[32])
+{
+    if (!iterations) {
+        for (size_t i = 0; i < 32; i++) out[i] = 0;
+        return;
+    }
+    uint8_t u[32], t[32], ctr[4] = { 0, 0, 0, 1 };
+    /* U_1 = PRF(Password, Salt || INT(1)) */
+    uint8_t k0[64], ipad[64], opad[64], inner[32];
+    struct sha256 s;
+    for (size_t i = 0; i < 64; i++) k0[i] = 0;
+    if (pw_len > 64) {
+        sha256_init(&s);
+        sha256_update(&s, pw, pw_len);
+        sha256_final(&s, k0);
+    } else if (pw_len > 0) {
+        const uint8_t *pp = (const uint8_t *)pw;
+        for (size_t i = 0; i < pw_len; i++) k0[i] = pp[i];
+    }
+    for (size_t i = 0; i < 64; i++) { ipad[i] = (uint8_t)(k0[i] ^ 0x36u); opad[i] = (uint8_t)(k0[i] ^ 0x5cu); }
+
+    sha256_init(&s);
+    sha256_update(&s, ipad, 64);
+    if (salt_len) sha256_update(&s, salt, salt_len);
+    sha256_update(&s, ctr, 4);
+    sha256_final(&s, inner);
+    sha256_init(&s);
+    sha256_update(&s, opad, 64);
+    sha256_update(&s, inner, 32);
+    sha256_final(&s, u);
+    for (size_t i = 0; i < 32; i++) t[i] = u[i];
+
+    for (uint32_t it = 1; it < iterations; it++) {
+        sha256_init(&s);
+        sha256_update(&s, ipad, 64);
+        sha256_update(&s, u, 32);
+        sha256_final(&s, inner);
+        sha256_init(&s);
+        sha256_update(&s, opad, 64);
+        sha256_update(&s, inner, 32);
+        sha256_final(&s, u);
+        for (size_t i = 0; i < 32; i++) t[i] ^= u[i];
+    }
+    for (size_t i = 0; i < 32; i++) out[i] = t[i];
+    for (size_t i = 0; i < 64; i++) { k0[i] = 0; ipad[i] = 0; opad[i] = 0; }
+    for (size_t i = 0; i < 32; i++) { u[i] = 0; t[i] = 0; inner[i] = 0; }
+}

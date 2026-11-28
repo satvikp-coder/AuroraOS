@@ -20,6 +20,8 @@
 #define PIN_MAX_ATTEMPTS  5u
 #define PIN_BASE_LOCK_MS  1000u
 #define PIN_MAX_LOCK_MS   60000u
+#define PIN_KDF_ITERATIONS 10000u
+#define PIN_REC_BYTES     96u
 
 enum pin_state {
     PIN_STATE_UNSET = 0,
@@ -69,12 +71,11 @@ static inline void pin_hash(const uint8_t salt[PIN_SALT_LEN],
                             uint8_t out[32])
 {
     static const uint8_t domain[13] = { 'A','U','R','O','R','A','-','P','I','N','-','V','1' };
-    struct sha256 s;
-    sha256_init(&s);
-    sha256_update(&s, domain, sizeof(domain));
-    sha256_update(&s, salt, PIN_SALT_LEN);
-    sha256_update(&s, digits, len);
-    sha256_final(&s, out);
+    uint8_t kdf_salt[sizeof(domain) + PIN_SALT_LEN];
+    for (size_t i = 0; i < sizeof(domain); ++i) kdf_salt[i] = domain[i];
+    for (size_t i = 0; i < PIN_SALT_LEN; ++i) kdf_salt[sizeof(domain) + i] = salt[i];
+    pbkdf2_hmac_sha256(digits, len, kdf_salt, sizeof(kdf_salt), PIN_KDF_ITERATIONS, out);
+    for (size_t i = 0; i < sizeof(kdf_salt); ++i) kdf_salt[i] = 0;
 }
 
 /* Configure initial PIN and enter LOCKED state (fail-closed). */
@@ -172,6 +173,68 @@ static inline int pin_change(struct pin_lock *pl,
     for (size_t i = 0; i < PIN_SALT_LEN; ++i) pl->salt[i] = new_salt[i];
     pin_hash(pl->salt, new_digits, new_len, pl->digest);
     pl->failed_attempts = 0;
+    return PIN_OK;
+}
+
+static inline void pin_put_le32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+}
+
+static inline uint32_t pin_get_le32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+/* Serialize enrolled PIN state + failed attempt counter with SHA-256 integrity trailer. */
+static inline int pin_export(const struct pin_lock *pl, uint8_t out[PIN_REC_BYTES])
+{
+    if (!pl || !out) return PIN_E_ARG;
+    if (pl->state == PIN_STATE_UNSET) return PIN_E_STATE;
+
+    out[0] = 'A'; out[1] = 'P'; out[2] = 'I'; out[3] = 'N';
+    pin_put_le32(out + 4, 1u);
+    pin_put_le32(out + 8, PIN_KDF_ITERATIONS);
+    pin_put_le32(out + 12, pl->failed_attempts);
+    for (size_t i = 0; i < PIN_SALT_LEN; ++i) out[16 + i] = pl->salt[i];
+    for (size_t i = 0; i < 32; ++i) out[32 + i] = pl->digest[i];
+
+    struct sha256 s;
+    sha256_init(&s);
+    sha256_update(&s, out, 64);
+    sha256_final(&s, out + 64);
+    return PIN_OK;
+}
+
+/* Restore persisted PIN record; always fails closed into PIN_STATE_LOCKED on valid data,
+ * and rejects any malformed/corrupted record without unlocking. */
+static inline int pin_import(struct pin_lock *pl, const uint8_t rec[PIN_REC_BYTES], uint64_t now_ms)
+{
+    if (!pl || !rec) return PIN_E_ARG;
+    if (rec[0] != 'A' || rec[1] != 'P' || rec[2] != 'I' || rec[3] != 'N') return PIN_E_FORMAT;
+    if (pin_get_le32(rec + 4) != 1u || pin_get_le32(rec + 8) != PIN_KDF_ITERATIONS) return PIN_E_FORMAT;
+
+    uint8_t want[32];
+    struct sha256 s;
+    sha256_init(&s);
+    sha256_update(&s, rec, 64);
+    sha256_final(&s, want);
+    int ok = sha256_equal(want, rec + 64);
+    for (size_t i = 0; i < sizeof(want); ++i) want[i] = 0;
+    if (!ok) return PIN_E_FORMAT;
+
+    for (size_t i = 0; i < PIN_SALT_LEN; ++i) pl->salt[i] = rec[16 + i];
+    for (size_t i = 0; i < 32; ++i) pl->digest[i] = rec[32 + i];
+    pl->failed_attempts = pin_get_le32(rec + 12);
+    pl->last_now_ms = now_ms;
+    if (pl->failed_attempts >= PIN_MAX_ATTEMPTS) {
+        pl->lockout_until_ms = now_ms + PIN_BASE_LOCK_MS;
+        pl->state = PIN_STATE_LOCKOUT;
+    } else {
+        pl->lockout_until_ms = 0;
+        pl->state = PIN_STATE_LOCKED;
+    }
     return PIN_OK;
 }
 

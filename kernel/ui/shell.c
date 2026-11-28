@@ -1581,6 +1581,7 @@ int shell_pin_set(struct shell *sh, const uint8_t salt[PIN_SALT_LEN], const char
     if (!sh) return PIN_E_ARG;
     int rc = pin_set(&sh->pin, salt, digits, len);
     if (rc == PIN_OK) {
+        (void)mic_ind_stop(&sh->mic, MIC_ACTOR_COMPOSITOR);
         for (size_t i = 0; i < sizeof(sh->pin_buf); ++i) sh->pin_buf[i] = 0;
         sh->pin_len = 0;
         scpy(sh->pin_msg, sizeof sh->pin_msg, "Enter PIN to unlock");
@@ -1596,6 +1597,7 @@ int shell_pin_lock(struct shell *sh)
     if (!sh) return PIN_E_ARG;
     int rc = pin_lock_now(&sh->pin);
     if (rc == PIN_OK && shell_is_locked(sh)) {
+        (void)mic_ind_stop(&sh->mic, MIC_ACTOR_COMPOSITOR);
         for (size_t i = 0; i < sizeof(sh->pin_buf); ++i) sh->pin_buf[i] = 0;
         sh->pin_len = 0;
         scpy(sh->pin_msg, sizeof sh->pin_msg, "Screen locked");
