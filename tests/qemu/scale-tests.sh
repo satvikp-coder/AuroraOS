@@ -19,14 +19,18 @@ LEG="-global virtio-mmio.force-legacy=false"
 run_variant() {   # pct contrast
     pct="$1"; hc="$2"; name="v${pct}_${hc}"
     echo "== text scale $pct percent, high contrast $hc =="
+    build_start=$(date +%s)
     AURORA_SHELL_TEXT_PCT="$pct" AURORA_SHELL_CONTRAST="$hc" BUILD_DIR="$OUT/k_$name" ./build.sh >/dev/null 2>&1 || { bad "kernel build failed ($name)"; return; }
+    run_start=$(date +%s)
     L="$OUT/$name.log"; : > "$L"; rm -f "$OUT/$name.sock"
     qemu-system-aarch64 -machine virt,highmem=off -cpu cortex-a53 -smp 1 -m 256M -kernel "$OUT/k_$name/kernel.bin" \
         -display none -serial file:"$L" -monitor none -qmp unix:"$OUT/$name.sock",server=on,wait=off \
         -device ramfb $LEG -device virtio-keyboard-device -device virtio-tablet-device &
     QPID=$!
     python3 "$SCRIPT_DIR/scale_check.py" --qmp "$OUT/$name.sock" --serial "$L" --tmp "$OUT" --pct "$pct" --contrast "$hc" --timeout 420 > "$OUT/$name.check.log" 2>&1
-    rc=$?; cat "$OUT/$name.check.log"
+    rc=$?
+    echo "TIMING $name build=$((run_start - build_start))s qemu_and_checker=$(($(date +%s) - run_start))s"
+    cat "$OUT/$name.check.log"
     if [ "$rc" -eq 0 ]; then ok "$pct percent contrast $hc: all checks passed"; else bad "$pct percent contrast $hc: checks failed (see $OUT/$name.check.log)"; fi
     stop_qemu
 }
