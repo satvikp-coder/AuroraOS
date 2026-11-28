@@ -41,6 +41,13 @@ if "$P/run.sh" -display none > "$OUT/norun.log" 2>&1; then bad "run.sh booted wi
 echo marker >> "$P/data/aurora.img"; S1=$(sha256sum "$P/data/aurora.img")
 "$P/fresh-install.sh" > /dev/null 2>&1 && bad "fresh-install overwrote an existing disk" || ok "fresh-install.sh refuses to overwrite an existing disk"
 [ "$S1" = "$(sha256sum "$P/data/aurora.img")" ] && ok "the existing disk is untouched" || bad "disk changed"
+if PKG_DIR="$P" ./scripts/package-qemu.sh > "$OUT/rebuild.log" 2>&1; then
+    bad "packaging into an installed bundle succeeded"
+elif [ "$S1" = "$(sha256sum "$P/data/aurora.img")" ]; then
+    ok "packaging refuses an existing directory and preserves the installed disk"
+else
+    bad "packaging changed the installed disk"
+fi
 I="$OUT/install-race"; mkdir -p "$I"
 cp "$P/fresh-install.sh" "$P/aurora-fresh.img" "$I/"
 "$I/fresh-install.sh" > "$OUT/install-first.log" 2>&1 & first=$!

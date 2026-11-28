@@ -90,6 +90,13 @@ int main(void)
     CHECK("table full when CAP_MAX_SESSIONS active", cap_table_open(&tbl, 600, AUDIO_CAP_RECORD, 0, &slot) == CAP_E_FULL);
     CHECK("revoke principal 501 revokes only 1 session", cap_table_revoke_principal(&tbl, 501) == 1 && tbl.sessions[1].state == CAP_REVOKED && tbl.sessions[0].state == CAP_AUTHORIZED);
 
+    CHECK("repeated revoke reports no additional sessions",
+          cap_table_revoke_principal(&tbl, 501) == 0);
+    CHECK("revoked slot remains reserved until release",
+          cap_table_open(&tbl, 501, AUDIO_CAP_RECORD, 1, &slot) == CAP_E_FULL);
+    CHECK("different principal cannot release revoked slot",
+          cap_release(&tbl.sessions[1], 600) == CAP_E_OWNER && tbl.sessions[1].state == CAP_REVOKED);
+
     printf("capture_lifecycle: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;
 }
