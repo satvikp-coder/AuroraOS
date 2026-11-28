@@ -41,6 +41,10 @@ int main(void)
     tensor.role = Q3M_T_EMBED;
     CHECK(q3m_select_token(&tensor, read_rows, &src, input, 2, scratch, 4, filter_id, &mask, &token) == Q3M_OK);
     CHECK(token == 3);
+    CHECK(q3m_read_embedding(&tensor, read_rows, &src, 3, scratch, 4) == Q3M_OK);
+    CHECK(scratch[0] == -1 && scratch[1] == -1);
+    CHECK(q3m_read_embedding(&tensor, read_rows, &src, 4, scratch, 4) == Q3M_E_NOENT);
+    CHECK(q3m_read_embedding(&tensor, read_rows, &src, 3, scratch, 1) == Q3M_E_BOUNDS);
     mask = 0;
     CHECK(q3m_select_token(&tensor, read_rows, &src, input, 2, scratch, 4, filter_id, &mask, &token) == Q3M_E_NOENT);
     CHECK(token == 3);
@@ -53,6 +57,6 @@ int main(void)
     CHECK(q3m_select_token(&tensor, read_rows, &src, input, 2, scratch, 1, 0, 0, &token) == Q3M_E_BOUNDS);
     tensor.offset = UINT64_MAX - 1;
     CHECK(q3m_select_token(&tensor, read_rows, &src, input, 2, scratch, 4, 0, 0, &token) == Q3M_E_BOUNDS);
-    puts("qwen3_token_select: 12 passed, 0 failed");
+    puts("qwen3_token_select: 16 passed, 0 failed");
     return 0;
 }
