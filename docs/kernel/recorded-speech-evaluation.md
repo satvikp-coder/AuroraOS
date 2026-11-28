@@ -47,6 +47,25 @@ Using the complete-utterance command vocabulary, the host decoder produced **0 f
 
 A separate host replay used the Aurora feature matcher and the three synthetic command templates from [the evaluated revision](https://github.com/satvikp-coder/AuroraOS/blob/f4887e87d44e635a6a0d845fb90b222efdf83b83/tests/kernel-host/speech_eval_test.c). We reused its template registration, VAD configuration, shell identity, broker setup and `sa_run_turn`. Each resampled recording started with fresh state and was divided into consecutive 320-sample frames, with zero padding on the final partial frame. We counted a frame when the result was `SA_OK` and the broker returned `BP_ALLOW_NOW`. No action executor ran.
 
-**Four of the six recorded negatives produced at least one allowed home decision.** In the table order above, allowed frames / total frames were 14/15, 23/33, 14/32, 12/22, 0/20 and 0/20. All 63 accepted frames out of 142 proposed home. Adjacent frames within one clip are correlated. These results concern that host fixture's templates and requester configuration. PocketSphinx ran independently of Aurora, and its host transcript scorer rejected all six clips.
+| Speaker | Frames | False home decisions, distance 40 | False home decisions, distance 20 |
+| --- | ---: | ---: | ---: |
+| george | 15 | 15 | 14 |
+| jackson | 33 | 31 | 23 |
+| lucas | 32 | 16 | 14 |
+| nicolas | 22 | 21 | 12 |
+| theo | 20 | 3 | 0 |
+| yweweler | 20 | 13 | 0 |
+| **Total** | **142** | **99** | **63** |
+
+**All six clips produced a false activation at distance 40. Four of six still produced a false activation at distance 20.** Every false decision proposed home. Adjacent frames within a clip are correlated. These six negative observations concern the host fixture's synthetic templates and shell requester. PocketSphinx ran independently and its exact-transcript scorer rejected all six clips. Neither distance setting was selected using these recordings.
+
+To reproduce on a Linux host with Python 3 and a C compiler, place the six original WAVs listed above in a directory containing just those clips. Verify their digests against the table. From a checkout containing the replay tool, run the following with `clips` set to that directory. Each command builds the same harness against the named revision and emits one row per recording. The test makes broker decisions in memory.
+
+```sh
+git worktree add --detach ../speech-distance40 f084dea0f97f037a8baa279c71b1d6722129439f
+git worktree add --detach ../speech-distance20 f4887e87d44e635a6a0d845fb90b222efdf83b83
+python3 tests/tools/replay-speech-negatives.py ../speech-distance40 "$clips"/*.wav
+python3 tests/tools/replay-speech-negatives.py ../speech-distance20 "$clips"/*.wav
+```
 
 To score by condition, append an optional third column named `group` to the labels TSV and pass `--breakdown` to the scorer. Each row of the breakdown includes the clip count and five outcome counts for one group and expected command. For a command row, recall is correct commands divided by clips. For a negative row, the false-accept fraction is false accepts divided by clips. An absent row has no observations.
