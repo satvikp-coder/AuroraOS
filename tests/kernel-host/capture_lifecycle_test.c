@@ -40,7 +40,9 @@ int main(void)
     CHECK("double authorize refused", cap_authorize(&s, owner(100), AUDIO_CAP_RECORD, 1) == CAP_E_STATE);
     CHECK("AUTHORIZED -> start refused", cap_start(&s, owner(100)) == CAP_E_STATE);
     CHECK("AUTHORIZED -> stop refused", cap_stop(&s, owner(100)) == CAP_E_STATE);
-    CHECK("AUTHORIZED -> release refused", cap_release(&s, owner(100)) == CAP_E_STATE);
+    CHECK("AUTHORIZED -> release by a different owner refused", cap_release(&s, owner(200)) == CAP_E_OWNER);
+    CHECK("AUTHORIZED -> IDLE cancellation succeeds", cap_release(&s, owner(100)) == CAP_OK && s.state == CAP_IDLE);
+    CHECK("cancelled session can be authorized again", cap_authorize(&s, owner(100), AUDIO_CAP_RECORD, 1) == CAP_OK);
     CHECK("AUTHORIZED -> prepare wrong owner refused", cap_prepare(&s, owner(200), 4) == CAP_E_OWNER);
     CHECK("AUTHORIZED -> prepare 0 buffers refused", cap_prepare(&s, owner(100), 0) == CAP_E_BOUNDS);
     CHECK("AUTHORIZED -> prepare over CAP_MAX_BUFFERS refused", cap_prepare(&s, owner(100), CAP_MAX_BUFFERS + 1) == CAP_E_BOUNDS);

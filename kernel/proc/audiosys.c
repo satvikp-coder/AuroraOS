@@ -16,6 +16,18 @@ static int64_t map_snd_err(int rc)
     return AE_EINVAL;
 }
 
+/* Capture lifecycle errors are a separate namespace from SND_* errors. */
+static int64_t map_cap_err(int rc)
+{
+    switch (rc) {
+    case CAP_OK: return AE_OK;
+    case CAP_E_OWNER:
+    case CAP_E_CAP: return AE_EPERM;
+    case CAP_E_FULL: return AE_EAGAIN;
+    default: return AE_EINVAL;
+    }
+}
+
 int64_t audio_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uint64_t a3)
 {
     if (!p) return AE_EINVAL;
@@ -27,9 +39,11 @@ int64_t audio_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uin
 
     case AUDIO_OP_CAP_OPEN: {
         if (p->principal == PRINCIPAL_NONE) return AE_EPERM;
+        if (a1 > UINT32_MAX) return AE_EINVAL;
+        if (!user_writable(a2, sizeof(struct cap_handle))) return AE_EFAULT;
         struct cap_handle h = { 0, 0 };
         int rc = vsnd_capture_open(owner, (uint32_t)a1, &h);
-        if (rc != SND_OK) return map_snd_err(rc);
+        if (rc != CAP_OK) return map_cap_err(rc);
         int urc = copy_to_user(a2, &h, sizeof(h));
         if (urc != AE_OK) {
             (void)vsnd_capture_release(h, owner);
@@ -41,30 +55,31 @@ int64_t audio_syscall(struct proc *p, uint64_t op, uint64_t a1, uint64_t a2, uin
     case AUDIO_OP_CAP_PREPARE: {
         if (p->principal == PRINCIPAL_NONE) return AE_EPERM;
         struct cap_handle h = { (size_t)a1, a2 };
-        return map_snd_err(vsnd_capture_prepare(h, owner, (uint32_t)a3));
+        if (a3 > UINT32_MAX) return AE_EINVAL;
+        return map_cap_err(vsnd_capture_prepare(h, owner, (uint32_t)a3));
     }
 
     case AUDIO_OP_CAP_START: {
         if (p->principal == PRINCIPAL_NONE) return AE_EPERM;
         struct cap_handle h = { (size_t)a1, a2 };
-        return map_snd_err(vsnd_capture_start(h, owner));
+        return map_cap_err(vsnd_capture_start(h, owner));
     }
 
     case AUDIO_OP_CAP_STOP: {
         if (p->principal == PRINCIPAL_NONE) return AE_EPERM;
         struct cap_handle h = { (size_t)a1, a2 };
-        return map_snd_err(vsnd_capture_stop(h, owner));
+        return map_cap_err(vsnd_capture_stop(h, owner));
     }
 
     case AUDIO_OP_CAP_RELEASE: {
         if (p->principal == PRINCIPAL_NONE) return AE_EPERM;
         struct cap_handle h = { (size_t)a1, a2 };
-        return map_snd_err(vsnd_capture_release(h, owner));
+        return map_cap_err(vsnd_capture_release(h, owner));
     }
 
     case AUDIO_OP_PLAY_TTS: {
         if (p->principal == PRINCIPAL_NONE) return AE_EPERM;
-        if (a3 == 0 || a3 > 6u) return AE_EINVAL;
+        if (a1 > UINT32_MAX || a3 == 0 || a3 > 6u) return AE_EINVAL;
         char text[8];
         for (size_t i = 0; i < sizeof(text); ++i) text[i] = 0;
         int urc = copy_from_user(text, a2, (size_t)a3);
