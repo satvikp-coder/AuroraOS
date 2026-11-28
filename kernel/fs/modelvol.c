@@ -1,5 +1,6 @@
 #include <modelvol.h>
 #include <modelstore.h>
+#include <model_signed_volume.h>
 #include <blk.h>
 #include <console.h>
 
@@ -8,6 +9,9 @@
 static uint8_t HDR[MS_SECTOR];
 static uint8_t TBL[((MS_MAX_OBJECTS * MS_ENTRY + MS_SECTOR - 1) / MS_SECTOR) * MS_SECTOR];
 static struct ms_volume VOL;
+static struct ms_signed_scratch SIGNED_SCRATCH;
+static struct mt_trust_table TRUST;
+static int g_require_signed = 0;
 static int g_state = MODELVOL_ABSENT, g_error = MS_OK;
 static uint32_t g_objects;
 
@@ -33,6 +37,7 @@ const char *modelvol_strerror(int rc)
     case MS_EFORMAT: return "nonzero reserved field";
     case MS_EDATA: return "object digest mismatch";
     case MS_EIO: return "read error";
+    case MS_EAUTH: return "signature authentication failed";
     case MODELVOL_ETRUNC: return "volume shorter than header claims";
     default: return "unknown error";
     }
@@ -41,6 +46,11 @@ const char *modelvol_strerror(int rc)
 static int verify(void)
 {
     if (blkm_read(0, HDR, 1) != BLK_OK) return MS_EIO;
+    uint32_t ver = g32(HDR + 8);
+    if (ver == 2u) {
+        return ms_verify_signed_volume(rd, (void *)0, blkm_sectors(), &TRUST, &SIGNED_SCRATCH, &VOL);
+    }
+    if (g_require_signed) return MS_EAUTH;
     /* Header first, with no table: ms_parse() checks every header field and the header digest before it looks at the table, and then asks for the table
      * with MS_EARG (or returns MS_OK for an empty volume). Any other result is a header problem. */
     int rc = ms_parse(HDR, (const uint8_t *)0, 0, &VOL);
@@ -68,6 +78,16 @@ void modelvol_check(void)
         g_state = MODELVOL_INVALID; g_error = rc;
         console_puts("[model] volume INVALID: "); console_puts(modelvol_strerror(rc)); console_puts("\n");
     }
+}
+
+void modelvol_set_trust(const struct mt_trust_table *trust, int require_signed)
+{
+    if (trust) TRUST = *trust;
+    else {
+        uint8_t *p = (uint8_t *)&TRUST;
+        for (size_t i = 0; i < sizeof(TRUST); ++i) p[i] = 0;
+    }
+    g_require_signed = require_signed ? 1 : 0;
 }
 
 int modelvol_state(void) { return g_state; }
