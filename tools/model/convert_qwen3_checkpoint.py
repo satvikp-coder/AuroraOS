@@ -53,13 +53,13 @@ def bf16(bits):
     return struct.unpack("<f", struct.pack("<I", bits << 16))[0]
 
 
-def tensor_shift(stream, offset, length):
+def tensor_shift(stream, offset, length, allow_scale_out=False):
     # Unsigned BF16 magnitudes are ordered by their bit representations.
     peak = 0
     for block in blocks(stream, offset, length):
         peak = max(peak, max(word & 0x7fff for word in words(block)))
     value = bf16(peak)
-    if not math.isfinite(value) or value > 127:
+    if not math.isfinite(value) or (not allow_scale_out and value > 127) or value > 127 * (1 << 15):
         raise ValueError("unrepresentable BF16 weight")
     if value == 0:
         return 0
@@ -73,7 +73,7 @@ def quantized_values(shift):
     # Cache a bounded 64 KiB lookup table for each shift actually encountered.
     table = bytearray(65536)
     for word in range(65536):
-        x = bf16(word) * (1 << shift)
+        x = math.ldexp(bf16(word), shift)
         if abs(x) <= 127:
             table[word] = round(x) & 255
     return table
@@ -89,7 +89,7 @@ def tensor_layout(layers, tied):
             yield f"model.layers.{layer}.{name}.weight", layer, role
 
 
-def convert(stream, out):
+def convert(stream, out, allow_scale_out=False):
     header, base, _ = read_checkpoint_directory(stream)
     embed = header["model.embed_tokens.weight"]
     head = header["lm_head.weight"]
@@ -112,7 +112,7 @@ def convert(stream, out):
         entry = header[name]
         start, end = entry["data_offsets"]
         try:
-            shift = tensor_shift(stream, base + start, end - start)
+            shift = tensor_shift(stream, base + start, end - start, allow_scale_out=allow_scale_out)
         except ValueError as error:
             raise ValueError(f"{name}: {error}") from error
         if shift not in tables:
@@ -123,7 +123,7 @@ def convert(stream, out):
         shape = entry["shape"]
         rows, cols = shape if len(shape) == 2 else (1, shape[0])
         size = rows * cols
-        directory.extend(struct.pack("<HHIIIQQ", layer, role, rows, cols, shift, cursor, size))
+        directory.extend(struct.pack("<HHIIiQQ", layer, role, rows, cols, shift, cursor, size))
         cursor += size
     out.seek(0)
     out.write(struct.pack("<8s8IQ2I", b"AURQ3V2", 2, vocab, hidden, intermediate, layers,
@@ -132,7 +132,7 @@ def convert(stream, out):
     return len(layout), cursor
 
 
-def convert_file(source, destination):
+def convert_file(source, destination, allow_scale_out=False):
     if os.path.lexists(destination):
         raise FileExistsError(f"destination exists: {destination}")
     with source.open("rb") as stream:
@@ -140,7 +140,7 @@ def convert_file(source, destination):
         with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temp:
             temp_path = Path(temp.name)
             try:
-                stats = convert(stream, temp)
+                stats = convert(stream, temp, allow_scale_out=allow_scale_out)
                 current = os.fstat(stream.fileno())
                 if (original.st_size, original.st_mtime_ns) != (current.st_size, current.st_mtime_ns):
                     raise ValueError("source changed during conversion")
@@ -158,9 +158,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
+    parser.add_argument("--allow-scale-out", action="store_true",
+                        help="Allow negative shift for finite weights > 127 (e.g., Qwen3-0.6B layer 27 norm)")
     args = parser.parse_args()
     try:
-        tensors, size = convert_file(args.source, args.destination)
+        tensors, size = convert_file(args.source, args.destination, allow_scale_out=args.allow_scale_out)
     except (ValueError, OSError, RecursionError) as error:
         parser.exit(1, f"conversion failed: {error}\n")
     print(f"Converted {tensors} tensors into {size} bytes")

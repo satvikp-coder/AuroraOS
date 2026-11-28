@@ -162,3 +162,5 @@ cc $CFLAGS -o "$OUT/qwen3_generate_test" "$ROOT/tests/kernel-host/qwen3_generate
 "$OUT/qwen3_generate_test"
 cc $CFLAGS -o "$OUT/model_shed_test" "$ROOT/tests/kernel-host/model_shed_test.c" "$ROOT/kernel/ui/aura_cmd.c"
 "$OUT/model_shed_test"
+cc $CFLAGS -o "$OUT/qwen3_full_test" "$ROOT/tests/kernel-host/qwen3_full_test.c" -lm
+"$OUT/qwen3_full_test"
