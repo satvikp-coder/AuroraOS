@@ -8,7 +8,7 @@
  *    (modelvol_object()); the byte range is model_read_clamp() (pure, host-tested, no addition that could wrap); every sector read is re-checked
  *    against [first_sector, first_sector + sectors) before it reaches blkm_read().
  *  - Copies: copy_to_user only, after user_writable() has accepted the WHOLE destination, so a bad pointer is AE_EFAULT with nothing read or written.
- *  - State: none per process. One static 512-byte bounce sector, used only inside a single system call (system calls run to completion with
+ *  - State: none per process. One static page-sized bounce buffer, used only inside a single system call (system calls run to completion with
  *    interrupts masked on the one CPU, so it is never shared between two callers); a process that exits or faults between calls leaves nothing held.
  *  - What this does NOT give: the object bytes are not re-hashed on read. A host that rewrites the image file while the VM runs is not detected
  *    (the volume is attached read-only to the VM, which stops the guest writing it, not the host). Integrity was checked once at boot; it is not authenticity.
@@ -24,7 +24,7 @@ _Static_assert(MODEL_CLAMP_EINVAL == AE_EINVAL && MODEL_CLAMP_E2BIG == AE_E2BIG,
 _Static_assert(sizeof(struct user_model_obj) == 80, "user_model_obj ABI");
 _Static_assert(MODEL_READ_MAX <= SYS_FS_IO_MAX, "one read is at most one page-sized chunk");
 
-static uint8_t BOUNCE[MS_SECTOR];
+static uint8_t BOUNCE[MS_VERIFY_BATCH_SECTORS * MS_SECTOR];
 
 static int64_t info(uint64_t index, uint64_t uptr)
 {
@@ -54,10 +54,14 @@ static int64_t readobj(uint64_t index, uint64_t off, uint64_t ubuf, uint64_t len
     uint64_t end = o->first_sector + o->sectors, done = 0;
     while (done < (uint64_t)n) {
         uint64_t pos = off + done, sec = o->first_sector + pos / MS_SECTOR, in = pos % MS_SECTOR;
-        if (sec < o->first_sector || sec >= end) return AE_EIO;               /* unreachable by the clamp; the extent stays the last word */
-        if (blkm_read(sec, BOUNCE, 1) != BLK_OK) return AE_EIO;
-        uint64_t c = MS_SECTOR - in;
-        if (c > (uint64_t)n - done) c = (uint64_t)n - done;
+        uint64_t remaining = (uint64_t)n - done;
+        uint64_t needed = (in + remaining + MS_SECTOR - 1) / MS_SECTOR;
+        uint32_t count = needed > MS_VERIFY_BATCH_SECTORS ?
+                         MS_VERIFY_BATCH_SECTORS : (uint32_t)needed;
+        if (sec < o->first_sector || sec >= end || count > end - sec) return AE_EIO;
+        if (blkm_read(sec, BOUNCE, count) != BLK_OK) return AE_EIO;
+        uint64_t c = (uint64_t)count * MS_SECTOR - in;
+        if (c > remaining) c = remaining;
         int rc = copy_to_user(ubuf + done, BOUNCE + in, (size_t)c);
         if (rc != AE_OK) return rc;
         done += c;

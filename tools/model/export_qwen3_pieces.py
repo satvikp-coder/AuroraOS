@@ -95,17 +95,21 @@ def unique_keys(pairs):
     return result
 
 
+def load_tokenizer(path):
+    with path.open("rb") as stream:
+        raw = stream.read(MAX_JSON + 1)
+    if len(raw) > MAX_JSON:
+        raise ValueError("tokenizer JSON exceeds 16 MiB")
+    return json.loads(raw, object_pairs_hook=unique_keys)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tokenizer", type=Path)
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
     try:
-        with args.tokenizer.open("rb") as stream:
-            raw = stream.read(MAX_JSON + 1)
-        if len(raw) > MAX_JSON:
-            raise ValueError("tokenizer JSON exceeds 16 MiB")
-        table = export_table(json.loads(raw, object_pairs_hook=unique_keys))
+        table = export_table(load_tokenizer(args.tokenizer))
         with args.output.open("xb") as stream:
             stream.write(table)
     except (ValueError, OSError, RecursionError) as error:

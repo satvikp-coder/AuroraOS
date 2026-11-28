@@ -709,7 +709,7 @@ static int capture_probe(void)
     uint64_t capture_start = timer_count();
     for (unsigned period = 0; period < submitted; period++) {
         uint16_t id;
-        uint32_t used, bytes;
+        uint32_t used;
         uint64_t t0 = timer_count();
         for (;;) {
             int result = vq_complete(&q->vq, &id, &used);
@@ -727,21 +727,21 @@ static int capture_probe(void)
                 goto fail;
             }
         }
-        if ((id & 1u) || id / 2u >= RX_SLOTS || vsnd_rx_frames(used, RX_PERIOD, &bytes) != VSND_OK || bytes != RX_PERIOD) {
+        if ((id & 1u) || id / 2u >= RX_SLOTS) {
             rc = SND_EPROTO;
             goto fail;
         }
         uintptr_t slot = page + (id / 2u) * RX_SLOT_BYTES;
-        const uint8_t *samples = (const uint8_t *)(slot + RX_DATA_OFF);
-        rc = vsnd_dec_pcm_status(samples + bytes, VSND_PSTATUS_SIZE, 0);
-        if (rc != SND_OK) goto fail;
-        for (uint32_t i = 0; i < bytes; i += 2u) {
-            unsigned sample = (unsigned)samples[i] | ((unsigned)samples[i + 1] << 8);
-            int signed_sample = sample < 32768u ? (int)sample : (int)sample - 65536;
-            if (signed_sample < low) low = signed_sample;
-            if (signed_sample > high) high = signed_sample;
-            positive += sample == 0x1234u;
-            negative += sample == 0xedccu;
+        int16_t samples[RX_PERIOD / 2u];
+        rc = vsnd_copy_rx_s16_period((const uint8_t *)(slot + RX_DATA_OFF),
+                                     RX_PERIOD + VSND_PSTATUS_SIZE, used, samples, RX_PERIOD / 2u);
+        if (rc != VSND_OK) goto fail;
+        for (unsigned i = 0; i < RX_PERIOD / 2u; i++) {
+            int sample = samples[i];
+            if (sample < low) low = sample;
+            if (sample > high) high = sample;
+            positive += sample == 0x1234;
+            negative += sample == -0x1234;
         }
         if ((positive < 64 || negative < 64) && submitted < 100u) {
             if (capture_submit(q, slot, id) != VQ_OK) { rc = SND_EPROTO; goto fail; }

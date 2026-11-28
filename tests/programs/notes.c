@@ -44,7 +44,10 @@ enum { SL_EMPTY, SL_VALID, SL_BAD, SL_NEWER };
 static struct note N;                              /* the editor buffer */
 static int cur_slot = -1;                          /* slot holding the note that is on disk now, -1 none */
 static u32 cur_seq;
-static int dirty, locked, nostore;                 /* unsaved edits; saving switched off (damaged / newer); storage unavailable at load time */
+static int dirty, locked;                           /* unsaved edits; saved note is unusable */
+static const char *save_blocked;                    /* recovery message when slot ordering is unknown */
+static const char REOPEN[] = "Reopen Notes to check saved state";
+static const char RESTART[] = "Restart to check saved state";
 static const char *status = "";
 static void ncopy(struct note *d, const struct note *s) { for (int i = 0; i < s->len; i++) d->buf[i] = s->buf[i]; d->len = s->len; d->cur = s->cur; }   /* no struct assignment: it would need memcpy, which this freestanding program does not link */
 
@@ -53,7 +56,6 @@ static const char *fs_why(i64 rc)                  /* a short honest reason for 
     if (rc == AE_FS(-16)) return "Disk is read-only";
     if (rc == AE_FS(-4) || rc == AE_FS(-5) || rc == AE_FS(-18)) return "Disk or quota is full";   /* no space, no free file slot (all 32 used), or this app's own quota */
     if (rc == AE_FS(-15) || rc == AE_FS(-11) || rc == AE_FS(-14)) return "No disk";
-    if (rc == AE_FS(-17)) return "Could not confirm the write";
     if (rc == AE_FS(-12)) return "Disk error";
     if (rc == AE_FS(-7)) return "Not allowed";
     return "Storage error";
@@ -92,9 +94,12 @@ static void load(void)
 {
     struct note a, b; u32 sa = 0, sb = 0; i64 ea = 0, eb = 0;
     int ka = read_slot(0, &a, &sa, &ea), kb = read_slot(1, &b, &sb, &eb);
-    note_clear(&N); cur_slot = -1; cur_seq = 0; dirty = locked = nostore = 0;
-    if (ea || eb) {                                  /* the store could not be read at all */
-        nostore = 1; status = "No disk: nothing can be saved"; say("notes load storage unavailable"); return;
+    note_clear(&N); cur_slot = -1; cur_seq = 0; dirty = locked = 0; save_blocked = 0;
+    if (ea || eb) {                                   /* an unreadable slot leaves the save order unknown */
+        save_blocked = REOPEN;
+        status = "Could not read saved state";
+        sayn("notes load storage unreadable rc=", (u64)-(ea ? ea : eb));
+        return;
     }
     if (ka == SL_NEWER || kb == SL_NEWER) { locked = 1; status = "Saved note is from a newer version: not opened"; say("notes load newer version locked"); return; }
     if (ka == SL_VALID && kb == SL_VALID) {
@@ -128,19 +133,39 @@ static int save(void)
 {
     static u8 img[NOTE_FILE_MAX], back[NOTE_FILE_MAX + 16];
     if (locked) { status = "Saving is off: the saved note is not usable"; say("notes save refused locked"); return 0; }
+    if (save_blocked) { status = save_blocked; say("notes save refused unknown state"); return 0; }
     int target = cur_slot < 0 ? 0 : 1 - cur_slot; u32 seq = cur_seq + 1;
     int n = note_encode(&N, seq, img);
     i64 id = lookup_own(SLOT[target]);
     if (id == EFS_ENOENT) id = fs_create(SLOT[target], 3);
-    if (id < 0) { status = fs_why(id); sayn("notes save failed create/lookup rc=", (u64)(-id)); return 0; }
+    if (id < 0) {
+        if (id == AE_FS(-17)) save_blocked = RESTART;     /* AuroraFS unmounted after an uncertain metadata update */
+        status = save_blocked ? save_blocked : fs_why(id);
+        sayn("notes save failed create/lookup rc=", (u64)(-id));
+        return 0;
+    }
     i64 w = fs_write(id, 0, img, (u64)n);
-    if (w != n) { status = w < 0 ? fs_why(w) : "Short write: not saved"; sayn("notes save failed write rc=", (u64)(w < 0 ? -w : 1)); if (w == AE_FS(-17)) status = "Could not confirm the save. Reopen Notes to check"; return 0; }
+    if (w != n) {
+        if (w == AE_FS(-17)) save_blocked = RESTART;
+        else if (w >= 0) save_blocked = REOPEN;
+        status = save_blocked ? save_blocked : fs_why(w);
+        sayn("notes save failed write rc=", (u64)(w < 0 ? -w : 1));
+        return 0;
+    }
     i64 got = fs_read(id, 0, back, sizeof back);                       /* read-back through the filesystem, then decode and compare */
     struct note chk; u32 cseq = 0;
-    if (got < n || note_decode(back, (int)got, &chk, &cseq) != NOTE_OK || cseq != seq || chk.len != N.len) { status = "Could not verify the save"; say("notes save failed verify"); return 0; }
-    for (int i = 0; i < N.len; i++) if (chk.buf[i] != N.buf[i]) { status = "Could not verify the save"; say("notes save failed verify"); return 0; }
-    cur_slot = target; cur_seq = seq; dirty = 0; status = "Saved"; nostore = 0;
+    if (got < n || note_decode(back, (int)got, &chk, &cseq) != NOTE_OK || cseq != seq || chk.len != N.len)
+        goto unverified;
+    for (int i = 0; i < N.len; i++)
+        if (chk.buf[i] != N.buf[i]) goto unverified;
+    cur_slot = target; cur_seq = seq; dirty = 0; status = "Saved";
     sayn("notes save ok seq=", seq); return 1;
+
+unverified:
+    save_blocked = REOPEN;
+    status = save_blocked;
+    say("notes save failed verify");
+    return 0;
 }
 
 /* ---------------------------------------------------------------- display */
