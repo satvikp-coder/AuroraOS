@@ -86,16 +86,22 @@ from struct import pack
 from sys import argv
 
 header_size, entry_size = 48, 32
-first_offset = header_size + 2 * entry_size
+first_offset = header_size + 4 * entry_size
 # The first projection swaps the first two activations. The second returns [5, -3].
 first = pack("<16b", 0, 2, 0, 0, 2, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2)
 second = pack("<8b", 2, 1, 0, -1, 1, -2, 1, 0)
 second_offset = first_offset + len(first)
-header = pack("<8s8IQ", b"AURQ3V1", 1, 16, 4, 4, 2, 1, 4, 2,
-              second_offset + len(second))
+logits = pack("<12b", 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -2)
+logits_offset = second_offset + len(second)
+embedding = pack("<12b", 1, 0, 0, 0, 0, 1, 0, 0, 4, 2, 0, -2)
+embedding_offset = logits_offset + len(logits)
+header = pack("<8s8IQ", b"AURQ3V1", 1, 3, 4, 4, 2, 1, 4, 4,
+              embedding_offset + len(embedding))
 directory = (pack("<HHIIIQQ", 0, 3, 4, 4, 1, first_offset, len(first))
-             + pack("<HHIIIQQ", 1, 9, 2, 4, 1, second_offset, len(second)))
-Path(argv[1]).write_bytes(header + directory + first + second)
+             + pack("<HHIIIQQ", 1, 9, 2, 4, 1, second_offset, len(second))
+             + pack("<HHIIIQQ", 1, 10, 3, 4, 0, logits_offset, len(logits))
+             + pack("<HHIIIQQ", 0, 1, 3, 4, 0, embedding_offset, len(embedding)))
+Path(argv[1]).write_bytes(header + directory + first + second + logits + embedding)
 PY_FIXTURE
 ok "tensor objects and their reference results written"
 [ "$(wc -l < "$OUT/tensor.ref")" -eq 37 ] && [ "$(wc -l < "$OUT/maxdims.ref")" -eq 1024 ] && ok "reference: 37 + 1024 rows" || bad "reference row counts"
@@ -199,6 +205,8 @@ grep -qx 'ic: runtime logits 13 -3 argmax 0' "$OUT/valid-mode1.txt" && ok "valid
 grep -Eq '^ic: qwen3 norm 64 -64 attn [0-9]+ [0-9]+ mlp [0-9]+ [0-9]+$' "$OUT/valid-mode1.txt" && ok "valid: qwen3_ops.h decoder block (RMSNorm -> RoPE -> KV-attn -> SwiGLU) executed in EL0" || bad "valid: qwen3_ops.h EL0 output missing or invalid"
 grep -qx 'ic: qwen3_gqa four query heads share two causal KV heads' "$OUT/valid-mode1.txt" && ok "valid: Qwen3-style grouped-query attention ran in EL0" || bad "valid: grouped-query attention output missing or invalid"
 grep -qx 'ic: qwen3_stream layers 2 y 5 -3' "$OUT/valid-mode12.txt" && ok "valid: EL0 streamed both AURQ3V1 projection tensors via SYS_MODEL with one row of scratch" || bad "valid: EL0 AURQ3V1 projection output mismatch"
+grep -qx 'ic: qwen3 greedy token 1' "$OUT/valid-mode12.txt" && ok "valid: EL0 selected the lowest ID among tied streamed logits" || bad "valid: streamed token selection mismatch"
+grep -qx 'ic: qwen3 model embedding row 2 matched' "$OUT/valid-mode12.txt" && ok "valid: EL0 read exactly the requested embedding row" || bad "valid: selected embedding row mismatch"
 count_is "$log" "\] ic: pipe " 2 "valid: only the successful AI pipeline printed results"
 count_is "$OUT/valid-mode1.txt" "^ic: done 37 rows 300 cols$" 1 "valid: tensor (37 x 300, 3 reads of payload) completed"
 count_is "$OUT/valid-mode2.txt" "^ic: done 1024 rows 4096 cols$" 1 "valid: maxdims (1024 x 4096, the dimension limits) completed"

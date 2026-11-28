@@ -24,4 +24,10 @@ Each layer then contributes exactly eleven entries in the following order. Q and
 | Up projection | Intermediate | Hidden |
 | Down projection | Hidden | Intermediate |
 
-For Qwen3-0.6B, the tied directory has 310 entries across 28 layers. The query width is 2048, the KV width is 1024 and the residual hidden size is 1024. This contract describes tensor geometry and storage. Model conversion, quantization calibration and decoding require additional implementation.
+For Qwen3-0.6B, the tied directory has 310 entries across 28 layers. The query width is 2048, the KV width is 1024 and the residual hidden size is 1024. To convert a local, immutable copy of the published BF16 checkpoint, run:
+
+```sh
+python3 tools/model/convert_qwen3_checkpoint.py model.safetensors model.aurq3
+```
+
+The converter checks all 311 descriptors, compares the embedding and output payloads byte-for-byte, then chooses 310 tied or 311 untied tensors. It streams weights in 256 KiB chunks and publishes the finished object to a new path using a hard link in the destination directory. Each tensor stores signed integers in [-127,127] and a power-of-two shift. Reconstruct each weight as `q / 2**shift`. The converter maximizes precision without clipping, rounds ties to even, and rejects nonfinite values and magnitudes above 127. This baseline needs activation calibration and end-to-end quality evaluation.

@@ -19,6 +19,7 @@
 #include <qwen3_ops.h>
 #include <qwen3_projection.h>
 #include <qwen3_gqa.h>
+#include <qwen3_token_select.h>
 #define SYS_MODEL 11
 #define INFO 1
 #define READ 2
@@ -256,17 +257,27 @@ static int qwen3_stream_el0(u64 object, u64 size)
 {
     uint8_t header[Q3M_HDR_SIZE];
     struct q3m_header model;
-    struct q3m_tensor_desc first, second;
+    struct q3m_tensor_desc first, second, logits, embedding;
     if (q3m_read_exact(rd, &object, 0, header, sizeof(header)) != Q3M_OK ||
         q3m_parse_header(header, sizeof(header), size, &model) != Q3M_OK ||
-        model.num_layers != 2 || model.num_tensors != 2 ||
+        model.num_layers != 2 || model.num_tensors != 4 ||
         q3m_read_tensor_desc(&model, 0, rd, &object, &first) != Q3M_OK ||
         q3m_read_tensor_desc(&model, 1, rd, &object, &second) != Q3M_OK ||
+        q3m_read_tensor_desc(&model, 2, rd, &object, &logits) != Q3M_OK ||
+        q3m_read_tensor_desc(&model, 3, rd, &object, &embedding) != Q3M_OK ||
+        embedding.rows != model.vocab_size || embedding.cols != model.hidden_dim ||
+        logits.role != Q3M_T_LM_HEAD || logits.rows != model.vocab_size ||
         first.layer != 0 || first.role != Q3M_T_WQ || first.rows != 4 ||
         second.layer != 1 || second.role != Q3M_T_WDOWN || second.rows != 2)
         return -1;
 
-    static const int8_t input[4] = { 4, 2, 0, -2 };
+    int8_t input[4];
+    if (q3m_read_embedding(&embedding, rd, &object, 2, input, sizeof(input)) != Q3M_OK)
+        return -1;
+    const int8_t expected[4] = { 4, 2, 0, -2 };
+    for (size_t i = 0; i < sizeof(input); ++i)
+        if (input[i] != expected[i]) return -1;
+    say("ic: qwen3 model embedding row 2 matched");
     int8_t hidden[4], output[2], scratch[4];
     if (q3m_project_i8(&first, rd, &object, input, sizeof(input), hidden,
                        sizeof(hidden), scratch, sizeof(scratch)) != Q3M_OK ||
@@ -276,6 +287,11 @@ static int qwen3_stream_el0(u64 object, u64 size)
 
     put("ic: qwen3_stream layers "); putd(model.num_layers);
     put(" y "); putd(output[0]); put(" "); putd(output[1]); flush();
+    uint32_t token;
+    if (q3m_select_token(&logits, rd, &object, hidden, sizeof(hidden), scratch,
+                         sizeof(scratch), 0, 0, &token) != Q3M_OK)
+        return -1;
+    put("ic: qwen3 greedy token "); putd(token); flush();
     return 0;
 }
 

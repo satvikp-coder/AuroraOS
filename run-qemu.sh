@@ -27,6 +27,7 @@ qemu-system-aarch64 \
     -machine virt,highmem=off \
     -cpu cortex-a53 \
     -smp 1 \
+    -nic none \
     -m "$MEMORY" \
     -kernel "$KERNEL" \
     -nographic \

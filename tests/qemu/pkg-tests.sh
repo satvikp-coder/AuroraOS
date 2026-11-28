@@ -90,7 +90,7 @@ stop_qemu
 L="$OUT/app-restart.log"; : > "$L"
 AURORA_SERIAL=file:"$L" "$P/run.sh" -display none -monitor none -qmp unix:"$OUT/restart.sock",server=on,wait=off &
 QPID=$!
-if python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/restart.sock" --serial "$L" --tmp "$OUT" --scenario app-restart > "$OUT/app-restart.check.log" 2>&1; then
+if python3 "$SCRIPT_DIR/app_check.py" --qmp "$OUT/restart.sock" --serial "$L" --tmp "$OUT" --scenario app-restart --expect-offline > "$OUT/app-restart.check.log" 2>&1; then
     ok "Calculator recalls the saved result and Clock restores its preset after reboot"
 else
     cat "$OUT/app-restart.check.log"

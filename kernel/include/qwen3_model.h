@@ -284,4 +284,23 @@ static inline int q3m_stream_tensor(const struct q3m_tensor_desc *d,
     return q3m_read_exact(rd, ctx, d->offset, buf, d->bytes);
 }
 
+/* Read one int8 embedding row into caller storage. The descriptor comes from
+ * the validated model directory. Discard the destination after a read error. */
+static inline int q3m_read_embedding(const struct q3m_tensor_desc *tensor,
+                                      q3m_read_fn read, void *ctx, uint32_t token,
+                                      int8_t *output, size_t output_len)
+{
+    if (!tensor || !read || !output) return Q3M_E_ARG;
+    if (tensor->role != Q3M_T_EMBED) return Q3M_E_FORMAT;
+    uint64_t rows = tensor->rows, cols = tensor->cols;
+    if (!rows || rows > Q3M_MAX_VOCAB || !cols || cols > Q3M_MAX_HIDDEN)
+        return Q3M_E_DIMS;
+    if (token >= rows) return Q3M_E_NOENT;
+    if (cols > output_len || rows * cols != tensor->bytes ||
+        tensor->bytes > UINT64_MAX - tensor->offset)
+        return Q3M_E_BOUNDS;
+    return q3m_read_exact(read, ctx, tensor->offset + (uint64_t)token * cols,
+                          (uint8_t *)output, cols);
+}
+
 #endif /* AURORA_QWEN3_MODEL_H */

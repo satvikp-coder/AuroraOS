@@ -419,6 +419,26 @@ static inline int vsnd_rx_frames(uint32_t used_len, uint32_t frames_cap, uint32_
     return VSND_OK;
 }
 
+/* Copy a completed, fixed-size S16LE RX period before returning its descriptor
+ * to the device. posted is the writable descriptor length, including its
+ * status trailer. The caller owns the source and a separate sample buffer.
+ * All checks precede the first output write. */
+static inline int vsnd_copy_rx_s16_period(const uint8_t *src, uint32_t posted, uint32_t used,
+                                          int16_t *dst, size_t dst_samples)
+{
+    if (!src || !dst || posted <= VSND_PSTATUS_SIZE) return VSND_EARG;
+    uint32_t bytes = posted - VSND_PSTATUS_SIZE;
+    if (bytes % 2u || dst_samples < bytes / 2u) return VSND_EARG;
+    if (used != posted) return VSND_EPROTO;
+    int rc = vsnd_dec_pcm_status(src + bytes, VSND_PSTATUS_SIZE, 0);
+    if (rc != VSND_OK) return rc;
+    for (uint32_t i = 0; i < bytes; i += 2u) {
+        int32_t word = src[i] | ((int32_t)src[i + 1u] << 8);
+        dst[i / 2u] = (int16_t)(word >= 32768 ? word - 65536 : word);
+    }
+    return VSND_OK;
+}
+
 /* eventq entry: known type, and data (jack or stream id) within the configured count. */
 static inline int vsnd_dec_event(const uint8_t *buf, size_t len, const struct vsnd_config *cfg, struct vsnd_event *out)
 {
