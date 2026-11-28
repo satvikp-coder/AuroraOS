@@ -158,3 +158,5 @@ cc $CFLAGS -o "$OUT/speech_assistant_test" "$ROOT/tests/kernel-host/speech_assis
 "$OUT/speech_assistant_test"
 cc $CFLAGS -o "$OUT/qwen3_token_select_test" "$ROOT/tests/kernel-host/qwen3_token_select_test.c" "$ROOT/kernel/proc/quant_ops.c"
 "$OUT/qwen3_token_select_test"
+cc $CFLAGS -o "$OUT/qwen3_generate_test" "$ROOT/tests/kernel-host/qwen3_generate_test.c" "$ROOT/kernel/proc/quant_ops.c"
+"$OUT/qwen3_generate_test"
